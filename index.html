@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>机甲战斗游戏</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="game-container">
+        <h1>混合机甲战斗系统 - 左右手武器独立操作</h1>
+        <canvas id="gameCanvas" tabindex="1"></canvas>
+        <div class="click-hint">
+            <p>👆 点击游戏区域，然后点击选择游戏模式 → 点击武器配置 → 点击开始游戏</p>
+        </div>
+        <div class="controls">
+            <p>控制说明：</p>
+            <ul>
+                <li>点击选择 - Boss战模式 | 武器配置</li>
+                <li>点击开始游戏按钮 - 完成配置后开始游戏</li>
+                <li>WASD 或 方向键 - 移动</li>
+                <li>鼠标左键 - 左手武器（默认：枪）</li>
+                <li>鼠标右键 - 右手武器（默认：剑）</li>
+                <li>Q键 - 隐藏机能（默认：脉冲护盾）</li>
+                <li>空格键 - 闪避（朝移动方向快速移动0.15秒，闪避和冷却期间无法攻击）</li>
+                <li>R - 重装武器（可选）</li>
+                <li>F - 切换锁定模式（软锁→硬锁→手动锁）</li>
+                <li>C - 硬锁模式下切换目标</li>
+                <li>ESC/P - 暂停游戏</li>
+                <li>🎯 三种锁定模式：软锁（自动锁最近敌人）、硬锁（锁定单个敌人）、手动锁（朝鼠标方向攻击）</li>
+                <li>🔫 自动步枪：自动重装 + 高射速2.2/秒 + 预瞄</li>
+                <li>⚔️ 脉冲光束军刀：高伤害20点 + 冲刺攻击</li>
+                <li>🚀 8连导弹发射器：强追踪1.1秒 + 范围爆炸 + 3点伤害</li>
+                <li>🛡️ 脉冲护盾：70%伤害减免 + 15秒持续 + 40秒冷却</li>
+                <li>🤖 Boss血量：200点 | 闪避：60%</li>
+                <li>💨 Boss会智能闪避攻击（青色虚线边框）</li>
+                <li>🔥 Boss战模式：连续Boss挑战，适合练习技巧</li>
+            </ul>
+        </div>
+        <div class="game-info">
+            <div>造成伤害: <span id="score">0</span></div>
+        </div>
+    </div>
+    
+    <!-- 按依赖顺序引入JS文件 -->
+    <script src="config.js"></script>
+    <script src="gameState.js"></script>
+    <script src="gameObjects.js"></script>
+    <script src="enemies.js"></script>
+    <script src="swordSlash.js"></script>
+    <script src="weapons.js"></script>
+    <script src="player.js"></script>
+    <script src="gameCore.js"></script>
+    <script src="utils.js"></script>
+</body>
+</html> 

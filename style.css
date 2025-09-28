@@ -1,0 +1,104 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Arial', sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    height: 100vh;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.game-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    width: 100vw;
+}
+
+h1 {
+    display: none;
+}
+
+#gameCanvas {
+    width: 100vw;
+    height: 100vh;
+    display: block;
+    outline: none;
+    cursor: pointer;
+    background: #000000;
+}
+
+#gameCanvas:focus {
+    border-color: #ffa500;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4), 0 0 15px rgba(255, 165, 0, 0.3);
+}
+
+.click-hint {
+    display: none;
+}
+
+.click-hint p {
+    margin: 0;
+    color: #ffa500;
+    font-weight: bold;
+    font-size: 1.1em;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+.controls {
+    display: none;
+}
+
+.controls p {
+    font-size: 1.1em;
+    margin-bottom: 10px;
+    color: #ffa500;
+}
+
+.controls ul {
+    list-style: none;
+    text-align: left;
+    display: inline-block;
+}
+
+.controls li {
+    margin: 5px 0;
+    padding: 5px 10px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 5px;
+    border-left: 3px solid #ffa500;
+}
+
+.game-info {
+    display: none;
+}
+
+.game-info div {
+    font-size: 1.2em;
+    font-weight: bold;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+#score {
+    color: #4CAF50;
+}
+
+#health {
+    color: #ff6b6b;
+}
+
+/* 响应式设计 */
+/* 全屏模式，不需要响应式断点 */ 
