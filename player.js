@@ -36,12 +36,20 @@ class Player extends GameObject {
         this.stunned = false; // 是否僵直
         this.stunEndTime = 0; // 僵直结束时间
         
+        // 燃烧状态
+        this.burning = false;
+        this.burnEndTime = 0;
+        this.burnLastTick = 0;
+        this.burnDamageInterval = 100; // 每0.1秒
+        this.burnDamagePerTick = 2;
+        this.burnSpeedMultiplier = 0.8; // 移速降至80%
+        this.burnDuration = 5000; // 5秒
+        
         // 根据机甲配置创建武器实例
         this.loadDefaultWeapons();
         
-        // 无敌模式（调试用）- 已开启
-        this.isInvincible = true;
-        // 无敌模式已开启！
+        // 无敌模式
+        this.isInvincible = gameState.invincibleMode;
         
         // 受击提示系统
         this.hitIndicators = [];
@@ -142,15 +150,20 @@ class Player extends GameObject {
 
     findNearestEnemy() {
         const allEnemies = [...game.enemies];
-        // 检查Boss是否可以被锁定
         if (game.boss) {
-            // 一阶段时可以锁定
-            if (!(game.boss.phaseTwo && game.boss.phaseTwo.activated)) {
-                allEnemies.push(game.boss);
+            let bossTargetable = true;
+            if (game.boss instanceof StarDevourer) {
+                // 失明技能激活时不可锁定
+                if (game.boss.blindnessSkill && game.boss.blindnessSkill.isActive) {
+                    bossTargetable = false;
+                }
             }
-            // 二阶段时只有在检测范围内才能锁定
-            else if (game.boss.isWithinDetectionRange && game.boss.isWithinDetectionRange()) {
-            allEnemies.push(game.boss);
+            if (bossTargetable) {
+                if (!game.boss.phaseTwo || !game.boss.phaseTwo.activated) {
+                    allEnemies.push(game.boss);
+                } else if (!game.boss.isWithinDetectionRange || game.boss.isWithinDetectionRange()) {
+                    allEnemies.push(game.boss);
+                }
             }
         }
         
@@ -201,14 +214,14 @@ class Player extends GameObject {
                     if (game.enemies.includes(gameState.hardLockTarget)) {
                         targetValid = true;
                     }
-                    // 检查目标是否为Boss且Boss可以被锁定
                     else if (game.boss && gameState.hardLockTarget === game.boss) {
-                        // 一阶段时可以锁定
-                        if (!(game.boss.phaseTwo && game.boss.phaseTwo.activated)) {
+                        // 噬星者失明技能激活时不可锁定
+                        if (game.boss instanceof StarDevourer &&
+                            game.boss.blindnessSkill && game.boss.blindnessSkill.isActive) {
+                            targetValid = false;
+                        } else if (!game.boss.phaseTwo || !game.boss.phaseTwo.activated) {
                             targetValid = true;
-                        }
-                        // 二阶段时只有在检测范围内才能锁定
-                        else if (game.boss.isWithinDetectionRange && game.boss.isWithinDetectionRange()) {
+                        } else if (!game.boss.isWithinDetectionRange || game.boss.isWithinDetectionRange()) {
                             targetValid = true;
                         }
                     }
@@ -356,6 +369,9 @@ class Player extends GameObject {
             }
         }
         
+        // 更新燃烧状态
+        this.updateBurning();
+        
         // 锁定系统 - 自动朝向最近的敌人
         this.updateDirection();
         
@@ -417,17 +433,18 @@ class Player extends GameObject {
             this.vy = this.dodgeDirection.y * this.dodgeSpeed;
         } else if (!isWeaponControllingMovement) {
             // 正常移动（当武器不控制移动时由键盘控制）
+            const moveSpeed = this.burning ? this.speed * this.burnSpeedMultiplier : this.speed;
             if (keys['ArrowLeft'] || keys['a'] || keys['A']) {
-                this.vx = -this.speed;
+                this.vx = -moveSpeed;
             }
             if (keys['ArrowRight'] || keys['d'] || keys['D']) {
-                this.vx = this.speed;
+                this.vx = moveSpeed;
             }
             if (keys['ArrowUp'] || keys['w'] || keys['W']) {
-                this.vy = -this.speed;
+                this.vy = -moveSpeed;
             }
             if (keys['ArrowDown'] || keys['s'] || keys['S']) {
-                this.vy = this.speed;
+                this.vy = moveSpeed;
             }
         }
         // 当武器控制移动时（如镭射长枪冲锋），让武器设置速度
@@ -577,6 +594,28 @@ class Player extends GameObject {
         // 例如：屏幕闪烁、受伤音效等
     }
     
+    // 施加燃烧状态
+    applyBurn() {
+        this.burning = true;
+        this.burnEndTime = Date.now() + this.burnDuration;
+        this.burnLastTick = Date.now();
+    }
+    
+    // 更新燃烧效果
+    updateBurning() {
+        if (!this.burning) return;
+        const now = Date.now();
+        if (now >= this.burnEndTime) {
+            this.burning = false;
+            return;
+        }
+        if (now - this.burnLastTick >= this.burnDamageInterval) {
+            const ticks = Math.floor((now - this.burnLastTick) / this.burnDamageInterval);
+            this.takeDamage(this.burnDamagePerTick * ticks);
+            this.burnLastTick += ticks * this.burnDamageInterval;
+        }
+    }
+    
     // 设置僵直状态
     setStunned(duration = 400) {
         // 如果已经在僵直状态中，不重复设置或延长僵直
@@ -697,6 +736,33 @@ class Player extends GameObject {
             ctx.strokeRect(this.x - 2, this.y - 2, this.width + 4, this.height + 4);
             
             ctx.setLineDash([]);
+            ctx.restore();
+        }
+
+        // 燃烧状态视觉效果
+        if (this.burning) {
+            ctx.save();
+            const bCenterX = this.x + this.width / 2;
+            const bCenterY = this.y + this.height / 2;
+            const flicker = Math.sin(Date.now() * 0.03) * 3;
+            
+            ctx.globalAlpha = 0.5;
+            ctx.fillStyle = '#FF6600';
+            ctx.beginPath();
+            ctx.arc(bCenterX, bCenterY, this.width / 2 + 6 + flicker, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.globalAlpha = 0.7;
+            ctx.fillStyle = '#FFAA00';
+            ctx.beginPath();
+            ctx.arc(bCenterX, bCenterY, this.width / 2 + 2, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.fillStyle = '#FF4400';
+            ctx.font = 'bold 10px Arial';
+            ctx.textAlign = 'center';
+            ctx.globalAlpha = 1;
+            ctx.fillText('燃烧', bCenterX, this.y - 8);
             ctx.restore();
         }
 

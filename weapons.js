@@ -308,7 +308,7 @@ class Gun extends Weapon {
         super({
             type: 'gun',
             name: '自动步枪',
-            damage: 150, // 提高攻击力到150
+            damage: 6,
             cooldown: 0 // 枪使用射速而不是冷却时间
         });
         
@@ -906,7 +906,21 @@ class Missile {
             // 玩家导弹追踪敌人和Boss
             const allEnemies = [...game.enemies];
             if (game.boss) {
-                allEnemies.push(game.boss);
+                let bossTargetable = true;
+                if (game.boss instanceof StarDevourer) {
+                    // 隐身状态：二阶段且不在检测范围内
+                    if (game.boss.phaseTwo.activated && game.boss.phaseTwo.isInvisible &&
+                        !game.boss.isWithinDetectionRange()) {
+                        bossTargetable = false;
+                    }
+                    // 失明技能激活时不可锁定
+                    if (game.boss.blindnessSkill && game.boss.blindnessSkill.isActive) {
+                        bossTargetable = false;
+                    }
+                }
+                if (bossTargetable) {
+                    allEnemies.push(game.boss);
+                }
             }
             
             allEnemies.forEach(enemy => {
@@ -1095,8 +1109,13 @@ class Missile {
         const allEnemies = [...game.enemies];
         
         // 如果是Boss导弹，不要伤害Boss自己；如果是玩家导弹，可以伤害Boss
+        // 被拦截的导弹不对丑皇造成伤害
         if (!this.isBossMissile && game.boss) {
-            allEnemies.push(game.boss);
+            if (this.intercepted && game.boss instanceof UglyEmperor) {
+                // 被丑皇子弹/燃烧瓶拦截的导弹，不伤害丑皇
+            } else {
+                allEnemies.push(game.boss);
+            }
         }
         
         // 对范围内的敌人造成伤害（反转导弹不伤害敌人）
@@ -1774,10 +1793,271 @@ class SuperWeapon extends Weapon {
     }
 }
 
+// 近防炮（CIWS）- 自动拦截制导武器
+class CIWS extends Weapon {
+    constructor() {
+        super({
+            type: 'ciws',
+            name: '近防炮',
+            damage: 1,
+            cooldown: 0
+        });
+        
+        this.fireRate = 30;
+        this.magazineSize = 30;
+        this.currentAmmo = this.magazineSize;
+        this.reloading = false;
+        this.reloadStartTime = 0;
+        this.reloadDuration = 1400;
+        this.bulletSpeed = 50;
+        this.range = 800;
+        this.lastFire = 0;
+    }
+    
+    use(player) {
+        // 近防炮完全自动，不需要手动触发
+    }
+    
+    findPriorityTarget(player) {
+        const px = player.x + player.width / 2;
+        const py = player.y + player.height / 2;
+        
+        const findNearest = (list, isGuided) => {
+            if (!list) return null;
+            let best = null;
+            let bestDist = this.range;
+            for (const t of list) {
+                if (t.shouldDestroy) continue;
+                const tx = (t.x != null ? t.x : 0) + (t.width || 0) / 2;
+                const ty = (t.y != null ? t.y : 0) + (t.height || 0) / 2;
+                const dist = Math.sqrt((tx - px) ** 2 + (ty - py) ** 2);
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    best = { obj: t, x: tx, y: ty, isGuidedWeapon: isGuided };
+                }
+            }
+            return best;
+        };
+        
+        // 严格优先级：有更高优先级目标时不攻击低优先级
+        let target;
+        
+        // 优先级1：Boss导弹
+        target = findNearest(game.bossMissiles, true);
+        if (target) return target;
+        
+        // 优先级2：月牙追踪弹
+        target = findNearest(game.crescentBullets, true);
+        if (target) return target;
+        
+        // 优先级3：被噬星者策反的玩家导弹
+        if (game.missiles) {
+            target = findNearest(game.missiles.filter(m => m.isReversed), true);
+            if (target) return target;
+        }
+        
+        // 优先级4：机雷
+        if (game.mines) {
+            const activeMines = game.mines.filter(m => !m.isExploded && !m.shouldDestroy);
+            target = findNearest(activeMines, true);
+            if (target) return target;
+        }
+        
+        // 优先级5：敌人本体（boss + 普通敌人）
+        const enemies = [];
+        if (game.boss && game.boss.health > 0) enemies.push(game.boss);
+        if (game.enemies) {
+            for (const e of game.enemies) {
+                if (e.health > 0) enemies.push(e);
+            }
+        }
+        return findNearest(enemies, false);
+    }
+    
+    update(player) {
+        if (this.reloading) {
+            if (Date.now() - this.reloadStartTime >= this.reloadDuration) {
+                this.reloading = false;
+                this.currentAmmo = this.magazineSize;
+            }
+            return;
+        }
+        
+        if (this.currentAmmo <= 0) {
+            this.reloading = true;
+            this.reloadStartTime = Date.now();
+            return;
+        }
+        
+        const now = Date.now();
+        const fireInterval = 1000 / this.fireRate;
+        if (now - this.lastFire < fireInterval) return;
+        
+        const target = this.findPriorityTarget(player);
+        if (!target) return;
+        
+        this.lastFire = now;
+        this.currentAmmo--;
+        
+        const px = player.x + player.width / 2;
+        const py = player.y + player.height / 2;
+        
+        const dx = target.x - px;
+        const dy = target.y - py;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const direction = dist > 0 ? Math.atan2(dy, dx) * 180 / Math.PI : 0;
+        
+        const bullet = new CIWSBullet(
+            px, py, direction, this.bulletSpeed, this.damage, this.range, target.isGuidedWeapon
+        );
+        
+        if (!game.ciwsBullets) game.ciwsBullets = [];
+        game.ciwsBullets.push(bullet);
+        
+        if (this.currentAmmo <= 0) {
+            this.reloading = true;
+            this.reloadStartTime = Date.now();
+        }
+    }
+    
+    getStatus() {
+        if (this.reloading) return { text: '重装中...', color: '#CC6666' };
+        return { text: `弹药: ${this.currentAmmo}/${this.magazineSize}`, color: '#00FF88' };
+    }
+    
+    draw(ctx, player) {
+        // 近防炮无需特别的武器绘制
+    }
+}
+
+// 近防炮子弹类
+class CIWSBullet extends GameObject {
+    constructor(x, y, direction, speed, damage, range, targetIsGuidedWeapon) {
+        super(x, y, 3, 3, '#00FF88');
+        this.direction = direction;
+        this.speed = speed;
+        this.damage = damage;
+        this.maxRange = range;
+        this.distanceTraveled = 0;
+        this.startX = x;
+        this.startY = y;
+        this.targetIsGuidedWeapon = targetIsGuidedWeapon;
+        
+        const angleRad = direction * Math.PI / 180;
+        this.vx = Math.cos(angleRad) * speed;
+        this.vy = Math.sin(angleRad) * speed;
+    }
+    
+    update() {
+        super.update();
+        
+        this.distanceTraveled = Math.sqrt(
+            (this.x - this.startX) ** 2 + (this.y - this.startY) ** 2
+        );
+        
+        if (this.distanceTraveled > this.maxRange ||
+            this.x < 0 || this.x > GAME_CONFIG.WIDTH ||
+            this.y < 0 || this.y > GAME_CONFIG.HEIGHT) {
+            this.shouldDestroy = true;
+            return;
+        }
+        
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const hitRadius = 12;
+        
+        // 检测击中Boss导弹（一发摧毁）
+        if (game.bossMissiles) {
+            for (let i = game.bossMissiles.length - 1; i >= 0; i--) {
+                const m = game.bossMissiles[i];
+                if (m.shouldDestroy) continue;
+                const dist = Math.sqrt((m.x - cx) ** 2 + (m.y - cy) ** 2);
+                if (dist < hitRadius) {
+                    m.shouldDestroy = true;
+                    this.shouldDestroy = true;
+                    return;
+                }
+            }
+        }
+        
+        // 检测击中月牙追踪弹（一发摧毁）
+        if (game.crescentBullets) {
+            for (let i = game.crescentBullets.length - 1; i >= 0; i--) {
+                const c = game.crescentBullets[i];
+                if (c.shouldDestroy) continue;
+                const dist = Math.sqrt((c.x + c.width / 2 - cx) ** 2 + (c.y + c.height / 2 - cy) ** 2);
+                if (dist < hitRadius) {
+                    c.shouldDestroy = true;
+                    this.shouldDestroy = true;
+                    return;
+                }
+            }
+        }
+        
+        // 检测击中被策反的导弹（一发摧毁）
+        if (game.missiles) {
+            for (let i = game.missiles.length - 1; i >= 0; i--) {
+                const m = game.missiles[i];
+                if (!m.isReversed || m.shouldDestroy) continue;
+                const dist = Math.sqrt((m.x - cx) ** 2 + (m.y - cy) ** 2);
+                if (dist < hitRadius) {
+                    m.shouldDestroy = true;
+                    this.shouldDestroy = true;
+                    return;
+                }
+            }
+        }
+        
+        // 检测击中机雷（100%伤害）
+        if (game.mines) {
+            for (let i = game.mines.length - 1; i >= 0; i--) {
+                const m = game.mines[i];
+                if (m.isExploded || m.shouldDestroy) continue;
+                const mx = m.x + m.width / 2;
+                const my = m.y + m.height / 2;
+                const dist = Math.sqrt((mx - cx) ** 2 + (my - cy) ** 2);
+                if (dist < hitRadius) {
+                    m.takeDamage(this.damage);
+                    this.shouldDestroy = true;
+                    return;
+                }
+            }
+        }
+        
+        // 对敌人本体造成伤害（40%概率造成1点伤害）
+        if (game.boss && game.boss.health > 0 && this.collidesWith(game.boss)) {
+            if (Math.random() < 0.4) game.boss.takeDamage(this.damage);
+            this.shouldDestroy = true;
+            return;
+        }
+        if (game.enemies) {
+            for (const e of game.enemies) {
+                if (e.health > 0 && this.collidesWith(e)) {
+                    if (Math.random() < 0.4) e.takeDamage(this.damage);
+                    this.shouldDestroy = true;
+                    return;
+                }
+            }
+        }
+    }
+    
+    draw(ctx) {
+        ctx.save();
+        ctx.fillStyle = this.color;
+        ctx.shadowColor = '#00FF88';
+        ctx.shadowBlur = 4;
+        ctx.beginPath();
+        ctx.arc(this.x + this.width / 2, this.y + this.height / 2, this.width / 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+}
+
 // 填充武器类型映射
 WEAPON_TYPES.sword = Sword;
 WEAPON_TYPES.gun = Gun; 
 WEAPON_TYPES.laser_spear = LaserSpear;
 WEAPON_TYPES.missile_launcher = MissileLauncher; 
 WEAPON_TYPES.pulse_shield = PulseShield;
-WEAPON_TYPES.super_weapon = SuperWeapon; 
+WEAPON_TYPES.super_weapon = SuperWeapon;
+WEAPON_TYPES.ciws = CIWS; 

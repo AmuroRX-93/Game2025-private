@@ -16,6 +16,8 @@ class Game {
         this.iceClones = []; // 冰之姬分身数组
         this.mines = []; // 机雷数组
         this.molotovs = []; // 燃烧瓶数组
+        this.starDevourerBullets = []; // 噬星者步枪子弹数组
+        this.ciwsBullets = []; // 近防炮子弹数组
         this.boss = null;
         
         this.init();
@@ -47,6 +49,16 @@ class Game {
         if (!gameState.bossSpawned) {
             const level = BOSS_LEVELS[levelId];
             if (level) {
+                // 清除上一场残留的投射物
+                this.mines = [];
+                this.molotovs = [];
+                this.chaosBullets = [];
+                this.crescentBullets = [];
+                this.iceClones = [];
+                this.starDevourerBullets = [];
+                this.ciwsBullets = [];
+                this.bossMissiles = [];
+                
                 // 在屏幕边缘随机生成，远离玩家中心位置
                 const spawnPositions = [
                     { x: 50, y: 50 },                                    // 左上角
@@ -90,8 +102,8 @@ class Game {
         gameState.selectedGameMode = gameMode;
         gameState.showModeSelection = false;
         
-        // 只有Boss战模式：进入关卡选择
         gameState.showLevelSelection = true;
+        gameState.levelScrollOffset = 0;
         
         updateUI();
     }
@@ -262,6 +274,8 @@ class Game {
         this.boomerangHitEffects = [];
         this.crescentBullets = [];
         this.iceClones = [];
+        this.starDevourerBullets = [];
+        this.ciwsBullets = [];
         this.boss = null;
         
         // 清除所有键盘状态，防止角色不由自主移动
@@ -291,6 +305,8 @@ class Game {
             this.bossMissiles = [];
             this.crescentBullets = [];
             this.iceClones = [];
+            this.starDevourerBullets = [];
+            this.ciwsBullets = [];
             this.boss = null;
             updateUI();
             return;
@@ -532,6 +548,28 @@ class Game {
             }
         }
         
+        // 更新噬星者步枪子弹
+        if (this.starDevourerBullets) {
+            for (let i = this.starDevourerBullets.length - 1; i >= 0; i--) {
+                const bullet = this.starDevourerBullets[i];
+                bullet.update();
+                if (bullet.shouldDestroy) {
+                    this.starDevourerBullets.splice(i, 1);
+                }
+            }
+        }
+        
+        // 更新近防炮子弹
+        if (this.ciwsBullets) {
+            for (let i = this.ciwsBullets.length - 1; i >= 0; i--) {
+                const bullet = this.ciwsBullets[i];
+                bullet.update();
+                if (bullet.shouldDestroy) {
+                    this.ciwsBullets.splice(i, 1);
+                }
+            }
+        }
+        
         // 更新燃烧瓶
         if (this.molotovs) {
             for (let i = this.molotovs.length - 1; i >= 0; i--) {
@@ -600,6 +638,16 @@ class Game {
             this.chaosBullets.forEach(bullet => {
                 bullet.draw(this.ctx);
             });
+        }
+        
+        // 绘制噬星者步枪子弹
+        if (this.starDevourerBullets) {
+            this.starDevourerBullets.forEach(bullet => bullet.draw(this.ctx));
+        }
+        
+        // 绘制近防炮子弹
+        if (this.ciwsBullets) {
+            this.ciwsBullets.forEach(bullet => bullet.draw(this.ctx));
         }
 
         // 绘制子弹
@@ -744,78 +792,67 @@ class Game {
     }
 
     drawLevelSelection() {
-        // 清除不需要的按钮状态
         this.pauseButton = null;
         
-        // 绘制关卡选择背景
         this.ctx.fillStyle = '#2D1B69';
         this.ctx.fillRect(0, 0, GAME_CONFIG.WIDTH, GAME_CONFIG.HEIGHT);
         
-        // 绘制标题
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = '36px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText('选择关卡', GAME_CONFIG.WIDTH / 2, 100);
+        const scrollY = gameState.levelScrollOffset || 0;
         
-        // 绘制副标题
-        this.ctx.font = '18px Arial';
-        this.ctx.fillStyle = '#CCCCCC';
-        this.ctx.fillText('Boss战模式 - 挑战强大的敌人', GAME_CONFIG.WIDTH / 2, 140);
+        // Scrollable content area (clip to avoid drawing over the fixed header)
+        const headerHeight = 160;
+        this.ctx.save();
+        this.ctx.beginPath();
+        this.ctx.rect(0, headerHeight, GAME_CONFIG.WIDTH, GAME_CONFIG.HEIGHT - headerHeight);
+        this.ctx.clip();
         
-        // 绘制关卡列表
         const levels = Object.values(BOSS_LEVELS);
         const buttonWidth = 500;
         const buttonHeight = 120;
         const buttonSpacing = 140;
         const startY = 200;
         
+        this.levelButtons = [];
+        
         levels.forEach((level, index) => {
             const buttonX = GAME_CONFIG.WIDTH / 2 - buttonWidth / 2;
-            const buttonY = startY + index * buttonSpacing;
+            const buttonY = startY + index * buttonSpacing - scrollY;
             
-            // 设置按钮颜色（解锁/锁定状态）
+            if (buttonY + buttonHeight < headerHeight || buttonY > GAME_CONFIG.HEIGHT) return;
+            
             if (level.unlocked) {
-                this.ctx.fillStyle = 'rgba(139, 0, 0, 0.8)'; // 血红色，对应血红之王
+                this.ctx.fillStyle = 'rgba(139, 0, 0, 0.8)';
             } else {
-                this.ctx.fillStyle = 'rgba(60, 60, 60, 0.8)'; // 灰色，未解锁
+                this.ctx.fillStyle = 'rgba(60, 60, 60, 0.8)';
             }
             
-            // 绘制关卡按钮
             this.ctx.fillRect(buttonX, buttonY, buttonWidth, buttonHeight);
             
-            // 绘制按钮边框
             this.ctx.strokeStyle = level.unlocked ? '#FF0000' : '#666666';
             this.ctx.lineWidth = 3;
             this.ctx.strokeRect(buttonX, buttonY, buttonWidth, buttonHeight);
             
-            // 绘制关卡信息
             if (level.unlocked) {
-                // 关卡名称
                 this.ctx.fillStyle = 'white';
                 this.ctx.font = '28px Arial';
                 this.ctx.textAlign = 'center';
                 this.ctx.fillText(level.name, buttonX + buttonWidth / 2, buttonY + 40);
                 
-                // 关卡描述
                 this.ctx.font = '16px Arial';
                 this.ctx.fillStyle = '#DDDDDD';
                 this.ctx.fillText(level.description, buttonX + buttonWidth / 2, buttonY + 70);
                 
-                // 难度指示
                 this.ctx.font = '14px Arial';
                 this.ctx.fillStyle = '#FFAA00';
                 this.ctx.fillText(`难度: ${'★'.repeat(level.difficulty)}`, buttonX + buttonWidth / 2, buttonY + 95);
             } else {
-                // 锁定状态
                 this.ctx.fillStyle = '#999999';
                 this.ctx.font = '24px Arial';
                 this.ctx.textAlign = 'center';
                 this.ctx.fillText('🔒 未解锁', buttonX + buttonWidth / 2, buttonY + 60);
             }
             
-            // 存储按钮信息以供点击检测
             if (level.unlocked) {
-                if (!this.levelButtons) this.levelButtons = [];
                 this.levelButtons[index] = { 
                     x: buttonX, 
                     y: buttonY, 
@@ -826,7 +863,54 @@ class Game {
             }
         });
         
-        // 绘制返回按钮
+        this.ctx.restore();
+        
+        // Fixed header background (drawn on top so scroll content doesn't bleed through)
+        this.ctx.fillStyle = '#2D1B69';
+        this.ctx.fillRect(0, 0, GAME_CONFIG.WIDTH, headerHeight);
+        
+        this.ctx.fillStyle = 'white';
+        this.ctx.font = '36px Arial';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('选择关卡', GAME_CONFIG.WIDTH / 2, 100);
+        
+        this.ctx.font = '18px Arial';
+        this.ctx.fillStyle = '#CCCCCC';
+        this.ctx.fillText('Boss战模式 - 挑战强大的敌人', GAME_CONFIG.WIDTH / 2, 140);
+        
+        // Scroll indicators
+        const contentHeight = startY + levels.length * buttonSpacing;
+        const maxScroll = Math.max(0, contentHeight - GAME_CONFIG.HEIGHT + 60);
+        if (maxScroll > 0) {
+            const trackX = GAME_CONFIG.WIDTH - 16;
+            const trackTop = headerHeight + 10;
+            const trackHeight = GAME_CONFIG.HEIGHT - headerHeight - 20;
+            
+            this.ctx.fillStyle = 'rgba(255,255,255,0.1)';
+            this.ctx.fillRect(trackX, trackTop, 8, trackHeight);
+            
+            const thumbRatio = (GAME_CONFIG.HEIGHT - headerHeight) / contentHeight;
+            const thumbHeight = Math.max(30, trackHeight * thumbRatio);
+            const thumbY = trackTop + (scrollY / maxScroll) * (trackHeight - thumbHeight);
+            
+            this.ctx.fillStyle = 'rgba(255,255,255,0.4)';
+            this.ctx.fillRect(trackX, thumbY, 8, thumbHeight);
+            
+            if (scrollY > 5) {
+                this.ctx.fillStyle = 'rgba(255,255,255,0.5)';
+                this.ctx.font = '20px Arial';
+                this.ctx.textAlign = 'center';
+                this.ctx.fillText('▲', GAME_CONFIG.WIDTH / 2, headerHeight + 20);
+            }
+            if (scrollY < maxScroll - 5) {
+                this.ctx.fillStyle = 'rgba(255,255,255,0.5)';
+                this.ctx.font = '20px Arial';
+                this.ctx.textAlign = 'center';
+                this.ctx.fillText('▼', GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT - 10);
+            }
+        }
+        
+        // Fixed back button
         const backButtonWidth = 120;
         const backButtonHeight = 50;
         const backButtonX = 50;
@@ -844,10 +928,8 @@ class Game {
         this.ctx.textAlign = 'center';
         this.ctx.fillText('返回', backButtonX + backButtonWidth / 2, backButtonY + 32);
         
-        // 存储返回按钮信息
         this.backButton = { x: backButtonX, y: backButtonY, width: backButtonWidth, height: backButtonHeight };
         
-        // 清除其他界面的按钮
         this.bossButton = null;
         this.trainingButton = null;
         this.customButton = null;
@@ -879,6 +961,7 @@ class Game {
         
         const shoulderWeaponOptions = [
             { type: 'missile_launcher', name: '15连导弹发射器', color: '#FFD700', desc: '强追踪1.1秒 | 范围爆炸 | 高伤害' },
+            { type: 'ciws', name: '近防炮', color: '#00FF88', desc: '自动拦截制导武器 | 20发弹仓 | 优先打导弹' },
             { type: 'super_weapon', name: '超级导弹', color: '#FF0000', desc: '100伤害 | 一次战斗只能用一次 | 占用双槽位' }
         ];
         
@@ -995,11 +1078,33 @@ class Game {
             this.ctx.fillText(`${slot.name}：${displayName}`, centerX + (index - 2) * buttonSpacing, centerY + 130);
         });
         
+        // 无敌模式开关
+        const toggleWidth = 200;
+        const toggleHeight = 40;
+        const toggleX = centerX - toggleWidth / 2;
+        const toggleY = centerY + 160;
+        const invOn = gameState.invincibleMode;
+        
+        this.ctx.fillStyle = invOn ? 'rgba(255, 215, 0, 0.8)' : 'rgba(100, 100, 100, 0.6)';
+        this.ctx.fillRect(toggleX, toggleY, toggleWidth, toggleHeight);
+        this.ctx.strokeStyle = invOn ? '#FFD700' : '#666666';
+        this.ctx.lineWidth = 2;
+        this.ctx.strokeRect(toggleX, toggleY, toggleWidth, toggleHeight);
+        
+        this.ctx.fillStyle = 'white';
+        this.ctx.font = 'bold 16px Arial';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText(invOn ? '无敌模式：开启' : '无敌模式：关闭', centerX, toggleY + 26);
+        
+        this.invincibleToggleButton = {
+            x: toggleX, y: toggleY, width: toggleWidth, height: toggleHeight
+        };
+        
         // 开始游戏按钮
         const startButtonWidth = 200;
         const startButtonHeight = 50;
         const startButtonX = centerX - startButtonWidth / 2;
-        const startButtonY = centerY + 180;
+        const startButtonY = centerY + 220;
         
         this.ctx.fillStyle = 'rgba(0, 255, 0, 0.8)';
         this.ctx.fillRect(startButtonX, startButtonY, startButtonWidth, startButtonHeight);
@@ -1031,18 +1136,15 @@ class Game {
     }
 
     drawMechCustomization() {
-        // 清除不需要的按钮状态
         this.pauseButton = null;
         
-        // 绘制机甲定制界面
         this.ctx.fillStyle = '#6B46C1';
         this.ctx.fillRect(0, 0, GAME_CONFIG.WIDTH, GAME_CONFIG.HEIGHT);
         
-        // 标题
         this.ctx.fillStyle = 'white';
-        this.ctx.font = 'bold 42px Arial';
+        this.ctx.font = 'bold 36px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('定制机甲', GAME_CONFIG.WIDTH / 2, 80);
+        this.ctx.fillText('定制机甲', GAME_CONFIG.WIDTH / 2, 50);
         
         const weaponOptions = [
             { type: 'gun', name: '自动步枪', color: '#4169E1', desc: '远程射击 | 高射速 | 预瞄功能' },
@@ -1051,170 +1153,83 @@ class Game {
             { type: 'missile_launcher', name: '8连导弹发射器', color: '#FFD700', desc: '强追踪1.1秒 | 范围爆炸 | 高伤害' }
         ];
         
+        const shoulderWeaponOptions = [
+            { type: 'missile_launcher', name: '15连导弹发射器', color: '#FFD700', desc: '强追踪1.1秒 | 范围爆炸 | 高伤害' },
+            { type: 'ciws', name: '近防炮', color: '#00FF88', desc: '自动拦截制导武器 | 20发弹仓 | 优先打导弹' },
+            { type: 'super_weapon', name: '超级导弹', color: '#FF0000', desc: '100伤害 | 一次战斗只能用一次 | 占用双槽位' }
+        ];
+        
         const hiddenAbilityOptions = [
             { type: 'pulse_shield', name: '脉冲护盾', color: '#00FFFF', desc: '70%伤害减免 | 15秒持续 | 40秒冷却' }
         ];
         
-        // 计算居中位置 - 三列布局
+        const weaponSlots = [
+            { key: 'leftHand', name: '左手武器', keyHint: '(左键)', color: '#4169E1', options: weaponOptions },
+            { key: 'rightHand', name: '右手武器', keyHint: '(右键)', color: '#ff6b6b', options: weaponOptions },
+            { key: 'leftShoulder', name: '左肩武器', keyHint: '(Q键)', color: '#FF4444', options: shoulderWeaponOptions },
+            { key: 'rightShoulder', name: '右肩武器', keyHint: '(E键)', color: '#FF8800', options: shoulderWeaponOptions },
+            { key: 'hiddenAbility', name: '隐藏机能', keyHint: '(Shift键)', color: '#00FFFF', options: hiddenAbilityOptions }
+        ];
+        
         const centerX = GAME_CONFIG.WIDTH / 2;
         const centerY = GAME_CONFIG.HEIGHT / 2;
-        const panelWidth = 260;
-        const columnSpacing = 320;
+        const buttonWidth = 200;
+        const buttonHeight = 80;
+        const buttonSpacing = 220;
         
-        // 三列的X坐标
-        const leftColumnX = centerX - columnSpacing;
-        const centerColumnX = centerX;
-        const rightColumnX = centerX + columnSpacing;
+        this.mechCustomSlotButtons = [];
         
-        // 左手武器选择标题
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = 'bold 24px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText('左手武器 (左键)', leftColumnX, centerY - 120);
-        
-        // 初始化左手武器按钮数组
-        this.leftWeaponButtons = [];
-        
-        // 左手武器选项
-        weaponOptions.forEach((weapon, index) => {
-            const x = leftColumnX;
-            const y = centerY - 50 + index * 60;
-            const isSelected = gameState.weaponConfig.leftHand === weapon.type;
+        weaponSlots.forEach((slot, index) => {
+            const x = centerX + (index - 2) * buttonSpacing;
+            const y = centerY - 50;
             
-            // 绘制可点击的选项背景
-            this.ctx.fillStyle = isSelected ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255, 255, 255, 0.15)';
-            this.ctx.strokeStyle = isSelected ? '#FFFFFF' : 'rgba(255, 255, 255, 0.5)';
-            this.ctx.lineWidth = 2;
-            this.ctx.fillRect(x - panelWidth/2, y - 25, panelWidth, 50);
-            this.ctx.strokeRect(x - panelWidth/2, y - 25, panelWidth, 50);
+            const currentWeapon = slot.options.find(w => w.type === gameState.weaponConfig[slot.key]);
+            const displayName = currentWeapon ? currentWeapon.name : '无';
             
-            // 绘制武器颜色示例
-            this.ctx.fillStyle = weapon.color;
-            this.ctx.fillRect(x - panelWidth/2 + 10, y - 15, 30, 30);
+            this.ctx.fillStyle = slot.color;
+            this.ctx.fillRect(x - buttonWidth/2, y, buttonWidth, buttonHeight);
             
-            // 绘制武器名称
+            this.ctx.strokeStyle = 'white';
+            this.ctx.lineWidth = 3;
+            this.ctx.strokeRect(x - buttonWidth/2, y, buttonWidth, buttonHeight);
+            
             this.ctx.fillStyle = 'white';
-            this.ctx.font = '18px Arial';
-            this.ctx.textAlign = 'left';
-            this.ctx.fillText(weapon.name, x - panelWidth/2 + 50, y + 5);
+            this.ctx.font = 'bold 16px Arial';
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText(slot.name, x, y + 20);
+            this.ctx.fillText(slot.keyHint, x, y + 40);
             
-            // 存储按钮位置供点击检测使用
-            this.leftWeaponButtons.push({
-                x: x - panelWidth/2,
-                y: y - 25,
-                width: panelWidth,
-                height: 50,
-                weaponType: weapon.type
+            this.ctx.font = '14px Arial';
+            this.ctx.fillText(displayName, x, y + 60);
+            
+            this.mechCustomSlotButtons.push({
+                x: x - buttonWidth/2,
+                y: y,
+                width: buttonWidth,
+                height: buttonHeight,
+                slotKey: slot.key,
+                options: slot.options
             });
         });
         
-        // 右手武器选择标题
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = 'bold 24px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText('右手武器 (右键)', centerColumnX, centerY - 120);
-        
-        // 初始化右手武器按钮数组
-        this.rightWeaponButtons = [];
-        
-        // 右手武器选项
-        weaponOptions.forEach((weapon, index) => {
-            const x = centerColumnX;
-            const y = centerY - 50 + index * 60;
-            const isSelected = gameState.weaponConfig.rightHand === weapon.type;
-            
-            // 绘制可点击的选项背景
-            this.ctx.fillStyle = isSelected ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255, 255, 255, 0.15)';
-            this.ctx.strokeStyle = isSelected ? '#FFFFFF' : 'rgba(255, 255, 255, 0.5)';
-            this.ctx.lineWidth = 2;
-            this.ctx.fillRect(x - panelWidth/2, y - 25, panelWidth, 50);
-            this.ctx.strokeRect(x - panelWidth/2, y - 25, panelWidth, 50);
-            
-            // 绘制武器颜色示例
-            this.ctx.fillStyle = weapon.color;
-            this.ctx.fillRect(x - panelWidth/2 + 10, y - 15, 30, 30);
-            
-            // 绘制武器名称
-            this.ctx.fillStyle = 'white';
-            this.ctx.font = '18px Arial';
-            this.ctx.textAlign = 'left';
-            this.ctx.fillText(weapon.name, x - panelWidth/2 + 50, y + 5);
-            
-            // 存储按钮位置供点击检测使用
-            this.rightWeaponButtons.push({
-                x: x - panelWidth/2,
-                y: y - 25,
-                width: panelWidth,
-                height: 50,
-                weaponType: weapon.type
-            });
-        });
-        
-        // 隐藏机能选择标题
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = 'bold 24px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText('隐藏机能 (Q键)', rightColumnX, centerY - 120);
-        
-        // 初始化隐藏机能按钮数组
-        this.hiddenAbilityButtons = [];
-        
-        // 隐藏机能选项
-        hiddenAbilityOptions.forEach((ability, index) => {
-            const x = rightColumnX;
-            const y = centerY - 50 + index * 60;
-            const isSelected = gameState.weaponConfig.hiddenAbility === ability.type;
-            
-            // 绘制可点击的选项背景
-            this.ctx.fillStyle = isSelected ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255, 255, 255, 0.15)';
-            this.ctx.strokeStyle = isSelected ? '#FFFFFF' : 'rgba(255, 255, 255, 0.5)';
-            this.ctx.lineWidth = 2;
-            this.ctx.fillRect(x - panelWidth/2, y - 25, panelWidth, 50);
-            this.ctx.strokeRect(x - panelWidth/2, y - 25, panelWidth, 50);
-            
-            // 绘制机能颜色示例
-            this.ctx.fillStyle = ability.color;
-            this.ctx.fillRect(x - panelWidth/2 + 10, y - 15, 30, 30);
-            
-            // 绘制机能名称
-            this.ctx.fillStyle = 'white';
-            this.ctx.font = '18px Arial';
-            this.ctx.textAlign = 'left';
-            this.ctx.fillText(ability.name, x - panelWidth/2 + 50, y + 5);
-            
-            // 存储按钮位置供点击检测使用
-            this.hiddenAbilityButtons.push({
-                x: x - panelWidth/2,
-                y: y - 25,
-                width: panelWidth,
-                height: 50,
-                abilityType: ability.type
-            });
-        });
-        
-        // 当前配置显示
         this.ctx.fillStyle = 'white';
         this.ctx.font = '20px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('当前配置：', centerX, centerY + 160);
+        this.ctx.fillText('当前配置：', centerX, centerY + 100);
         
-        const leftWeapon = weaponOptions.find(w => w.type === gameState.weaponConfig.leftHand);
-        const rightWeapon = weaponOptions.find(w => w.type === gameState.weaponConfig.rightHand);
-        const hiddenAbility = hiddenAbilityOptions.find(h => h.type === gameState.weaponConfig.hiddenAbility);
+        weaponSlots.forEach((slot, index) => {
+            const currentWeapon = slot.options.find(w => w.type === gameState.weaponConfig[slot.key]);
+            const displayName = currentWeapon ? currentWeapon.name : '无';
+            this.ctx.fillStyle = 'white';
+            this.ctx.font = '16px Arial';
+            this.ctx.fillText(`${slot.name}：${displayName}`, centerX + (index - 2) * buttonSpacing, centerY + 130);
+        });
         
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = '16px Arial';
-        this.ctx.fillText(`左手：${leftWeapon.name}`, leftColumnX, centerY + 190);
-        this.ctx.fillText(`右手：${rightWeapon.name}`, centerColumnX, centerY + 190);
-        this.ctx.fillText(`隐藏机能：${hiddenAbility.name}`, rightColumnX, centerY + 190);
-        
-        // 底部提示
         this.ctx.fillStyle = 'white';
         this.ctx.font = '16px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('点击选择武器和隐藏机能', centerX, GAME_CONFIG.HEIGHT - 60);
+        this.ctx.fillText('点击武器槽位选择武器，然后返回主菜单', centerX, GAME_CONFIG.HEIGHT - 60);
         
-        // 返回按钮
         this.drawBackButton();
     }
 
@@ -2094,6 +2109,12 @@ class Game {
                 }
             }
             
+            // 检查无敌模式开关
+            if (this.invincibleToggleButton && this.isButtonClicked(this.invincibleToggleButton, mouseX, mouseY)) {
+                gameState.invincibleMode = !gameState.invincibleMode;
+                return true;
+            }
+            
             // 检查开始游戏按钮
             if (this.startGameButton && this.isButtonClicked(this.startGameButton, mouseX, mouseY)) {
                 this.selectWeaponConfig();
@@ -2101,49 +2122,40 @@ class Game {
             }
         }
         
-        // 检查机甲定制界面中的武器和隐藏机能按钮点击
+        // 检查机甲定制界面中的武器槽位按钮点击（与武器配置界面相同的循环切换逻辑）
         if (gameState.showMechCustomization) {
-            // 检查左手武器按钮
-            if (this.leftWeaponButtons) {
-                for (const button of this.leftWeaponButtons) {
+            if (this.mechCustomSlotButtons) {
+                for (const button of this.mechCustomSlotButtons) {
                     if (this.isButtonClicked(button, mouseX, mouseY)) {
-                        gameState.weaponConfig.leftHand = button.weaponType;
-                        return true;
-                    }
-                }
-            }
-            // 检查右手武器按钮
-            if (this.rightWeaponButtons) {
-                for (const button of this.rightWeaponButtons) {
-                    if (this.isButtonClicked(button, mouseX, mouseY)) {
-                        gameState.weaponConfig.rightHand = button.weaponType;
-                        return true;
-                    }
-                }
-            }
-            // 检查隐藏机能按钮
-            if (this.hiddenAbilityButtons) {
-                for (const button of this.hiddenAbilityButtons) {
-                    if (this.isButtonClicked(button, mouseX, mouseY)) {
-                        gameState.weaponConfig.hiddenAbility = button.abilityType;
-                        return true;
-                    }
-                }
-            }
-            // 检查左肩武器按钮
-            if (this.leftShoulderWeaponButtons) {
-                for (const button of this.leftShoulderWeaponButtons) {
-                    if (this.isButtonClicked(button, mouseX, mouseY)) {
-                        gameState.weaponConfig.leftShoulder = button.weaponType;
-                        return true;
-                    }
-                }
-            }
-            // 检查右肩武器按钮
-            if (this.rightShoulderWeaponButtons) {
-                for (const button of this.rightShoulderWeaponButtons) {
-                    if (this.isButtonClicked(button, mouseX, mouseY)) {
-                        gameState.weaponConfig.rightShoulder = button.weaponType;
+                        const options = button.options;
+                        const currentValue = gameState.weaponConfig[button.slotKey];
+                        const currentIndex = options.findIndex(option => option.type === currentValue);
+                        const nextIndex = (currentIndex + 1) % (options.length + 1);
+                        
+                        let newWeaponType = null;
+                        if (nextIndex === options.length) {
+                            newWeaponType = null;
+                        } else {
+                            newWeaponType = options[nextIndex].type;
+                        }
+                        
+                        if (button.slotKey === 'leftShoulder' || button.slotKey === 'rightShoulder') {
+                            if (newWeaponType === 'super_weapon') {
+                                gameState.weaponConfig.leftShoulder = 'super_weapon';
+                                gameState.weaponConfig.rightShoulder = 'super_weapon';
+                            } else {
+                                const otherSlotKey = button.slotKey === 'leftShoulder' ? 'rightShoulder' : 'leftShoulder';
+                                if (gameState.weaponConfig[otherSlotKey] === 'super_weapon') {
+                                    gameState.weaponConfig.leftShoulder = newWeaponType;
+                                    gameState.weaponConfig.rightShoulder = newWeaponType;
+                                } else {
+                                    gameState.weaponConfig[button.slotKey] = newWeaponType;
+                                }
+                            }
+                        } else {
+                            gameState.weaponConfig[button.slotKey] = newWeaponType;
+                        }
+                        
                         return true;
                     }
                 }
@@ -2194,6 +2206,7 @@ class Game {
         // 清除不需要的按钮状态
         this.backButton = null;
         this.pauseButton = null;
+        this.mainMenuButton = null;
         
         this.ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
         this.ctx.fillRect(0, 0, GAME_CONFIG.WIDTH, GAME_CONFIG.HEIGHT);
@@ -2206,28 +2219,9 @@ class Game {
         this.ctx.font = '24px Arial';
         this.ctx.fillText(`造成总伤害: ${Math.floor(gameState.totalDamage)}`, GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 - 30);
 
-        this.ctx.font = '18px Arial';
-        this.ctx.fillText('按 R 重新开始', GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 + 10);
-        
-        // 返回主菜单按钮
-        const buttonWidth = 150;
-        const buttonHeight = 50;
-        const buttonX = GAME_CONFIG.WIDTH / 2 - buttonWidth / 2;
-        const buttonY = GAME_CONFIG.HEIGHT / 2 + 50;
-        
-        this.ctx.fillStyle = 'rgba(255, 0, 0, 0.8)';
-        this.ctx.fillRect(buttonX, buttonY, buttonWidth, buttonHeight);
-        
-        this.ctx.strokeStyle = '#FF4444';
-        this.ctx.lineWidth = 2;
-        this.ctx.strokeRect(buttonX, buttonY, buttonWidth, buttonHeight);
-        
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = 'bold 18px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText('返回主菜单', buttonX + buttonWidth / 2, buttonY + buttonHeight / 2 + 6);
-        
-        this.mainMenuButton = { x: buttonX, y: buttonY, width: buttonWidth, height: buttonHeight };
+        this.ctx.font = '20px Arial';
+        this.ctx.fillStyle = '#888888';
+        this.ctx.fillText('按空格键返回主菜单', GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 + 30);
     }
     
     drawBlindnessEffect() {
@@ -2348,6 +2342,8 @@ class Game {
         this.boomerangHitEffects = [];
         this.crescentBullets = [];
         this.iceClones = [];
+        this.starDevourerBullets = [];
+        this.ciwsBullets = [];
         this.boss = null;
         // 不在这里预生成敌人，等模式选择后再生成
         

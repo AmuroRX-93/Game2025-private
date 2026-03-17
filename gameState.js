@@ -8,7 +8,8 @@ const gameState = {
     selectedGameMode: null,
     selectedLevel: null, // 选中的关卡
     showModeSelection: true,
-    showLevelSelection: false, // 显示关卡选择界面
+    showLevelSelection: false,
+    levelScrollOffset: 0,
     showWeaponConfig: false,
     showMechCustomization: false,
     bossSpawned: false,
@@ -33,7 +34,9 @@ const gameState = {
     victoryBossName: '', // 击败的Boss名称
     // 维修包系统
     repairKits: 3, // 维修包数量
-    maxRepairKits: 3 // 最大维修包数量
+    maxRepairKits: 3, // 最大维修包数量
+    // 无敌模式
+    invincibleMode: true
 };
 
 // 键盘输入状态

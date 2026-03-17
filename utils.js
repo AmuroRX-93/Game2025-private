@@ -72,9 +72,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // 机甲选择已删除
         
-        if (e.key === 'r' || e.key === 'R') {
+        if (e.key === ' ') {
             if (gameState.gameOver) {
                 game.restart();
+                return;
             }
         }
         
@@ -194,4 +195,15 @@ document.addEventListener('DOMContentLoaded', () => {
         mouse.x = e.clientX - rect.left;
         mouse.y = e.clientY - rect.top;
     });
+
+    document.addEventListener('wheel', (e) => {
+        if (gameState.showLevelSelection) {
+            e.preventDefault();
+            gameState.levelScrollOffset += e.deltaY * 0.6;
+            const levels = Object.values(BOSS_LEVELS);
+            const contentHeight = 200 + levels.length * 140;
+            const maxScroll = Math.max(0, contentHeight - GAME_CONFIG.HEIGHT + 60);
+            gameState.levelScrollOffset = Math.max(0, Math.min(gameState.levelScrollOffset, maxScroll));
+        }
+    }, { passive: false });
 }); 
