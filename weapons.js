@@ -1638,6 +1638,137 @@ class PulseShield extends Weapon {
 
 
 
+// EMP电磁脉冲（隐藏机能）
+class EMP extends Weapon {
+    constructor() {
+        super({
+            type: 'emp',
+            name: 'EMP电磁脉冲',
+            damage: 30,
+            cooldown: 30000
+        });
+        
+        this.radius = 350;
+        this.stunDuration = 500;
+        this.empEffect = null;
+    }
+    
+    use(player) {
+        if (!this.canUse()) return false;
+        
+        this.lastUseTime = Date.now();
+        
+        const cx = player.x + player.width / 2;
+        const cy = player.y + player.height / 2;
+        
+        // 对范围内所有敌人造成伤害和僵直
+        const targets = [];
+        if (game.boss && game.boss.health > 0) targets.push(game.boss);
+        if (game.enemies) {
+            for (const e of game.enemies) {
+                if (e.health > 0) targets.push(e);
+            }
+        }
+        
+        for (const t of targets) {
+            const tx = t.x + t.width / 2;
+            const ty = t.y + t.height / 2;
+            const dist = Math.sqrt((tx - cx) ** 2 + (ty - cy) ** 2);
+            if (dist >= this.radius) continue;
+            
+            const falloff = 1 - dist / this.radius;
+            const dmg = Math.max(1, Math.round(this.damage * falloff));
+            t.takeDamage(dmg);
+            t.stunned = true;
+            t.stunEndTime = Date.now() + this.stunDuration;
+            t.vx = 0;
+            t.vy = 0;
+        }
+        
+        // 启动视觉特效
+        this.empEffect = {
+            x: cx,
+            y: cy,
+            startTime: Date.now(),
+            duration: 400
+        };
+        
+        return true;
+    }
+    
+    update(player) {
+        if (this.empEffect) {
+            if (Date.now() - this.empEffect.startTime >= this.empEffect.duration) {
+                this.empEffect = null;
+            }
+        }
+    }
+    
+    draw(ctx, player) {
+        if (!this.empEffect) return;
+        
+        const e = this.empEffect;
+        const elapsed = Date.now() - e.startTime;
+        const progress = elapsed / e.duration;
+        
+        ctx.save();
+        
+        // 扩散冲击波
+        const waveRadius = this.radius * progress;
+        const waveAlpha = 0.6 * (1 - progress);
+        
+        ctx.strokeStyle = `rgba(100, 200, 255, ${waveAlpha})`;
+        ctx.lineWidth = 4 * (1 - progress) + 1;
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, waveRadius, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        // 内圈光芒
+        const innerAlpha = 0.4 * (1 - progress);
+        const gradient = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, waveRadius * 0.6);
+        gradient.addColorStop(0, `rgba(150, 220, 255, ${innerAlpha})`);
+        gradient.addColorStop(1, `rgba(50, 100, 200, 0)`);
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, waveRadius * 0.6, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 电弧效果
+        if (progress < 0.7) {
+            const arcCount = 8;
+            ctx.strokeStyle = `rgba(180, 230, 255, ${0.8 * (1 - progress)})`;
+            ctx.lineWidth = 1.5;
+            for (let i = 0; i < arcCount; i++) {
+                const angle = (Math.PI * 2 / arcCount) * i + progress * 3;
+                const len = waveRadius * (0.3 + Math.random() * 0.5);
+                ctx.beginPath();
+                ctx.moveTo(e.x, e.y);
+                let px = e.x, py = e.y;
+                const segments = 5;
+                for (let s = 1; s <= segments; s++) {
+                    const r = len * s / segments;
+                    const jitter = (Math.random() - 0.5) * 20;
+                    const nx = e.x + Math.cos(angle + jitter * 0.02) * r + jitter;
+                    const ny = e.y + Math.sin(angle + jitter * 0.02) * r + jitter;
+                    ctx.lineTo(nx, ny);
+                    px = nx; py = ny;
+                }
+                ctx.stroke();
+            }
+        }
+        
+        ctx.restore();
+    }
+    
+    getStatus() {
+        const cooldownRemaining = this.getCooldownRemaining();
+        if (cooldownRemaining > 0) {
+            return { text: `冷却: ${(cooldownRemaining / 1000).toFixed(1)}秒`, color: '#CC6666' };
+        }
+        return { text: '准备就绪', color: '#66CCFF' };
+    }
+}
+
 // 超级武器类 - 占用两个肩部槽位，使用导弹发射器逻辑但只发射1枚导弹
 class SuperWeapon extends Weapon {
     constructor() {
@@ -1949,6 +2080,8 @@ class CIWSBullet extends GameObject {
     }
     
     update() {
+        const prevX = this.x;
+        const prevY = this.y;
         super.update();
         
         this.distanceTraveled = Math.sqrt(
@@ -1962,64 +2095,65 @@ class CIWSBullet extends GameObject {
             return;
         }
         
-        const cx = this.x + this.width / 2;
-        const cy = this.y + this.height / 2;
-        const hitRadius = 12;
-        
-        // 检测击中Boss导弹（一发摧毁）
-        if (game.bossMissiles) {
-            for (let i = game.bossMissiles.length - 1; i >= 0; i--) {
-                const m = game.bossMissiles[i];
-                if (m.shouldDestroy) continue;
-                const dist = Math.sqrt((m.x - cx) ** 2 + (m.y - cy) ** 2);
-                if (dist < hitRadius) {
-                    m.shouldDestroy = true;
-                    this.shouldDestroy = true;
-                    return;
+        // 沿路径分步检测，防止高速子弹穿透目标
+        const steps = Math.ceil(this.speed / 10);
+        for (let s = 0; s <= steps; s++) {
+            const t = s / steps;
+            const cx = prevX + (this.x - prevX) * t + this.width / 2;
+            const cy = prevY + (this.y - prevY) * t + this.height / 2;
+            const hitRadius = 14;
+            
+            // 检测击中Boss导弹（一发摧毁）
+            if (game.bossMissiles) {
+                for (let i = game.bossMissiles.length - 1; i >= 0; i--) {
+                    const m = game.bossMissiles[i];
+                    if (m.shouldDestroy) continue;
+                    if (Math.sqrt((m.x - cx) ** 2 + (m.y - cy) ** 2) < hitRadius) {
+                        m.shouldDestroy = true;
+                        this.shouldDestroy = true;
+                        return;
+                    }
                 }
             }
-        }
-        
-        // 检测击中月牙追踪弹（一发摧毁）
-        if (game.crescentBullets) {
-            for (let i = game.crescentBullets.length - 1; i >= 0; i--) {
-                const c = game.crescentBullets[i];
-                if (c.shouldDestroy) continue;
-                const dist = Math.sqrt((c.x + c.width / 2 - cx) ** 2 + (c.y + c.height / 2 - cy) ** 2);
-                if (dist < hitRadius) {
-                    c.shouldDestroy = true;
-                    this.shouldDestroy = true;
-                    return;
+            
+            // 检测击中月牙追踪弹（一发摧毁）
+            if (game.crescentBullets) {
+                for (let i = game.crescentBullets.length - 1; i >= 0; i--) {
+                    const c = game.crescentBullets[i];
+                    if (c.shouldDestroy) continue;
+                    if (Math.sqrt((c.x + c.width / 2 - cx) ** 2 + (c.y + c.height / 2 - cy) ** 2) < hitRadius) {
+                        c.shouldDestroy = true;
+                        this.shouldDestroy = true;
+                        return;
+                    }
                 }
             }
-        }
-        
-        // 检测击中被策反的导弹（一发摧毁）
-        if (game.missiles) {
-            for (let i = game.missiles.length - 1; i >= 0; i--) {
-                const m = game.missiles[i];
-                if (!m.isReversed || m.shouldDestroy) continue;
-                const dist = Math.sqrt((m.x - cx) ** 2 + (m.y - cy) ** 2);
-                if (dist < hitRadius) {
-                    m.shouldDestroy = true;
-                    this.shouldDestroy = true;
-                    return;
+            
+            // 检测击中被策反的导弹（一发摧毁）
+            if (game.missiles) {
+                for (let i = game.missiles.length - 1; i >= 0; i--) {
+                    const m = game.missiles[i];
+                    if (!m.isReversed || m.shouldDestroy) continue;
+                    if (Math.sqrt((m.x - cx) ** 2 + (m.y - cy) ** 2) < hitRadius) {
+                        m.shouldDestroy = true;
+                        this.shouldDestroy = true;
+                        return;
+                    }
                 }
             }
-        }
-        
-        // 检测击中机雷（100%伤害）
-        if (game.mines) {
-            for (let i = game.mines.length - 1; i >= 0; i--) {
-                const m = game.mines[i];
-                if (m.isExploded || m.shouldDestroy) continue;
-                const mx = m.x + m.width / 2;
-                const my = m.y + m.height / 2;
-                const dist = Math.sqrt((mx - cx) ** 2 + (my - cy) ** 2);
-                if (dist < hitRadius) {
-                    m.takeDamage(this.damage);
-                    this.shouldDestroy = true;
-                    return;
+            
+            // 检测击中机雷（100%伤害）
+            if (game.mines) {
+                for (let i = game.mines.length - 1; i >= 0; i--) {
+                    const m = game.mines[i];
+                    if (m.isExploded || m.shouldDestroy) continue;
+                    const mx = m.x + m.width / 2;
+                    const my = m.y + m.height / 2;
+                    if (Math.sqrt((mx - cx) ** 2 + (my - cy) ** 2) < hitRadius) {
+                        m.takeDamage(this.damage);
+                        this.shouldDestroy = true;
+                        return;
+                    }
                 }
             }
         }
@@ -2059,5 +2193,6 @@ WEAPON_TYPES.gun = Gun;
 WEAPON_TYPES.laser_spear = LaserSpear;
 WEAPON_TYPES.missile_launcher = MissileLauncher; 
 WEAPON_TYPES.pulse_shield = PulseShield;
+WEAPON_TYPES.emp = EMP;
 WEAPON_TYPES.super_weapon = SuperWeapon;
 WEAPON_TYPES.ciws = CIWS; 

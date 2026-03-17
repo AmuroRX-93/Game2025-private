@@ -627,10 +627,10 @@ class UglyEmperor extends GameObject {
                 shouldTakeDamage = true;
             }
         } else {
-            // 二阶段：只有导弹能造成伤害，且导弹伤害x3
+            // 二阶段：只有导弹能造成伤害，1.5倍伤害
             if (damageSource === 'missile') {
                 shouldTakeDamage = true;
-                actualDamage = damage * 3;
+                actualDamage = Math.round(damage * 1.5);
             }
         }
         
@@ -671,7 +671,7 @@ class UglyEmperor extends GameObject {
     tryHeal() {
         const now = Date.now();
         const hs = this.healSystem;
-        const interval = this.phaseTwo.activated ? 300 : hs.interval;
+        const interval = this.phaseTwo.activated ? 1000 : hs.interval;
         if (now - hs.lastAttempt < interval) return;
         hs.lastAttempt = now;
         if (this.health >= this.maxHealth) return;

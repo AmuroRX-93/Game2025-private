@@ -966,7 +966,8 @@ class Game {
         ];
         
         const hiddenAbilityOptions = [
-            { type: 'pulse_shield', name: '脉冲护盾', color: '#00FFFF', desc: '70%伤害减免 | 15秒持续 | 40秒冷却' }
+            { type: 'pulse_shield', name: '脉冲护盾', color: '#00FFFF', desc: '70%伤害减免 | 15秒持续 | 40秒冷却' },
+            { type: 'emp', name: 'EMP电磁脉冲', color: '#66CCFF', desc: '范围伤害+僵直 | 距离越远伤害越低 | 30秒冷却' }
         ];
         
         // 五个武器槽位配置
@@ -1160,7 +1161,8 @@ class Game {
         ];
         
         const hiddenAbilityOptions = [
-            { type: 'pulse_shield', name: '脉冲护盾', color: '#00FFFF', desc: '70%伤害减免 | 15秒持续 | 40秒冷却' }
+            { type: 'pulse_shield', name: '脉冲护盾', color: '#00FFFF', desc: '70%伤害减免 | 15秒持续 | 40秒冷却' },
+            { type: 'emp', name: 'EMP电磁脉冲', color: '#66CCFF', desc: '范围伤害+僵直 | 距离越远伤害越低 | 30秒冷却' }
         ];
         
         const weaponSlots = [
