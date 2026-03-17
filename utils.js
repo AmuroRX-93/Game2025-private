@@ -33,6 +33,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // 键盘事件处理 - 在游戏对象创建后绑定
     document.addEventListener('keydown', (e) => {
         keys[e.key] = true;
+        if (e.key.length === 1) {
+            keys[e.key.toLowerCase()] = true;
+            keys[e.key.toUpperCase()] = true;
+        }
         
         // 游戏模式选择（支持键盘和点击）
         if (gameState.showModeSelection) {
@@ -152,6 +156,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.addEventListener('keyup', (e) => {
         keys[e.key] = false;
+        if (e.key.length === 1) {
+            keys[e.key.toLowerCase()] = false;
+            keys[e.key.toUpperCase()] = false;
+        }
         
         // Shift键处理现在由玩家自己在update中检查keys['Shift']
         // 不再直接修改 player.isSprinting

@@ -38,7 +38,7 @@ class Sword extends Weapon {
         super({
             type: 'sword',
             name: '脉冲光束军刀',
-            damage: 150,
+            damage: 50,
             cooldown: 4800 // 4.8秒冷却
         });
         
@@ -1644,7 +1644,7 @@ class EMP extends Weapon {
         super({
             type: 'emp',
             name: 'EMP电磁脉冲',
-            damage: 30,
+            damage: 100,
             cooldown: 30000
         });
         
