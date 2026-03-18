@@ -87,11 +87,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
         
-        // 胜利画面按键处理（按任意键返回主菜单）
-        if (gameState.victory) {
-            if (game) {
-                game.backToMainMenu();
-            }
+        // 死亡/胜利画面只响应空格键（已在上方处理）
+        if (gameState.gameOver || gameState.victory) {
             return;
         }
         
