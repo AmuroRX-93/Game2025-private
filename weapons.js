@@ -833,7 +833,7 @@ class LaserSpear extends Weapon {
             cooldown: 2500 // 2.5秒冷却
         });
         
-        this.chargeRange = 6 * 50; // 冲锋距离：6单位 (转换为像素)
+        this.chargeRange = 8 * 50; // 冲锋距离：8单位 (转换为像素)
         
         // 冲锋攻击状态
         this.isCharging = false; // 冲锋状态
@@ -926,7 +926,7 @@ class LaserSpear extends Weapon {
                 Math.pow(enemyCenterY - playerCenterY, 2)
             );
             
-            const hitDistance = (player.width + enemy.width) / 2 + 15; // 长枪额外触及距离
+            const hitDistance = (player.width + enemy.width) / 2 + 40; // 长枪额外触及距离
             
             if (distance <= hitDistance) {
                 // 击中敌人
@@ -2562,6 +2562,448 @@ class CIWSBullet extends GameObject {
     }
 }
 
+// 电浆场类
+class PlasmaField {
+    constructor(x, y, radius) {
+        this.x = x;
+        this.y = y;
+        this.radius = radius;
+        this.duration = 1000;
+        this.startTime = Date.now();
+        this.damageInterval = 250;
+        this.damage = 3;
+        this.lastDamageTime = Date.now();
+        this.shouldDestroy = false;
+    }
+    
+    update() {
+        if (Date.now() - this.startTime >= this.duration) {
+            this.shouldDestroy = true;
+            return;
+        }
+        
+        if (Date.now() - this.lastDamageTime >= this.damageInterval) {
+            this.lastDamageTime = Date.now();
+            this.damageEnemies();
+        }
+    }
+    
+    damageEnemies() {
+        const allEnemies = [...game.enemies];
+        if (game.boss && game.boss.health > 0) {
+            allEnemies.push(game.boss);
+        }
+        
+        for (const enemy of allEnemies) {
+            const dx = enemy.x + enemy.width / 2 - this.x;
+            const dy = enemy.y + enemy.height / 2 - this.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance <= this.radius) {
+                enemy.takeDamage(this.damage, 'plasma');
+                gameState.score += this.damage;
+                gameState.totalDamage += this.damage;
+            }
+        }
+    }
+    
+    draw(ctx) {
+        const elapsed = Date.now() - this.startTime;
+        const progress = elapsed / this.duration;
+        const alpha = Math.max(0, 0.7 * (1 - progress * 0.5));
+        
+        ctx.save();
+        
+        const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.radius);
+        gradient.addColorStop(0, `rgba(0, 255, 180, ${alpha * 0.6})`);
+        gradient.addColorStop(0.4, `rgba(0, 200, 255, ${alpha * 0.35})`);
+        gradient.addColorStop(0.7, `rgba(80, 120, 255, ${alpha * 0.2})`);
+        gradient.addColorStop(1, 'rgba(0, 80, 200, 0)');
+        
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 电弧效果
+        const arcCount = 4 + Math.floor(Math.random() * 3);
+        ctx.strokeStyle = `rgba(100, 255, 255, ${alpha * 0.8})`;
+        ctx.lineWidth = 1.5;
+        ctx.shadowColor = '#00FFCC';
+        ctx.shadowBlur = 6;
+        for (let i = 0; i < arcCount; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const len = this.radius * (0.3 + Math.random() * 0.6);
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y);
+            const segments = 3 + Math.floor(Math.random() * 3);
+            for (let s = 1; s <= segments; s++) {
+                const t = s / segments;
+                const ax = this.x + Math.cos(angle) * len * t + (Math.random() - 0.5) * 12;
+                const ay = this.y + Math.sin(angle) * len * t + (Math.random() - 0.5) * 12;
+                ctx.lineTo(ax, ay);
+            }
+            ctx.stroke();
+        }
+        
+        // 边缘脉冲环
+        ctx.strokeStyle = `rgba(0, 220, 255, ${alpha * 0.4 * (0.5 + 0.5 * Math.sin(elapsed * 0.01))})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius * (0.85 + 0.15 * Math.sin(elapsed * 0.008)), 0, Math.PI * 2);
+        ctx.stroke();
+        
+        ctx.restore();
+    }
+}
+
+// 电浆飞弹类 - 近炸引信
+class PlasmaMissile {
+    constructor(x, y, targetX, targetY, speed = 10) {
+        this.x = x;
+        this.y = y;
+        this.targetX = targetX;
+        this.targetY = targetY;
+        this.maxSpeed = speed;
+        this.currentSpeed = speed * 0.6;
+        this.shouldDestroy = false;
+        
+        this.fuseRadius = 55;
+        this.fieldRadius = Math.round(this.fuseRadius * 1.3);
+        
+        this.maxLifetime = 3000;
+        this.startTime = Date.now();
+        this.trackingRadius = 120;
+        this.currentTarget = null;
+        this.strongTrackingDuration = 1100;
+        this.accelerationDuration = 300;
+        
+        this.trail = [];
+        this.maxTrailLength = 10;
+        
+        const dx = this.targetX - this.x;
+        const dy = this.targetY - this.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance > 0) {
+            this.vx = (dx / distance) * this.currentSpeed;
+            this.vy = (dy / distance) * this.currentSpeed;
+        } else {
+            this.vx = 0;
+            this.vy = this.currentSpeed;
+        }
+    }
+    
+    update() {
+        if (Date.now() - this.startTime > this.maxLifetime) {
+            this.detonate();
+            return;
+        }
+        
+        this.updateSpeed();
+        this.findTarget();
+        if (this.currentTarget) {
+            this.trackTarget();
+        }
+        
+        this.x += this.vx;
+        this.y += this.vy;
+        
+        this.trail.push({ x: this.x, y: this.y, time: Date.now() });
+        if (this.trail.length > this.maxTrailLength) {
+            this.trail.shift();
+        }
+        
+        if (this.x < -20 || this.x > GAME_CONFIG.WIDTH + 20 ||
+            this.y < -20 || this.y > GAME_CONFIG.HEIGHT + 20) {
+            this.detonate();
+            return;
+        }
+        
+        this.checkProximity();
+    }
+    
+    updateSpeed() {
+        const elapsedTime = Date.now() - this.startTime;
+        if (elapsedTime <= this.accelerationDuration) {
+            const accelerationProgress = elapsedTime / this.accelerationDuration;
+            const speedRatio = 0.6 + 0.4 * accelerationProgress;
+            this.currentSpeed = this.maxSpeed * speedRatio;
+        } else {
+            this.currentSpeed = this.maxSpeed;
+        }
+    }
+    
+    findTarget() {
+        const elapsedTime = Date.now() - this.startTime;
+        let trackingRadius;
+        if (elapsedTime <= this.strongTrackingDuration) {
+            trackingRadius = 450;
+        } else {
+            trackingRadius = this.trackingRadius;
+        }
+        
+        let closestTarget = null;
+        let closestDistance = trackingRadius;
+        
+        const allEnemies = [...game.enemies];
+        if (game.boss && game.boss.health > 0) {
+            let bossTargetable = true;
+            if (game.boss instanceof StarDevourer) {
+                if (game.boss.phaseTwo.activated && game.boss.phaseTwo.isInvisible &&
+                    !game.boss.isWithinDetectionRange()) {
+                    bossTargetable = false;
+                }
+                if (game.boss.blindnessSkill && game.boss.blindnessSkill.isActive) {
+                    bossTargetable = false;
+                }
+            }
+            if (bossTargetable) allEnemies.push(game.boss);
+        }
+        
+        allEnemies.forEach(enemy => {
+            const dx = enemy.x + enemy.width / 2 - this.x;
+            const dy = enemy.y + enemy.height / 2 - this.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance < closestDistance) {
+                closestTarget = enemy;
+                closestDistance = distance;
+            }
+        });
+        
+        this.currentTarget = closestTarget;
+    }
+    
+    trackTarget() {
+        if (!this.currentTarget) return;
+        
+        const elapsedTime = Date.now() - this.startTime;
+        const fadeOutDuration = 500;
+        
+        let trackingStrength = 0;
+        if (elapsedTime <= this.strongTrackingDuration) {
+            trackingStrength = 1.0;
+        } else if (elapsedTime <= this.strongTrackingDuration + fadeOutDuration) {
+            trackingStrength = 1.0 - (elapsedTime - this.strongTrackingDuration) / fadeOutDuration;
+        }
+        
+        if (trackingStrength <= 0) return;
+        
+        const targetX = this.currentTarget.x + this.currentTarget.width / 2;
+        const targetY = this.currentTarget.y + this.currentTarget.height / 2;
+        const dx = targetX - this.x;
+        const dy = targetY - this.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance > 0) {
+            const turnRate = 0.15 * trackingStrength;
+            const newVx = (dx / distance) * this.currentSpeed;
+            const newVy = (dy / distance) * this.currentSpeed;
+            this.vx = this.vx * (1 - turnRate) + newVx * turnRate;
+            this.vy = this.vy * (1 - turnRate) + newVy * turnRate;
+            
+            const actualSpeed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+            if (actualSpeed > 0) {
+                this.vx = (this.vx / actualSpeed) * this.currentSpeed;
+                this.vy = (this.vy / actualSpeed) * this.currentSpeed;
+            }
+        }
+    }
+    
+    checkProximity() {
+        const allEnemies = [...game.enemies];
+        if (game.boss && game.boss.health > 0) {
+            allEnemies.push(game.boss);
+        }
+        
+        for (const enemy of allEnemies) {
+            const dx = enemy.x + enemy.width / 2 - this.x;
+            const dy = enemy.y + enemy.height / 2 - this.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance < this.fuseRadius) {
+                this.detonate();
+                return;
+            }
+        }
+    }
+    
+    detonate() {
+        if (this.shouldDestroy) return;
+        
+        if (!game.plasmaFields) game.plasmaFields = [];
+        game.plasmaFields.push(new PlasmaField(this.x, this.y, this.fieldRadius));
+        
+        if (!game.explosions) game.explosions = [];
+        game.explosions.push({
+            x: this.x,
+            y: this.y,
+            startTime: Date.now(),
+            duration: 350,
+            isBossMissile: false,
+            isSuperMissile: false,
+            explosionRadius: this.fuseRadius,
+            isPlasma: true
+        });
+        
+        this.shouldDestroy = true;
+    }
+    
+    draw(ctx) {
+        // 尾迹
+        if (this.trail.length > 1) {
+            ctx.save();
+            for (let i = 1; i < this.trail.length; i++) {
+                const alpha = (i / this.trail.length) * 0.7;
+                ctx.globalAlpha = alpha;
+                ctx.strokeStyle = '#00CCA0';
+                ctx.lineWidth = 2 + (i / this.trail.length) * 1.5;
+                ctx.beginPath();
+                ctx.moveTo(this.trail[i - 1].x, this.trail[i - 1].y);
+                ctx.lineTo(this.trail[i].x, this.trail[i].y);
+                ctx.stroke();
+            }
+            ctx.restore();
+        }
+        
+        const angle = Math.atan2(this.vy, this.vx);
+        
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(angle);
+        
+        // 飞弹主体
+        ctx.fillStyle = '#006666';
+        ctx.fillRect(-5, -2.5, 10, 5);
+        
+        // 弹头
+        ctx.fillStyle = '#00FFCC';
+        ctx.fillRect(5, -1.5, 3, 3);
+        
+        // 尾焰
+        ctx.fillStyle = '#00AA88';
+        ctx.fillRect(-9, -1.5, 4, 3);
+        
+        // 电浆光晕
+        ctx.globalAlpha = 0.4 + 0.2 * Math.sin(Date.now() * 0.015);
+        ctx.strokeStyle = '#00FFCC';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(-6, -3.5, 12, 7);
+        
+        ctx.restore();
+    }
+}
+
+// 6连电浆飞弹发射器
+class PlasmaMissileLauncher extends Weapon {
+    constructor() {
+        super({
+            type: 'plasma_missile',
+            name: '6连电浆飞弹',
+            damage: 1,
+            cooldown: 5000
+        });
+        
+        this.missilesPerSalvo = 6;
+        this.missileSpeed = 10;
+        this.launchDelay = 100;
+        
+        this.isLaunching = false;
+        this.launchStartTime = 0;
+        this.missilesFired = 0;
+    }
+    
+    canUse() {
+        return super.canUse() && !this.isLaunching;
+    }
+    
+    use(player) {
+        if (!this.canUse()) return false;
+        this.lastUseTime = Date.now();
+        this.isLaunching = true;
+        this.launchStartTime = Date.now();
+        this.missilesFired = 0;
+        this.firePlasmaMissile(player);
+        this.missilesFired++;
+        return true;
+    }
+    
+    firePlasmaMissile(player) {
+        const launchX = player.x + player.width / 2;
+        const launchY = player.y + player.height / 2;
+        
+        let targetX, targetY;
+        if (gameState.lockMode === 'manual') {
+            targetX = mouse.x;
+            targetY = mouse.y;
+        } else {
+            const target = player.getCurrentTarget();
+            if (target) {
+                targetX = target.x + target.width / 2;
+                targetY = target.y + target.height / 2;
+            } else {
+                const angle = player.direction * Math.PI / 180;
+                targetX = launchX + Math.cos(angle) * 300;
+                targetY = launchY + Math.sin(angle) * 300;
+            }
+        }
+        
+        const spread = 25;
+        const randomOffsetX = (Math.random() - 0.5) * spread;
+        const randomOffsetY = (Math.random() - 0.5) * spread;
+        
+        const missile = new PlasmaMissile(
+            launchX, launchY,
+            targetX + randomOffsetX,
+            targetY + randomOffsetY,
+            this.missileSpeed
+        );
+        
+        if (!game.plasmaMissiles) game.plasmaMissiles = [];
+        game.plasmaMissiles.push(missile);
+    }
+    
+    update(player) {
+        if (this.isLaunching) {
+            const elapsed = Date.now() - this.launchStartTime;
+            const nextMissileTime = this.missilesFired * this.launchDelay;
+            
+            if (elapsed >= nextMissileTime && this.missilesFired < this.missilesPerSalvo) {
+                this.firePlasmaMissile(player);
+                this.missilesFired++;
+            }
+            
+            if (this.missilesFired >= this.missilesPerSalvo) {
+                this.isLaunching = false;
+            }
+        }
+    }
+    
+    draw(ctx, player) {
+        if (this.isLaunching) {
+            const px = player.x + player.width / 2;
+            const py = player.y + player.height / 2;
+            
+            ctx.save();
+            ctx.globalAlpha = 0.5;
+            ctx.strokeStyle = '#00FFCC';
+            ctx.lineWidth = 2;
+            ctx.shadowColor = '#00FFCC';
+            ctx.shadowBlur = 8;
+            ctx.beginPath();
+            ctx.arc(px, py, 30, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+        }
+    }
+    
+    getStatus() {
+        if (this.isLaunching) return { text: '发射中...', color: '#00FFCC' };
+        const remaining = Math.max(0, this.cooldown - (Date.now() - this.lastUseTime));
+        if (remaining > 0) return { text: `冷却: ${(remaining / 1000).toFixed(1)}s`, color: '#888888' };
+        return { text: '就绪', color: '#00FFCC' };
+    }
+}
+
 // 填充武器类型映射
 WEAPON_TYPES.sword = Sword;
 WEAPON_TYPES.gun = Gun; 
@@ -2571,4 +3013,5 @@ WEAPON_TYPES.laser_rifle = LaserRifle;
 WEAPON_TYPES.pulse_shield = PulseShield;
 WEAPON_TYPES.emp = EMP;
 WEAPON_TYPES.super_weapon = SuperWeapon;
-WEAPON_TYPES.ciws = CIWS; 
+WEAPON_TYPES.ciws = CIWS;
+WEAPON_TYPES.plasma_missile = PlasmaMissileLauncher;
