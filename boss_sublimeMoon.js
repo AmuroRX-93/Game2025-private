@@ -337,59 +337,11 @@ class SublimeMoon extends GameObject {
     }
     
     checkDodge() {
-        // 如果正在闪避，不检测新的闪避
-        if (this.isDodging) return;
-        
-        // 检查全局闪避冷却时间
-        const now = Date.now();
-        if (now - this.lastDodgeTime < this.dodgeCooldown) return;
-        
-        // 检查玩家是否锁定并攻击
-        if (!game.player) return;
-        
-        const target = game.player.getCurrentTarget();
-        if (target !== this) return; // 玩家没有锁定这个Boss
-        
-        if (!game.player.isUsingMeleeWeapon()) return; // 玩家没有使用近战武器
-        
-        // 防止重复触发闪避
-        if (now - this.lastPlayerAttackCheck < 300) return; // 300ms内只能触发一次
-        this.lastPlayerAttackCheck = now;
-        
-        // 概率检测
-        if (Math.random() < this.dodgeChance) {
-            this.startDodge();
-        }
+        checkBossMeleeDodge(this);
     }
     
     startDodge() {
-        this.isDodging = true;
-        this.dodgeStartTime = Date.now();
-        
-        // 保存原始速度
-        this.originalVx = this.vx;
-        this.originalVy = this.vy;
-        
-        this.lastDodgeTime = this.dodgeStartTime; // 更新全局闪避时间
-        
-        // 计算从Boss指向玩家的角度
-        const playerX = game.player.x + game.player.width / 2;
-        const playerY = game.player.y + game.player.height / 2;
-        const bossX = this.x + this.width / 2;
-        const bossY = this.y + this.height / 2;
-        
-        const dx = playerX - bossX;
-        const dy = playerY - bossY;
-        const toPlayerAngle = Math.atan2(dy, dx);
-        
-        // 向背离主角的180度方向闪避（后退闪避）
-        const awayFromPlayerAngle = toPlayerAngle + Math.PI; // 相反方向
-        // 添加一些随机变化，避免完全直线后退（在后退方向±30度范围内）
-        const angleVariation = (Math.random() - 0.5) * Math.PI / 3; // ±30度随机变化
-        const dodgeAngle = awayFromPlayerAngle + angleVariation;
-        
-        this.vx = Math.cos(dodgeAngle) * this.dodgeSpeed;
-        this.vy = Math.sin(dodgeAngle) * this.dodgeSpeed;
+        startBossDodge(this);
     }
     
     updateDodge() {
@@ -565,10 +517,10 @@ class SublimeMoon extends GameObject {
     checkMissileLaunch() {
         if (!game.player || !this.canLaunchMissiles()) return;
         
-        const missileTarget = getBossTarget();
-        if (!missileTarget) return;
-        const playerCenterX = missileTarget.x + missileTarget.width / 2;
-        const playerCenterY = missileTarget.y + missileTarget.height / 2;
+        const missileTC = getBossTargetCenter();
+        if (!missileTC) return;
+        const playerCenterX = missileTC.x;
+        const playerCenterY = missileTC.y;
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
         
@@ -601,12 +553,12 @@ class SublimeMoon extends GameObject {
     fireBossMissile() {
         if (!game.player) return;
         
-        const fireTarget = getBossTarget();
-        if (!fireTarget) return;
+        const fireTC = getBossTargetCenter();
+        if (!fireTC) return;
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
-        const playerCenterX = fireTarget.x + fireTarget.width / 2;
-        const playerCenterY = fireTarget.y + fireTarget.height / 2;
+        const playerCenterX = fireTC.x;
+        const playerCenterY = fireTC.y;
         
         const spreadAngle = (Math.random() - 0.5) * Math.PI / 6;
         const baseAngle = Math.atan2(playerCenterY - bossCenterY, playerCenterX - bossCenterX);
@@ -707,10 +659,10 @@ class SublimeMoon extends GameObject {
     // 冲刺向玩家
     chargeTowardsPlayer() {
         if (!game.player) return;
-        const chargeTarget = getBossTarget();
-        if (!chargeTarget) return;
-        const playerCenterX = chargeTarget.x + chargeTarget.width / 2;
-        const playerCenterY = chargeTarget.y + chargeTarget.height / 2;
+        const chargeTC = getBossTargetCenter();
+        if (!chargeTC) return;
+        const playerCenterX = chargeTC.x;
+        const playerCenterY = chargeTC.y;
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
         
@@ -728,18 +680,7 @@ class SublimeMoon extends GameObject {
     
     // 获取与玩家的距离
     getDistanceToPlayer() {
-        if (!game.player) return Infinity;
-        const distTarget = getBossTarget();
-        if (!distTarget) return Infinity;
-        const playerCenterX = distTarget.x + distTarget.width / 2;
-        const playerCenterY = distTarget.y + distTarget.height / 2;
-        const bossCenterX = this.x + this.width / 2;
-        const bossCenterY = this.y + this.height / 2;
-        
-        return Math.sqrt(
-            Math.pow(playerCenterX - bossCenterX, 2) + 
-            Math.pow(playerCenterY - bossCenterY, 2)
-        );
+        return getDistanceFromBoss(this);
     }
     
     // 检查是否应该传送回旋斩（检测玩家远程攻击）
@@ -809,9 +750,10 @@ class SublimeMoon extends GameObject {
         this.dashStartTime = Date.now();
         this.dashCount++;
         
-        const dashAimTarget = getBossTarget();
-        const playerX = dashAimTarget ? dashAimTarget.x + dashAimTarget.width / 2 : game.player.x + game.player.width / 2;
-        const playerY = dashAimTarget ? dashAimTarget.y + dashAimTarget.height / 2 : game.player.y + game.player.height / 2;
+        const dashTC = getBossTargetCenter();
+        if (!dashTC) return;
+        const playerX = dashTC.x;
+        const playerY = dashTC.y;
         const angle = Math.random() * Math.PI * 2;
         const distance = 40 + Math.random() * 30;
         
@@ -1043,12 +985,12 @@ class SublimeMoon extends GameObject {
         boomerang.attackStartTime = Date.now();
         boomerang.hasHitPlayer = false;
         
-        const boomTarget = getBossTarget();
-        if (!boomTarget) return;
-        const playerX = boomTarget.x + boomTarget.width / 2;
-        const playerY = boomTarget.y + boomTarget.height / 2;
-        const playerVx = boomTarget.vx || 0;
-        const playerVy = boomTarget.vy || 0;
+        const boomTC = getBossTargetCenter();
+        if (!boomTC) return;
+        const playerX = boomTC.x;
+        const playerY = boomTC.y;
+        const playerVx = boomTC.entity.vx || 0;
+        const playerVy = boomTC.entity.vy || 0;
         
         boomerang.attackTarget = {
             x: playerX + playerVx * 0.5, // 0.5秒预测
@@ -1255,9 +1197,10 @@ class SublimeMoon extends GameObject {
             }
         }
         
-        const slashTarget = getBossTarget();
-        const playerCenterX = slashTarget ? slashTarget.x + slashTarget.width / 2 : game.player.x + game.player.width / 2;
-        const playerCenterY = slashTarget ? slashTarget.y + slashTarget.height / 2 : game.player.y + game.player.height / 2;
+        const slashTC = getBossTargetCenter();
+        if (!slashTC) return;
+        const playerCenterX = slashTC.x;
+        const playerCenterY = slashTC.y;
         
         const distance = Math.sqrt(
             Math.pow(playerCenterX - bossCenterX, 2) + 
@@ -1335,9 +1278,10 @@ class SublimeMoon extends GameObject {
         // 检查瞬移冷却
         if (now - this.lastTeleport < this.teleportCooldown) return;
         
-        const teleTarget = getBossTarget();
-        const playerCenterX = teleTarget ? teleTarget.x + teleTarget.width / 2 : game.player.x + game.player.width / 2;
-        const playerCenterY = teleTarget ? teleTarget.y + teleTarget.height / 2 : game.player.y + game.player.height / 2;
+        const teleTC = getBossTargetCenter();
+        if (!teleTC) return;
+        const playerCenterX = teleTC.x;
+        const playerCenterY = teleTC.y;
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
         
@@ -1360,9 +1304,10 @@ class SublimeMoon extends GameObject {
         // 创建瞬移前的特效
         this.createTeleportEffect(this.x + this.width / 2, this.y + this.height / 2, 'departure');
         
-        const tpTarget = getBossTarget();
-        const playerCenterX = tpTarget ? tpTarget.x + tpTarget.width / 2 : game.player.x + game.player.width / 2;
-        const playerCenterY = tpTarget ? tpTarget.y + tpTarget.height / 2 : game.player.y + game.player.height / 2;
+        const tpTC = getBossTargetCenter();
+        if (!tpTC) return;
+        const playerCenterX = tpTC.x;
+        const playerCenterY = tpTC.y;
         
         const playerDirection = game.player.direction * Math.PI / 180; // 转换为弧度
         
@@ -1411,9 +1356,10 @@ class SublimeMoon extends GameObject {
         const now = Date.now();
         if (now - this.lastCrescentBullet < this.crescentBulletCooldown) return;
         
-        const cbTarget = getBossTarget();
-        const cbTX = cbTarget ? cbTarget.x + cbTarget.width / 2 : game.player.x + game.player.width / 2;
-        const cbTY = cbTarget ? cbTarget.y + cbTarget.height / 2 : game.player.y + game.player.height / 2;
+        const cbTC = getBossTargetCenter();
+        if (!cbTC) return;
+        const cbTX = cbTC.x;
+        const cbTY = cbTC.y;
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
         
@@ -1442,11 +1388,12 @@ class SublimeMoon extends GameObject {
         }
         
         // 发射5颗月牙弹，呈扇形散布
-        const crescentTarget = getBossTarget();
+        const crescentTC = getBossTargetCenter();
+        if (!crescentTC) return;
         for (let i = 0; i < this.crescentBulletsPerSalvo; i++) {
             const spreadAngle = (i - 2) * (Math.PI / 8);
-            const playerCenterX = crescentTarget ? crescentTarget.x + crescentTarget.width / 2 : game.player.x + game.player.width / 2;
-            const playerCenterY = crescentTarget ? crescentTarget.y + crescentTarget.height / 2 : game.player.y + game.player.height / 2;
+            const playerCenterX = crescentTC.x;
+            const playerCenterY = crescentTC.y;
             const baseAngle = Math.atan2(playerCenterY - bossCenterY, playerCenterX - bossCenterX);
             const bulletAngle = baseAngle + spreadAngle;
             
@@ -1493,9 +1440,10 @@ class SublimeMoon extends GameObject {
         // 清除旧的分身
         game.iceClones = [];
         
-        const cloneSpawnTarget = getBossTarget();
-        const playerCenterX = cloneSpawnTarget ? cloneSpawnTarget.x + cloneSpawnTarget.width / 2 : game.player.x + game.player.width / 2;
-        const playerCenterY = cloneSpawnTarget ? cloneSpawnTarget.y + cloneSpawnTarget.height / 2 : game.player.y + game.player.height / 2;
+        const spawnTC = getBossTargetCenter();
+        if (!spawnTC) return;
+        const playerCenterX = spawnTC.x;
+        const playerCenterY = spawnTC.y;
         const radius = 250;
         
         // 创建4个分身，等距分布在玩家周围
@@ -1963,27 +1911,7 @@ class SublimeMoon extends GameObject {
     }
 
     drawLockIndicator(ctx) {
-        const centerX = this.x + this.width / 2;
-        const centerY = this.y + this.height / 2;
-        
-        // 跳动效果
-        const time = Date.now() * 0.008;
-        const bounce = Math.sin(time) * 3;
-        const y = this.y - 40 + bounce;
-        
-        // 绘制青色跳动倒三角
-        ctx.fillStyle = '#00CCFF';
-        ctx.beginPath();
-        ctx.moveTo(centerX, y);
-        ctx.lineTo(centerX - 10, y - 15);
-        ctx.lineTo(centerX + 10, y - 15);
-        ctx.closePath();
-        ctx.fill();
-        
-        // 添加白色边框使其更醒目
-        ctx.strokeStyle = 'white';
-        ctx.lineWidth = 2; // Boss的边框更粗
-        ctx.stroke();
+        drawBossLockIndicator(ctx, this, '#00CCFF', 'white');
     }
 } 
 
@@ -2023,9 +1951,9 @@ class IceClone extends GameObject {
         }
         
         if (game.player) {
-            const cloneFollowTarget = getBossTarget();
-            const playerCenterX = cloneFollowTarget ? cloneFollowTarget.x + cloneFollowTarget.width / 2 : this.x;
-            const playerCenterY = cloneFollowTarget ? cloneFollowTarget.y + cloneFollowTarget.height / 2 : this.y;
+            const followTC = getBossTargetCenter();
+            const playerCenterX = followTC ? followTC.x : this.x;
+            const playerCenterY = followTC ? followTC.y : this.y;
             
             // 根据相对角度和半径计算新位置
             const newX = playerCenterX + Math.cos(this.relativeAngle) * this.radius - this.width / 2;
@@ -2053,10 +1981,10 @@ class IceClone extends GameObject {
             game.crescentBullets = [];
         }
         
-        const cloneFireTarget = getBossTarget();
-        if (!cloneFireTarget) return;
-        const playerCenterX = cloneFireTarget.x + cloneFireTarget.width / 2;
-        const playerCenterY = cloneFireTarget.y + cloneFireTarget.height / 2;
+        const cloneFireTC = getBossTargetCenter();
+        if (!cloneFireTC) return;
+        const playerCenterX = cloneFireTC.x;
+        const playerCenterY = cloneFireTC.y;
         const cloneCenterX = this.x + this.width / 2;
         const cloneCenterY = this.y + this.height / 2;
         

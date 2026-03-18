@@ -15,6 +15,86 @@ function getBossTargetCenter() {
     return { x: target.x + target.width / 2, y: target.y + target.height / 2, entity: target };
 }
 
+function drawBossLockIndicator(ctx, entity, fillColor, strokeColor, opts = {}) {
+    const tipYOffset = opts.tipYOffset || -40;
+    const halfWidth = opts.halfWidth || 10;
+    const height = opts.height || 15;
+    const bounceAmp = opts.bounceAmp || 3;
+    const speed = opts.speed || 0.008;
+    const lineWidth = opts.lineWidth || 2;
+
+    const cx = entity.x + entity.width / 2;
+    const bounce = Math.sin(Date.now() * speed) * bounceAmp;
+    const tipY = entity.y + tipYOffset + bounce;
+
+    ctx.fillStyle = fillColor;
+    ctx.beginPath();
+    ctx.moveTo(cx, tipY);
+    ctx.lineTo(cx - halfWidth, tipY - height);
+    ctx.lineTo(cx + halfWidth, tipY - height);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = lineWidth;
+    ctx.stroke();
+}
+
+function checkBossMeleeDodge(boss) {
+    if (boss.isDodging) return;
+    const now = Date.now();
+    if (now - boss.lastDodgeTime < boss.dodgeCooldown) return;
+    if (!game.player) return;
+    const target = game.player.getCurrentTarget();
+    if (target !== boss) return;
+    if (!game.player.isUsingMeleeWeapon()) return;
+    if (now - boss.lastPlayerAttackCheck < 300) return;
+    boss.lastPlayerAttackCheck = now;
+    if (Math.random() < boss.dodgeChance) {
+        startBossDodge(boss);
+    }
+}
+
+function startBossDodge(boss) {
+    boss.isDodging = true;
+    boss.dodgeStartTime = Date.now();
+    boss.originalVx = boss.vx;
+    boss.originalVy = boss.vy;
+    boss.lastDodgeTime = boss.dodgeStartTime;
+
+    const playerX = game.player.x + game.player.width / 2;
+    const playerY = game.player.y + game.player.height / 2;
+    const bossX = boss.x + boss.width / 2;
+    const bossY = boss.y + boss.height / 2;
+    const dx = playerX - bossX;
+    const dy = playerY - bossY;
+    const toPlayerAngle = Math.atan2(dy, dx);
+    const awayAngle = toPlayerAngle + Math.PI;
+    const variation = (Math.random() - 0.5) * Math.PI / 3;
+    const dodgeAngle = awayAngle + variation;
+
+    boss.vx = Math.cos(dodgeAngle) * boss.dodgeSpeed;
+    boss.vy = Math.sin(dodgeAngle) * boss.dodgeSpeed;
+}
+
+function handleBossKill() {
+    game.boss = null;
+    gameState.score += 100;
+    gameState.bossKillCount++;
+    if (gameState.selectedGameMode === 'BOSS_BATTLE') {
+        gameState.bossSpawned = false;
+        game.showVictoryAndReturnToMenu();
+    }
+}
+
+function getDistanceFromBoss(boss) {
+    const tc = getBossTargetCenter();
+    if (!tc) return Infinity;
+    const bcx = boss.x + boss.width / 2;
+    const bcy = boss.y + boss.height / 2;
+    return Math.sqrt((tc.x - bcx) * (tc.x - bcx) + (tc.y - bcy) * (tc.y - bcy));
+}
+
 function updateUI() {
     document.getElementById('score').textContent = Math.floor(gameState.score);
 }

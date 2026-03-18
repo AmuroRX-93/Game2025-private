@@ -4,27 +4,114 @@ class Game {
         this.canvas = document.getElementById('gameCanvas');
         this.ctx = this.canvas.getContext('2d');
         this.player = null;
+        this.clearAllGameObjects();
+        
+        this.init();
+    }
+
+    getWeaponOptions() {
+        const weaponOptions = [
+            { type: 'gun', name: '自动步枪', color: '#4169E1', desc: '远程射击 | 高射速 | 预瞄功能' },
+            { type: 'sword', name: '脉冲光束军刀', color: '#ff6b6b', desc: '近战攻击 | 高伤害 | 刀推功能' },
+            { type: 'laser_spear', name: '镭射长枪', color: '#00FFFF', desc: '中距离突刺 | 蓄力攻击 | 推进功能' },
+            { type: 'cluster_missile', name: '分裂飞弹', color: '#FFD700', desc: '大弹近炸分裂8子弹 | 持续索敌 | 高追踪' },
+            { type: 'laser_rifle', name: '镭射步枪', color: '#FF4444', desc: '长按蓄力 | 预瞄射线 | 过热系统' }
+        ];
+        const shoulderWeaponOptions = [
+            { type: 'missile_launcher', name: '15连导弹发射器', color: '#FFD700', desc: '强追踪1.1秒 | 范围爆炸 | 高伤害' },
+            { type: 'ciws', name: '近防炮', color: '#00FF88', desc: '自动拦截制导武器 | 30发弹仓 | 优先打导弹' },
+            { type: 'plasma_missile', name: '6连电浆飞弹', color: '#00FFCC', desc: '近炸引信 | 电浆场持续伤害 | 可叠加' },
+            { type: 'super_weapon', name: '超级导弹', color: '#FF0000', desc: '100伤害 | 一次战斗只能用一次 | 占用双槽位' },
+            { type: 'moonlight_greatsword', name: '月光大剑', color: '#88CCFF', desc: '200伤害 | 超大范围光刃 | 占用4槽位 | 一次性' }
+        ];
+        const hiddenAbilityOptions = [
+            { type: 'pulse_shield', name: '脉冲护盾', color: '#00FFFF', desc: '70%伤害减免 | 15秒持续 | 40秒冷却' },
+            { type: 'emp', name: 'EMP电磁脉冲', color: '#66CCFF', desc: '范围伤害+僵直 | 距离越远伤害越低 | 30秒冷却' },
+            { type: 'counter_mech', name: '反制重击', color: '#FF8C00', desc: '3秒减伤40% | 反射50%伤害 | 50秒冷却' },
+            { type: 'decoy_clone', name: '诱饵分身', color: '#4488FF', desc: '释放3诱饵 | 4秒隐身 | 35秒冷却' },
+            { type: 'moonlight_greatsword', name: '月光大剑', color: '#88CCFF', desc: '200伤害 | 超大范围光刃 | 占用4槽位 | 一次性' }
+        ];
+        return { weaponOptions, shoulderWeaponOptions, hiddenAbilityOptions };
+    }
+
+    applyWeaponSlotLinkage(slotKey, newWeaponType) {
+        const mgSlots = ['rightHand', 'leftShoulder', 'rightShoulder', 'hiddenAbility'];
+        if (newWeaponType === 'moonlight_greatsword') {
+            mgSlots.forEach(k => { gameState.weaponConfig[k] = 'moonlight_greatsword'; });
+        } else {
+            const wasMG = mgSlots.some(k => gameState.weaponConfig[k] === 'moonlight_greatsword');
+            if (wasMG && mgSlots.includes(slotKey)) {
+                mgSlots.forEach(k => { if (gameState.weaponConfig[k] === 'moonlight_greatsword') gameState.weaponConfig[k] = null; });
+                gameState.weaponConfig[slotKey] = newWeaponType;
+            } else if (slotKey === 'leftShoulder' || slotKey === 'rightShoulder') {
+                if (newWeaponType === 'super_weapon') {
+                    gameState.weaponConfig.leftShoulder = 'super_weapon';
+                    gameState.weaponConfig.rightShoulder = 'super_weapon';
+                } else {
+                    const otherSlotKey = slotKey === 'leftShoulder' ? 'rightShoulder' : 'leftShoulder';
+                    if (gameState.weaponConfig[otherSlotKey] === 'super_weapon') {
+                        gameState.weaponConfig.leftShoulder = newWeaponType;
+                        gameState.weaponConfig.rightShoulder = newWeaponType;
+                    } else {
+                        gameState.weaponConfig[slotKey] = newWeaponType;
+                    }
+                }
+            } else {
+                gameState.weaponConfig[slotKey] = newWeaponType;
+            }
+        }
+    }
+
+    resetAllWeaponStates() {
+        if (!this.player) return;
+        const weapons = this.player.getAllWeapons();
+        weapons.forEach(weapon => {
+            if (weapon.type === 'sword') {
+                weapon.isDashing = false;
+                weapon.dashTarget = null;
+                weapon.isAttacking = false;
+                weapon.slashes = [];
+            }
+            if (weapon.type === 'laser_spear') {
+                weapon.isCharging = false;
+                weapon.impaledEnemies.clear();
+            }
+            if (weapon.type === 'missile_launcher' || weapon.type === 'plasma_missile') {
+                weapon.isLaunching = false;
+                weapon.missilesFired = 0;
+            }
+            if (weapon.type === 'decoy_clone') {
+                weapon.isStealthActive = false;
+            }
+            if (weapon.type === 'moonlight_greatsword') {
+                weapon.isUsed = false;
+                weapon.isAttacking = false;
+                weapon.slashes = [];
+            }
+        });
+    }
+
+    clearAllGameObjects() {
         this.enemies = [];
         this.bullets = [];
         this.missiles = [];
         this.bossMissiles = [];
         this.explosions = [];
-        this.spinSlashEffects = []; // 回旋斩特效数组
-        this.teleportEffects = []; // 传送特效数组
-        this.boomerangHitEffects = []; // 回旋镖命中特效数组
-        this.crescentBullets = []; // 月牙追踪弹数组
-        this.iceClones = []; // 冰之姬分身数组
-        this.mines = []; // 机雷数组
-        this.molotovs = []; // 燃烧瓶数组
-        this.starDevourerBullets = []; // 噬星者步枪子弹数组
-        this.ciwsBullets = []; // 近防炮子弹数组
-        this.plasmaMissiles = []; // 电浆飞弹数组
-        this.plasmaFields = []; // 电浆场数组
-        this.clusterMissiles = []; // 分裂飞弹母弹数组
-        this.decoys = []; // 诱饵分身数组
+        this.spinSlashEffects = [];
+        this.teleportEffects = [];
+        this.boomerangHitEffects = [];
+        this.crescentBullets = [];
+        this.iceClones = [];
+        this.mines = [];
+        this.molotovs = [];
+        this.chaosBullets = [];
+        this.starDevourerBullets = [];
+        this.ciwsBullets = [];
+        this.plasmaMissiles = [];
+        this.plasmaFields = [];
+        this.clusterMissiles = [];
+        this.decoys = [];
         this.boss = null;
-        
-        this.init();
     }
 
     init() {
@@ -54,18 +141,7 @@ class Game {
             const level = BOSS_LEVELS[levelId];
             if (level) {
                 // 清除上一场残留的投射物
-                this.mines = [];
-                this.molotovs = [];
-                this.chaosBullets = [];
-                this.crescentBullets = [];
-                this.iceClones = [];
-                this.starDevourerBullets = [];
-                this.ciwsBullets = [];
-                this.plasmaMissiles = [];
-                this.plasmaFields = [];
-                this.clusterMissiles = [];
-                this.decoys = [];
-                this.bossMissiles = [];
+                this.clearAllGameObjects();
                 
                 // 在屏幕边缘随机生成，远离玩家中心位置
                 const spawnPositions = [
@@ -140,32 +216,7 @@ class Game {
             this.player.vx = 0;               // 重置水平速度
             this.player.vy = 0;               // 重置垂直速度
             
-            // 重置所有武器的状态，防止武器卡在冲刺/冲锋状态
-            const weapons = this.player.getAllWeapons();
-            weapons.forEach(weapon => {
-                if (weapon.type === 'sword') {
-                    weapon.isDashing = false;
-                    weapon.dashTarget = null;
-                    weapon.isAttacking = false;
-                    weapon.slashes = [];
-                }
-                if (weapon.type === 'laser_spear') {
-                    weapon.isCharging = false;
-                    weapon.impaledEnemies.clear();
-                }
-                if (weapon.type === 'missile_launcher' || weapon.type === 'plasma_missile') {
-                    weapon.isLaunching = false;
-                    weapon.missilesFired = 0;
-                }
-                if (weapon.type === 'decoy_clone') {
-                    weapon.isStealthActive = false;
-                }
-                if (weapon.type === 'moonlight_greatsword') {
-                    weapon.isUsed = false;
-                    weapon.isAttacking = false;
-                    weapon.slashes = [];
-                }
-            });
+            this.resetAllWeaponStates();
         }
         
         // 如果是Boss战模式，根据选中的关卡生成Boss
@@ -266,49 +317,11 @@ class Game {
         // 重置维修包数量
         gameState.repairKits = gameState.maxRepairKits;
         
-        // 重置玩家武器状态（在清空玩家对象之前）
-        if (this.player) {
-            const weapons = this.player.getAllWeapons();
-            weapons.forEach(weapon => {
-                if (weapon.type === 'sword') {
-                    weapon.isDashing = false;
-                    weapon.dashTarget = null;
-                    weapon.isAttacking = false;
-                    weapon.slashes = [];
-                }
-                if (weapon.type === 'laser_spear') {
-                    weapon.isCharging = false;
-                    weapon.impaledEnemies.clear();
-                }
-                if (weapon.type === 'missile_launcher' || weapon.type === 'plasma_missile') {
-                    weapon.isLaunching = false;
-                    weapon.missilesFired = 0;
-                }
-                if (weapon.type === 'decoy_clone') {
-                    weapon.isStealthActive = false;
-                }
-            });
-        }
+        this.resetAllWeaponStates();
         
         // 清空游戏对象
         this.player = null;
-        this.enemies = [];
-        this.bullets = [];
-        this.missiles = [];
-        this.bossMissiles = [];
-        this.explosions = [];
-        this.spinSlashEffects = [];
-        this.teleportEffects = [];
-        this.boomerangHitEffects = [];
-        this.crescentBullets = [];
-        this.iceClones = [];
-        this.starDevourerBullets = [];
-        this.ciwsBullets = [];
-        this.plasmaMissiles = [];
-        this.plasmaFields = [];
-        this.clusterMissiles = [];
-        this.decoys = [];
-        this.boss = null;
+        this.clearAllGameObjects();
         
         // 清除所有键盘状态，防止角色不由自主移动
         for (let key in keys) {
@@ -330,20 +343,7 @@ class Game {
         
         // 游戏结束时只更新UI，不更新游戏对象
         if (gameState.gameOver) {
-            // 死亡时清理所有游戏对象，避免卡住
-            this.enemies = [];
-            this.bullets = [];
-            this.missiles = [];
-            this.bossMissiles = [];
-            this.crescentBullets = [];
-            this.iceClones = [];
-            this.starDevourerBullets = [];
-            this.ciwsBullets = [];
-            this.plasmaMissiles = [];
-            this.plasmaFields = [];
-            this.clusterMissiles = [];
-            this.decoys = [];
-            this.boss = null;
+            this.clearAllGameObjects();
             updateUI();
             return;
         }
@@ -530,14 +530,7 @@ class Game {
 
         // 检查Boss是否死亡（血量为0）- 统一入口
         if (this.boss && this.boss.health <= 0) {
-            this.boss = null;
-            gameState.score += 100;
-            gameState.bossKillCount++;
-            
-            if (gameState.selectedGameMode === 'BOSS_BATTLE') {
-                gameState.bossSpawned = false;
-                this.showVictoryAndReturnToMenu();
-            }
+            handleBossKill();
         }
 
         // 更新Boss
@@ -1049,29 +1042,7 @@ class Game {
         this.ctx.textAlign = 'center';
         this.ctx.fillText(`已选择：${currentMode.name}`, GAME_CONFIG.WIDTH / 2, 50);
         
-        const weaponOptions = [
-            { type: 'gun', name: '自动步枪', color: '#4169E1', desc: '远程射击 | 高射速 | 预瞄功能' },
-            { type: 'sword', name: '脉冲光束军刀', color: '#ff6b6b', desc: '近战攻击 | 高伤害 | 刀推功能' },
-            { type: 'laser_spear', name: '镭射长枪', color: '#00FFFF', desc: '中距离突刺 | 蓄力攻击 | 推进功能' },
-            { type: 'cluster_missile', name: '分裂飞弹', color: '#FFD700', desc: '大弹近炸分裂8子弹 | 持续索敌 | 高追踪' },
-            { type: 'laser_rifle', name: '镭射步枪', color: '#FF4444', desc: '长按蓄力 | 预瞄射线 | 过热系统' }
-        ];
-        
-        const shoulderWeaponOptions = [
-            { type: 'missile_launcher', name: '15连导弹发射器', color: '#FFD700', desc: '强追踪1.1秒 | 范围爆炸 | 高伤害' },
-            { type: 'ciws', name: '近防炮', color: '#00FF88', desc: '自动拦截制导武器 | 30发弹仓 | 优先打导弹' },
-            { type: 'plasma_missile', name: '6连电浆飞弹', color: '#00FFCC', desc: '近炸引信 | 电浆场持续伤害 | 可叠加' },
-            { type: 'super_weapon', name: '超级导弹', color: '#FF0000', desc: '100伤害 | 一次战斗只能用一次 | 占用双槽位' },
-            { type: 'moonlight_greatsword', name: '月光大剑', color: '#88CCFF', desc: '200伤害 | 超大范围光刃 | 占用4槽位 | 一次性' }
-        ];
-        
-        const hiddenAbilityOptions = [
-            { type: 'pulse_shield', name: '脉冲护盾', color: '#00FFFF', desc: '70%伤害减免 | 15秒持续 | 40秒冷却' },
-            { type: 'emp', name: 'EMP电磁脉冲', color: '#66CCFF', desc: '范围伤害+僵直 | 距离越远伤害越低 | 30秒冷却' },
-            { type: 'counter_mech', name: '反制重击', color: '#FF8C00', desc: '3秒减伤40% | 反射50%伤害 | 50秒冷却' },
-            { type: 'decoy_clone', name: '诱饵分身', color: '#4488FF', desc: '释放3诱饵 | 4秒隐身 | 35秒冷却' },
-            { type: 'moonlight_greatsword', name: '月光大剑', color: '#88CCFF', desc: '200伤害 | 超大范围光刃 | 占用4槽位 | 一次性' }
-        ];
+        const { weaponOptions, shoulderWeaponOptions, hiddenAbilityOptions } = this.getWeaponOptions();
         
         // 五个武器槽位配置
         const weaponSlots = [
@@ -1250,29 +1221,7 @@ class Game {
         this.ctx.textAlign = 'center';
         this.ctx.fillText('定制机甲', GAME_CONFIG.WIDTH / 2, 50);
         
-        const weaponOptions = [
-            { type: 'gun', name: '自动步枪', color: '#4169E1', desc: '远程射击 | 高射速 | 预瞄功能' },
-            { type: 'sword', name: '脉冲光束军刀', color: '#ff6b6b', desc: '近战攻击 | 高伤害 | 刀推功能' },
-            { type: 'laser_spear', name: '镭射长枪', color: '#00FFFF', desc: '中距离突刺 | 蓄力攻击 | 推进功能' },
-            { type: 'cluster_missile', name: '分裂飞弹', color: '#FFD700', desc: '大弹近炸分裂8子弹 | 持续索敌 | 高追踪' },
-            { type: 'laser_rifle', name: '镭射步枪', color: '#FF4444', desc: '长按蓄力 | 预瞄射线 | 过热系统' }
-        ];
-        
-        const shoulderWeaponOptions = [
-            { type: 'missile_launcher', name: '15连导弹发射器', color: '#FFD700', desc: '强追踪1.1秒 | 范围爆炸 | 高伤害' },
-            { type: 'ciws', name: '近防炮', color: '#00FF88', desc: '自动拦截制导武器 | 30发弹仓 | 优先打导弹' },
-            { type: 'plasma_missile', name: '6连电浆飞弹', color: '#00FFCC', desc: '近炸引信 | 电浆场持续伤害 | 可叠加' },
-            { type: 'super_weapon', name: '超级导弹', color: '#FF0000', desc: '100伤害 | 一次战斗只能用一次 | 占用双槽位' },
-            { type: 'moonlight_greatsword', name: '月光大剑', color: '#88CCFF', desc: '200伤害 | 超大范围光刃 | 占用4槽位 | 一次性' }
-        ];
-        
-        const hiddenAbilityOptions = [
-            { type: 'pulse_shield', name: '脉冲护盾', color: '#00FFFF', desc: '70%伤害减免 | 15秒持续 | 40秒冷却' },
-            { type: 'emp', name: 'EMP电磁脉冲', color: '#66CCFF', desc: '范围伤害+僵直 | 距离越远伤害越低 | 30秒冷却' },
-            { type: 'counter_mech', name: '反制重击', color: '#FF8C00', desc: '3秒减伤40% | 反射50%伤害 | 50秒冷却' },
-            { type: 'decoy_clone', name: '诱饵分身', color: '#4488FF', desc: '释放3诱饵 | 4秒隐身 | 35秒冷却' },
-            { type: 'moonlight_greatsword', name: '月光大剑', color: '#88CCFF', desc: '200伤害 | 超大范围光刃 | 占用4槽位 | 一次性' }
-        ];
+        const { weaponOptions, shoulderWeaponOptions, hiddenAbilityOptions } = this.getWeaponOptions();
         
         const weaponSlots = [
             { key: 'leftHand', name: '左手武器', keyHint: '(左键)', color: '#4169E1', options: weaponOptions },
@@ -2601,32 +2550,7 @@ class Game {
                             newWeaponType = options[nextIndex].type;
                         }
                         
-                        // 月光大剑联动：4槽位同步
-                        const mgSlots = ['rightHand', 'leftShoulder', 'rightShoulder', 'hiddenAbility'];
-                        if (newWeaponType === 'moonlight_greatsword') {
-                            mgSlots.forEach(k => { gameState.weaponConfig[k] = 'moonlight_greatsword'; });
-                        } else {
-                            const wasMG = mgSlots.some(k => gameState.weaponConfig[k] === 'moonlight_greatsword');
-                            if (wasMG && mgSlots.includes(button.slotKey)) {
-                                mgSlots.forEach(k => { if (gameState.weaponConfig[k] === 'moonlight_greatsword') gameState.weaponConfig[k] = null; });
-                                gameState.weaponConfig[button.slotKey] = newWeaponType;
-                            } else if (button.slotKey === 'leftShoulder' || button.slotKey === 'rightShoulder') {
-                                if (newWeaponType === 'super_weapon') {
-                                    gameState.weaponConfig.leftShoulder = 'super_weapon';
-                                    gameState.weaponConfig.rightShoulder = 'super_weapon';
-                                } else {
-                                    const otherSlotKey = button.slotKey === 'leftShoulder' ? 'rightShoulder' : 'leftShoulder';
-                                    if (gameState.weaponConfig[otherSlotKey] === 'super_weapon') {
-                                        gameState.weaponConfig.leftShoulder = newWeaponType;
-                                        gameState.weaponConfig.rightShoulder = newWeaponType;
-                                    } else {
-                                        gameState.weaponConfig[button.slotKey] = newWeaponType;
-                                    }
-                                }
-                            } else {
-                                gameState.weaponConfig[button.slotKey] = newWeaponType;
-                            }
-                        }
+                        this.applyWeaponSlotLinkage(button.slotKey, newWeaponType);
                         
                         return true;
                     }
@@ -2663,31 +2587,7 @@ class Game {
                             newWeaponType = options[nextIndex].type;
                         }
                         
-                        const mgSlots2 = ['rightHand', 'leftShoulder', 'rightShoulder', 'hiddenAbility'];
-                        if (newWeaponType === 'moonlight_greatsword') {
-                            mgSlots2.forEach(k => { gameState.weaponConfig[k] = 'moonlight_greatsword'; });
-                        } else {
-                            const wasMG2 = mgSlots2.some(k => gameState.weaponConfig[k] === 'moonlight_greatsword');
-                            if (wasMG2 && mgSlots2.includes(button.slotKey)) {
-                                mgSlots2.forEach(k => { if (gameState.weaponConfig[k] === 'moonlight_greatsword') gameState.weaponConfig[k] = null; });
-                                gameState.weaponConfig[button.slotKey] = newWeaponType;
-                            } else if (button.slotKey === 'leftShoulder' || button.slotKey === 'rightShoulder') {
-                                if (newWeaponType === 'super_weapon') {
-                                    gameState.weaponConfig.leftShoulder = 'super_weapon';
-                                    gameState.weaponConfig.rightShoulder = 'super_weapon';
-                                } else {
-                                    const otherSlotKey = button.slotKey === 'leftShoulder' ? 'rightShoulder' : 'leftShoulder';
-                                    if (gameState.weaponConfig[otherSlotKey] === 'super_weapon') {
-                                        gameState.weaponConfig.leftShoulder = newWeaponType;
-                                        gameState.weaponConfig.rightShoulder = newWeaponType;
-                                    } else {
-                                        gameState.weaponConfig[button.slotKey] = newWeaponType;
-                                    }
-                                }
-                            } else {
-                                gameState.weaponConfig[button.slotKey] = newWeaponType;
-                            }
-                        }
+                        this.applyWeaponSlotLinkage(button.slotKey, newWeaponType);
                         
                         return true;
                     }
@@ -2843,49 +2743,10 @@ class Game {
             rightHand: 'sword',
             hiddenAbility: 'pulse_shield'
         };
-        // 重置玩家武器状态（在清空玩家对象之前）
-        if (this.player) {
-            const weapons = this.player.getAllWeapons();
-            weapons.forEach(weapon => {
-                if (weapon.type === 'sword') {
-                    weapon.isDashing = false;
-                    weapon.dashTarget = null;
-                    weapon.isAttacking = false;
-                    weapon.slashes = [];
-                }
-                if (weapon.type === 'laser_spear') {
-                    weapon.isCharging = false;
-                    weapon.impaledEnemies.clear();
-                }
-                if (weapon.type === 'missile_launcher' || weapon.type === 'plasma_missile') {
-                    weapon.isLaunching = false;
-                    weapon.missilesFired = 0;
-                }
-                if (weapon.type === 'decoy_clone') {
-                    weapon.isStealthActive = false;
-                }
-            });
-        }
+        this.resetAllWeaponStates();
         
         this.player = null;
-        this.enemies = [];
-        this.bullets = [];
-        this.missiles = [];
-        this.bossMissiles = [];
-        this.explosions = [];
-        this.spinSlashEffects = [];
-        this.teleportEffects = [];
-        this.boomerangHitEffects = [];
-        this.crescentBullets = [];
-        this.iceClones = [];
-        this.starDevourerBullets = [];
-        this.ciwsBullets = [];
-        this.plasmaMissiles = [];
-        this.plasmaFields = [];
-        this.clusterMissiles = [];
-        this.decoys = [];
-        this.boss = null;
-        // 不在这里预生成敌人，等模式选择后再生成
+        this.clearAllGameObjects();
         
         // 清除所有键盘状态，防止角色不由自主移动
         for (let key in keys) {

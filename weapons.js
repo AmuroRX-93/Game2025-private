@@ -946,31 +946,10 @@ class LaserSpear extends Weapon {
                     enemy.vx = chargeVx;
                     enemy.vy = chargeVy;
                 } else {
-                    // 敌人死亡，正常处理
                     if (enemy instanceof Boss || enemy instanceof SublimeMoon || enemy instanceof UglyEmperor) {
-                        game.boss = null;
-                        gameState.score += 100;
-                        gameState.bossKillCount++;
-                        
-                        // 根据游戏模式决定下一步
-                        if (gameState.selectedGameMode === 'BOSS_BATTLE') {
-                            // 特定关卡胜利，其他关卡继续
-                            if (gameState.selectedLevel === 'CRIMSON_KING' || gameState.selectedLevel === 'SUBLIME_MOON' || gameState.selectedLevel === 'STAR_DEVOURER' || gameState.selectedLevel === 'UGLY_EMPEROR') {
-                                // 关卡完成：胜利并回到主菜单
-                                gameState.bossSpawned = false; // 确保不会生成新Boss
-                                game.showVictoryAndReturnToMenu();
-                            } else {
-                                // 其他Boss战模式：立即生成新Boss
-                            gameState.bossSpawned = false;
-                                if (gameState.selectedLevel) {
-                                    game.spawnBossForLevel(gameState.selectedLevel);
-                        }
-                            }
-                        }
-                        // Boss死亡后游戏可能结束或继续
+                        handleBossKill();
                     } else {
-                        // 普通敌人死亡，让游戏主循环处理清理
-                            gameState.score += 10;
+                        gameState.score += 10;
                     }
                 }
                 
@@ -1526,26 +1505,8 @@ class Missile {
                     gameState.totalDamage += actualDamage;
                 
                 if (isDead) {
-                        if (enemy instanceof Boss || enemy instanceof SublimeMoon || enemy instanceof UglyEmperor) {
-                        game.boss = null;
-                        gameState.score += 100;
-                        gameState.bossKillCount++;
-                        
-                        // 根据游戏模式决定下一步
-                        if (gameState.selectedGameMode === 'BOSS_BATTLE') {
-                                // 特定关卡胜利，其他关卡继续
-                                if (gameState.selectedLevel === 'CRIMSON_KING' || gameState.selectedLevel === 'SUBLIME_MOON' || gameState.selectedLevel === 'STAR_DEVOURER' || gameState.selectedLevel === 'UGLY_EMPEROR') {
-                                    // 关卡完成：胜利并回到主菜单
-                                    gameState.bossSpawned = false; // 确保不会生成新Boss
-                                    game.showVictoryAndReturnToMenu();
-                                } else {
-                                    // 其他Boss战模式：立即生成新Boss
-                            gameState.bossSpawned = false;
-                                    if (gameState.selectedLevel) {
-                                        game.spawnBossForLevel(gameState.selectedLevel);
-                                    }
-                                }
-                        }
+                    if (enemy instanceof Boss || enemy instanceof SublimeMoon || enemy instanceof UglyEmperor) {
+                        handleBossKill();
                     } else {
                         const enemyIndex = game.enemies.indexOf(enemy);
                         if (enemyIndex > -1) {

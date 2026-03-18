@@ -1,3 +1,14 @@
+function distanceToLineSegment(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const length = Math.sqrt(dx * dx + dy * dy);
+    if (length === 0) return Math.sqrt((px - x1) * (px - x1) + (py - y1) * (py - y1));
+    const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / (length * length)));
+    const projX = x1 + t * dx;
+    const projY = y1 + t * dy;
+    return Math.sqrt((px - projX) * (px - projX) + (py - projY) * (py - projY));
+}
+
 // 刀光类
 class SwordSlash {
     constructor(playerX, playerY, playerDirection, range, damage) {
@@ -48,7 +59,7 @@ class SwordSlash {
             const enemyCenterY = enemy.y + enemy.height / 2;
             
             // 检查点到线段的距离
-            const distance = this.distanceToLineSegment(
+            const distance = distanceToLineSegment(
                 enemyCenterX, enemyCenterY,
                 playerCenterX, playerCenterY,
                 endX, endY
@@ -73,7 +84,7 @@ class SwordSlash {
             const bossCenterY = game.boss.y + game.boss.height / 2;
             
             // 检查点到线段的距离
-            const distance = this.distanceToLineSegment(
+            const distance = distanceToLineSegment(
                 bossCenterX, bossCenterY,
                 playerCenterX, playerCenterY,
                 endX, endY
@@ -91,49 +102,11 @@ class SwordSlash {
                 gameState.score += this.damage;
                 gameState.totalDamage += this.damage;
                 if (isDead) {
-                    // 判断当前Boss类型
-                    const isBossType = (game.boss instanceof Boss || game.boss instanceof SublimeMoon || game.boss instanceof UglyEmperor);
-                    if (isBossType) {
-                    game.boss = null;
-                    gameState.score += 100; // Boss击杀奖励
-                    gameState.bossKillCount++; // 增加Boss击杀计数
-                    
-                    // 根据游戏模式决定下一步
-                    if (gameState.selectedGameMode === 'BOSS_BATTLE') {
-                            // 特定关卡胜利，其他关卡继续
-                            if (gameState.selectedLevel === 'CRIMSON_KING' || gameState.selectedLevel === 'SUBLIME_MOON' || gameState.selectedLevel === 'STAR_DEVOURER' || gameState.selectedLevel === 'UGLY_EMPEROR') {
-                                // 关卡完成：胜利并回到主菜单
-                                gameState.bossSpawned = false; // 确保不会生成新Boss
-                                game.showVictoryAndReturnToMenu();
-                            } else {
-                                // 其他Boss战模式：立即生成新Boss
-                        gameState.bossSpawned = false;
-                                if (gameState.selectedLevel) {
-                                    game.spawnBossForLevel(gameState.selectedLevel);
-                                }
-                            }
-                    }
-                                                // Boss死亡后游戏可能结束或继续
-                    }
+                    handleBossKill();
                 }
                 updateUI();
             }
         }
-    }
-    
-    // 计算点到线段的距离
-    distanceToLineSegment(px, py, x1, y1, x2, y2) {
-        const dx = x2 - x1;
-        const dy = y2 - y1;
-        const length = Math.sqrt(dx * dx + dy * dy);
-        
-        if (length === 0) return Math.sqrt((px - x1) * (px - x1) + (py - y1) * (py - y1));
-        
-        const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / (length * length)));
-        const projX = x1 + t * dx;
-        const projY = y1 + t * dy;
-        
-        return Math.sqrt((px - projX) * (px - projX) + (py - projY) * (py - projY));
     }
     
     draw(ctx) {
@@ -254,7 +227,7 @@ class MoonlightSlash {
             if (this.hitEnemies.has(enemy)) return;
             const ecx = enemy.x + enemy.width / 2;
             const ecy = enemy.y + enemy.height / 2;
-            const distance = this.distanceToLineSegment(ecx, ecy, playerCenterX, playerCenterY, endX, endY);
+            const distance = distanceToLineSegment(ecx, ecy, playerCenterX, playerCenterY, endX, endY);
             if (distance <= this.slashWidth + enemy.width / 2) {
                 this.hitEnemies.add(enemy);
                 const isDead = enemy.takeDamage(this.damage);
@@ -271,7 +244,7 @@ class MoonlightSlash {
         if (game.boss && !this.hitEnemies.has(game.boss)) {
             const bcx = game.boss.x + game.boss.width / 2;
             const bcy = game.boss.y + game.boss.height / 2;
-            const distance = this.distanceToLineSegment(bcx, bcy, playerCenterX, playerCenterY, endX, endY);
+            const distance = distanceToLineSegment(bcx, bcy, playerCenterX, playerCenterY, endX, endY);
             if (distance <= this.slashWidth + game.boss.width / 2) {
                 this.hitEnemies.add(game.boss);
 
@@ -294,17 +267,6 @@ class MoonlightSlash {
                 updateUI();
             }
         }
-    }
-
-    distanceToLineSegment(px, py, x1, y1, x2, y2) {
-        const dx = x2 - x1;
-        const dy = y2 - y1;
-        const length = Math.sqrt(dx * dx + dy * dy);
-        if (length === 0) return Math.sqrt((px - x1) * (px - x1) + (py - y1) * (py - y1));
-        const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / (length * length)));
-        const projX = x1 + t * dx;
-        const projY = y1 + t * dy;
-        return Math.sqrt((px - projX) * (px - projX) + (py - projY) * (py - projY));
     }
 
     draw(ctx) {

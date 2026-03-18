@@ -124,12 +124,12 @@ class UglyEmperor extends GameObject {
     // 混沌弹幕攻击
     fireChaosBarrage() {
         if (!game.player) return;
-        const barrageTarget = getBossTarget();
-        if (!barrageTarget) return;
+        const barrageTC = getBossTargetCenter();
+        if (!barrageTC) return;
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
-        const playerCenterX = barrageTarget.x + barrageTarget.width / 2;
-        const playerCenterY = barrageTarget.y + barrageTarget.height / 2;
+        const playerCenterX = barrageTC.x;
+        const playerCenterY = barrageTC.y;
         
         // 计算到玩家的角度
         const dx = playerCenterX - bossCenterX;
@@ -173,10 +173,10 @@ class UglyEmperor extends GameObject {
             return;
         }
         
-        const teleTarget = getBossTarget();
-        if (!teleTarget) return;
-        const playerCenterX = teleTarget.x + teleTarget.width / 2;
-        const playerCenterY = teleTarget.y + teleTarget.height / 2;
+        const teleTC = getBossTargetCenter();
+        if (!teleTC) return;
+        const playerCenterX = teleTC.x;
+        const playerCenterY = teleTC.y;
         
         const angle = Math.random() * 2 * Math.PI;
         const distance = Math.random() * this.chaosTeleport.teleportRange;
@@ -348,14 +348,14 @@ class UglyEmperor extends GameObject {
     // 投掷燃烧瓶
     throwMolotov() {
         if (!game.player) return;
-        const molotovTarget = getBossTarget();
-        if (!molotovTarget) return;
+        const molotovTC = getBossTargetCenter();
+        if (!molotovTC) return;
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
-        const playerCenterX = molotovTarget.x + molotovTarget.width / 2;
-        const playerCenterY = molotovTarget.y + molotovTarget.height / 2;
+        const playerCenterX = molotovTC.x;
+        const playerCenterY = molotovTC.y;
         
-        const pvx = molotovTarget.vx || 0;
+        const pvx = molotovTC.entity.vx || 0;
         const pvy = molotovTarget.vy || 0;
         const playerSpeed = Math.sqrt(pvx * pvx + pvy * pvy);
         const playerDirection = Math.atan2(pvy, pvx);
@@ -478,18 +478,7 @@ class UglyEmperor extends GameObject {
     }
     
     getDistanceToPlayer() {
-        if (!game.player) return Infinity;
-        const distTarget = getBossTarget();
-        if (!distTarget) return Infinity;
-        const bossCenterX = this.x + this.width / 2;
-        const bossCenterY = this.y + this.height / 2;
-        const tcx = distTarget.x + distTarget.width / 2;
-        const tcy = distTarget.y + distTarget.height / 2;
-        
-        return Math.sqrt(
-            Math.pow(bossCenterX - tcx, 2) + 
-            Math.pow(bossCenterY - tcy, 2)
-        );
+        return getDistanceFromBoss(this);
     }
     
     setRandomDirection() {

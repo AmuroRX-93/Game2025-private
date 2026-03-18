@@ -82,59 +82,11 @@ class Boss extends GameObject {
     }
     
     checkDodge() {
-        // 如果正在闪避，不检测新的闪避
-        if (this.isDodging) return;
-        
-        // 检查全局闪避冷却时间
-        const now = Date.now();
-        if (now - this.lastDodgeTime < this.dodgeCooldown) return;
-        
-        // 检查玩家是否锁定并攻击
-        if (!game.player) return;
-        
-        const target = game.player.getCurrentTarget();
-        if (target !== this) return; // 玩家没有锁定这个Boss
-        
-        if (!game.player.isUsingMeleeWeapon()) return; // 玩家没有使用近战武器
-        
-        // 防止重复触发闪避
-        if (now - this.lastPlayerAttackCheck < 300) return; // 300ms内只能触发一次
-        this.lastPlayerAttackCheck = now;
-        
-        // 概率检测
-        if (Math.random() < this.dodgeChance) {
-            this.startDodge();
-        }
+        checkBossMeleeDodge(this);
     }
     
     startDodge() {
-        this.isDodging = true;
-        this.dodgeStartTime = Date.now();
-        
-        // 保存原始速度
-        this.originalVx = this.vx;
-        this.originalVy = this.vy;
-        
-        this.lastDodgeTime = this.dodgeStartTime; // 更新全局闪避时间
-        
-        // 计算从Boss指向玩家的角度
-        const playerX = game.player.x + game.player.width / 2;
-        const playerY = game.player.y + game.player.height / 2;
-        const bossX = this.x + this.width / 2;
-        const bossY = this.y + this.height / 2;
-        
-        const dx = playerX - bossX;
-        const dy = playerY - bossY;
-        const toPlayerAngle = Math.atan2(dy, dx);
-        
-        // 向背离主角的180度方向闪避（后退闪避）
-        const awayFromPlayerAngle = toPlayerAngle + Math.PI; // 相反方向
-        // 添加一些随机变化，避免完全直线后退（在后退方向±30度范围内）
-        const angleVariation = (Math.random() - 0.5) * Math.PI / 3; // ±30度随机变化
-        const dodgeAngle = awayFromPlayerAngle + angleVariation;
-        
-        this.vx = Math.cos(dodgeAngle) * this.dodgeSpeed;
-        this.vy = Math.sin(dodgeAngle) * this.dodgeSpeed;
+        startBossDodge(this);
     }
     
     updateDodge() {
@@ -1019,27 +971,6 @@ class Boss extends GameObject {
     }
     
     drawLockIndicator(ctx) {
-        // 计算跳动效果
-        const time = Date.now();
-        const bounce = Math.sin(time * 0.01) * 4; // Boss的跳动幅度稍大
-        
-        // 倒三角的位置（Boss头顶上方）
-        const triangleX = this.x + this.width / 2;
-        const triangleY = this.y - 20 + bounce; // Boss的三角位置更高
-        const size = 12; // Boss的三角更大
-        
-        // 绘制红色倒三角
-        ctx.fillStyle = '#FF0000';
-        ctx.beginPath();
-        ctx.moveTo(triangleX, triangleY + size); // 顶点（下）
-        ctx.lineTo(triangleX - size, triangleY - size); // 左上
-        ctx.lineTo(triangleX + size, triangleY - size); // 右上
-        ctx.closePath();
-        ctx.fill();
-        
-        // 添加白色边框使其更醒目
-        ctx.strokeStyle = 'white';
-        ctx.lineWidth = 2; // Boss的边框更粗
-        ctx.stroke();
+        drawBossLockIndicator(ctx, this, '#FF0000', 'white', { tipYOffset: -8, height: 24, halfWidth: 12, bounceAmp: 4, speed: 0.01 });
     }
 }

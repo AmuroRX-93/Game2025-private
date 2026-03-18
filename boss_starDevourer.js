@@ -32,9 +32,10 @@ class FloatingDrone extends Enemy {
     
     update() {
         const now = Date.now();
-        const fgTarget = getBossTarget();
-        const playerCenterX = fgTarget ? fgTarget.x + fgTarget.width / 2 : game.player.x + game.player.width / 2;
-        const playerCenterY = fgTarget ? fgTarget.y + fgTarget.height / 2 : game.player.y + game.player.height / 2;
+        const fgTC = getBossTargetCenter();
+        if (!fgTC) return;
+        const playerCenterX = fgTC.x;
+        const playerCenterY = fgTC.y;
         
         // 计算理想攻击位置
         const idealX = playerCenterX + Math.cos(this.formationAngle) * this.attackRange;
@@ -538,9 +539,9 @@ class StarDevourer extends GameObject {
             if (this.phaseTwo.activated && game.player) {
                 const bossCenterX = this.x + this.width / 2;
                 const bossCenterY = this.y + this.height / 2;
-                const p2MoveTarget = getBossTarget();
-                const playerCenterX = p2MoveTarget ? p2MoveTarget.x + p2MoveTarget.width / 2 : game.player.x + game.player.width / 2;
-                const playerCenterY = p2MoveTarget ? p2MoveTarget.y + p2MoveTarget.height / 2 : game.player.y + game.player.height / 2;
+                const p2TC = getBossTargetCenter();
+                const playerCenterX = p2TC ? p2TC.x : this.x + this.width / 2;
+                const playerCenterY = p2TC ? p2TC.y : this.y + this.height / 2;
                 const dx = playerCenterX - bossCenterX;
                 const dy = playerCenterY - bossCenterY;
                 const distance = Math.sqrt(dx * dx + dy * dy);
@@ -657,10 +658,10 @@ class StarDevourer extends GameObject {
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
         
-        const rifleTarget = getBossTarget();
-        if (!rifleTarget) return;
-        const playerCenterX = rifleTarget.x + rifleTarget.width / 2;
-        const playerCenterY = rifleTarget.y + rifleTarget.height / 2;
+        const rifleTC = getBossTargetCenter();
+        if (!rifleTC) return;
+        const playerCenterX = rifleTC.x;
+        const playerCenterY = rifleTC.y;
         const dx = playerCenterX - bossCenterX;
         const dy = playerCenterY - bossCenterY;
         const dist = Math.sqrt(dx * dx + dy * dy);
@@ -964,10 +965,10 @@ class StarDevourer extends GameObject {
         if (!game.player) return;
         
         const now = Date.now();
-        const recordTarget = getBossTarget();
-        if (!recordTarget) return;
-        const playerCenterX = recordTarget.x + recordTarget.width / 2;
-        const playerCenterY = recordTarget.y + recordTarget.height / 2;
+        const recordTC = getBossTargetCenter();
+        if (!recordTC) return;
+        const playerCenterX = recordTC.x;
+        const playerCenterY = recordTC.y;
         
         // 添加当前位置到历史记录
         this.playerPositionHistory.push({
@@ -1169,9 +1170,10 @@ class StarDevourer extends GameObject {
                 
                 case 'attacking':
                     const now = Date.now();
-                    const ballAimTarget = getBossTarget();
-                    const playerCenterX = ballAimTarget ? ballAimTarget.x + ballAimTarget.width / 2 : game.player.x + game.player.width / 2;
-                    const playerCenterY = ballAimTarget ? ballAimTarget.y + ballAimTarget.height / 2 : game.player.y + game.player.height / 2;
+                    const ballTC = getBossTargetCenter();
+                    if (!ballTC) break;
+                    const playerCenterX = ballTC.x;
+                    const playerCenterY = ballTC.y;
                     
                     // 计算当前浮游炮在阵型中的理想位置（基于标准120度间隔）
                     const ballIndex = this.orbitBalls.indexOf(ball);
@@ -1372,60 +1374,12 @@ class StarDevourer extends GameObject {
         };
     }
     
-    // 闪避系统（基础版本）
     checkDodge() {
-        // 如果正在闪避，不检测新的闪避
-        if (this.isDodging) return;
-        
-        // 检查全局闪避冷却时间
-        const now = Date.now();
-        if (now - this.lastDodgeTime < this.dodgeCooldown) return;
-        
-        // 检查玩家是否锁定并攻击
-        if (!game.player) return;
-        
-        const target = game.player.getCurrentTarget();
-        if (target !== this) return; // 玩家没有锁定这个Boss
-        
-        if (!game.player.isUsingMeleeWeapon()) return; // 玩家没有使用近战武器
-        
-        // 防止重复触发闪避
-        if (now - this.lastPlayerAttackCheck < 300) return; // 300ms内只能触发一次
-        this.lastPlayerAttackCheck = now;
-        
-        // 概率检测
-        if (Math.random() < this.dodgeChance) {
-            this.startDodge();
-        }
+        checkBossMeleeDodge(this);
     }
     
     startDodge() {
-        this.isDodging = true;
-        this.dodgeStartTime = Date.now();
-        this.lastDodgeTime = this.dodgeStartTime; // 更新全局闪避时间
-        
-        // 保存原始速度
-        this.originalVx = this.vx;
-        this.originalVy = this.vy;
-        
-        // 计算从Boss指向玩家的角度
-        const playerX = game.player.x + game.player.width / 2;
-        const playerY = game.player.y + game.player.height / 2;
-        const bossX = this.x + this.width / 2;
-        const bossY = this.y + this.height / 2;
-        
-        const dx = playerX - bossX;
-        const dy = playerY - bossY;
-        const toPlayerAngle = Math.atan2(dy, dx);
-        
-        // 向背离主角的180度方向闪避（后退闪避）
-        const awayFromPlayerAngle = toPlayerAngle + Math.PI; // 相反方向
-        // 添加一些随机变化，避免完全直线后退（在后退方向±30度范围内）
-        const angleVariation = (Math.random() - 0.5) * Math.PI / 3; // ±30度随机变化
-        const dodgeAngle = awayFromPlayerAngle + angleVariation;
-        
-        this.vx = Math.cos(dodgeAngle) * this.dodgeSpeed;
-        this.vy = Math.sin(dodgeAngle) * this.dodgeSpeed;
+        startBossDodge(this);
     }
     
     // 导弹闪避（基础版本）
@@ -1622,21 +1576,8 @@ class StarDevourer extends GameObject {
         }
     }
     
-    // 计算与玩家的距离（新增）
     getDistanceToPlayer() {
-        if (!game.player) return Infinity;
-        const target = getBossTarget();
-        if (!target) return Infinity;
-        
-        const bossCenterX = this.x + this.width / 2;
-        const bossCenterY = this.y + this.height / 2;
-        const tcx = target.x + target.width / 2;
-        const tcy = target.y + target.height / 2;
-        
-        return Math.sqrt(
-            Math.pow(tcx - bossCenterX, 2) + 
-            Math.pow(tcy - bossCenterY, 2)
-        );
+        return getDistanceFromBoss(this);
     }
     
     // 检查是否在二阶段检测范围内（新增）
@@ -2129,28 +2070,8 @@ class StarDevourer extends GameObject {
         }
     }
     
-    // 绘制锁定指示器
     drawLockIndicator(ctx) {
-        const centerX = this.x + this.width / 2;
-        
-        // 跳动效果
-        const time = Date.now() * 0.008;
-        const bounce = Math.sin(time) * 3;
-        const y = this.y - 40 + bounce;
-        
-        // 绘制白色跳动倒三角
-        ctx.fillStyle = '#FFFFFF';
-        ctx.beginPath();
-        ctx.moveTo(centerX, y);
-        ctx.lineTo(centerX - 10, y - 15);
-        ctx.lineTo(centerX + 10, y - 15);
-        ctx.closePath();
-        ctx.fill();
-        
-        // 添加黑色边框使其更醒目
-        ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 2;
-        ctx.stroke();
+        drawBossLockIndicator(ctx, this, '#FFFFFF', '#000000');
     }
 
     // 智能边界处理方法
