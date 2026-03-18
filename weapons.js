@@ -448,6 +448,381 @@ class Gun extends Weapon {
     }
 }
 
+// 镭射步枪类
+class LaserRifle extends Weapon {
+    constructor() {
+        super({
+            type: 'laser_rifle',
+            name: '镭射步枪',
+            damage: 20,
+            cooldown: 0
+        });
+        
+        this.chargeTime = 1000;
+        this.fireInterval = 700;
+        this.lastFireTime = 0;
+        
+        this.isCharging = false;
+        this.chargeStartTime = 0;
+        
+        // 过热系统
+        this.heat = 0;
+        this.maxHeatBar = 170;
+        this.overheatThreshold = 200;
+        this.heatPerShot = 50;
+        this.coolRate = 10;
+        this.coolInterval = 100;
+        this.lastCoolTime = 0;
+        this.overheated = false;
+        this.overheatStartTime = 0;
+        this.overheatDuration = 7000;
+        
+        // 视觉效果
+        this.beamEffect = null;
+        this.chargeTarget = null;
+    }
+    
+    use(player) {
+        if (this.overheated) return false;
+        
+        const now = Date.now();
+        if (now - this.lastFireTime < this.fireInterval) return false;
+        
+        if (!this.isCharging) {
+            this.isCharging = true;
+            this.chargeStartTime = now;
+        }
+        
+        if (now - this.chargeStartTime >= this.chargeTime) {
+            this.fire(player);
+            return true;
+        }
+        
+        return false;
+    }
+    
+    fire(player) {
+        this.isCharging = false;
+        this.lastFireTime = Date.now();
+        
+        const px = player.x + player.width / 2;
+        const py = player.y + player.height / 2;
+        
+        // 预瞄目标
+        const target = this.findTarget(player);
+        let endX, endY;
+        
+        if (target) {
+            const tx = target.x + target.width / 2;
+            const ty = target.y + target.height / 2;
+            const tvx = target.vx || 0;
+            const tvy = target.vy || 0;
+            
+            const dist = Math.sqrt((tx - px) ** 2 + (ty - py) ** 2);
+            const beamSpeed = 200;
+            const flightTime = dist / beamSpeed;
+            
+            endX = tx + tvx * flightTime;
+            endY = ty + tvy * flightTime;
+        } else {
+            const angle = player.direction * Math.PI / 180;
+            endX = px + Math.cos(angle) * 2000;
+            endY = py + Math.sin(angle) * 2000;
+        }
+        
+        // 射线检测命中
+        const dx = endX - px;
+        const dy = endY - py;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        const nx = dx / len;
+        const ny = dy / len;
+        
+        let hitTarget = null;
+        let hitDist = Infinity;
+        
+        const checkHit = (entity) => {
+            if (!entity || entity.health <= 0) return;
+            const ex = entity.x + entity.width / 2;
+            const ey = entity.y + entity.height / 2;
+            const hitSize = Math.max(entity.width, entity.height) / 2 + 5;
+            
+            // 点到射线的距离
+            const toEx = ex - px;
+            const toEy = ey - py;
+            const proj = toEx * nx + toEy * ny;
+            if (proj < 0) return;
+            
+            const perpX = toEx - nx * proj;
+            const perpY = toEy - ny * proj;
+            const perpDist = Math.sqrt(perpX * perpX + perpY * perpY);
+            
+            if (perpDist < hitSize && proj < hitDist) {
+                hitDist = proj;
+                hitTarget = entity;
+            }
+        };
+        
+        if (game.boss) checkHit(game.boss);
+        if (game.enemies) game.enemies.forEach(e => checkHit(e));
+        
+        if (hitTarget) {
+            hitTarget.takeDamage(this.damage, 'laser_rifle');
+            endX = hitTarget.x + hitTarget.width / 2;
+            endY = hitTarget.y + hitTarget.height / 2;
+        }
+        
+        // 光束视觉效果
+        this.beamEffect = {
+            startX: px, startY: py,
+            endX, endY,
+            startTime: Date.now(),
+            duration: 400
+        };
+        
+        // 增加热量
+        this.heat += this.heatPerShot;
+        if (this.heat >= this.overheatThreshold) {
+            this.overheated = true;
+            this.overheatStartTime = Date.now();
+        }
+    }
+    
+    findTarget(player) {
+        if (gameState.lockMode === 'manual') return null;
+        return player.getCurrentTarget();
+    }
+    
+    update(player) {
+        const now = Date.now();
+        
+        // 清理光束特效（必须在所有 return 之前）
+        if (this.beamEffect && now - this.beamEffect.startTime >= this.beamEffect.duration) {
+            this.beamEffect = null;
+        }
+        
+        // 过热冷却
+        if (this.overheated) {
+            if (now - this.overheatStartTime >= this.overheatDuration) {
+                this.overheated = false;
+                this.heat = 0;
+            }
+            this.isCharging = false;
+            return;
+        }
+        
+        // 自然散热：不蓄力且射击冷却结束后才散热
+        const isFiring = now - this.lastFireTime < this.fireInterval;
+        if (!this.isCharging && !isFiring && this.heat > 0) {
+            if (now - this.lastCoolTime >= this.coolInterval) {
+                this.heat = Math.max(0, this.heat - this.coolRate);
+                this.lastCoolTime = now;
+            }
+        }
+        
+        // 松开鼠标时取消蓄力
+        const isLeftHand = player.leftHandWeapon === this;
+        const isHeld = isLeftHand ? mouse.leftClick : mouse.rightClick;
+        if (this.isCharging && !isHeld) {
+            this.isCharging = false;
+        }
+    }
+    
+    draw(ctx, player) {
+        const px = player.x + player.width / 2;
+        const py = player.y + player.height / 2;
+        
+        // 蓄力指示
+        if (this.isCharging) {
+            const now = Date.now();
+            const progress = Math.min(1, (now - this.chargeStartTime) / this.chargeTime);
+            
+            ctx.save();
+            
+            // 外圈蓄力光环（脉动）
+            const pulse = Math.sin(now * 0.015) * 3;
+            const outerRadius = 30 + pulse + progress * 8;
+            ctx.strokeStyle = `rgba(255, 80, 80, ${0.3 + progress * 0.4})`;
+            ctx.lineWidth = 3;
+            ctx.shadowColor = '#FF3333';
+            ctx.shadowBlur = 8 + progress * 15;
+            ctx.beginPath();
+            ctx.arc(px, py, outerRadius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+            ctx.stroke();
+            
+            // 内圈进度环
+            ctx.shadowBlur = 0;
+            ctx.strokeStyle = `rgba(255, 200, 150, ${0.6 + progress * 0.4})`;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(px, py, 20, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+            ctx.stroke();
+            
+            // 蓄力粒子（旋转光点）
+            for (let i = 0; i < 4; i++) {
+                const angle = now * 0.006 + (Math.PI * 2 / 4) * i;
+                const r = 22 + progress * 10;
+                const ptX = px + Math.cos(angle) * r;
+                const ptY = py + Math.sin(angle) * r;
+                ctx.fillStyle = `rgba(255, 150, 100, ${progress * 0.8})`;
+                ctx.beginPath();
+                ctx.arc(ptX, ptY, 2 + progress * 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            // 蓄力中心光点
+            if (progress > 0.5) {
+                const glow = (progress - 0.5) * 2;
+                ctx.fillStyle = `rgba(255, 220, 200, ${glow * 0.6})`;
+                ctx.shadowColor = '#FF6644';
+                ctx.shadowBlur = 15 * glow;
+                ctx.beginPath();
+                ctx.arc(px, py, 4 + glow * 3, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+            
+            // 瞄准线
+            const target = this.findTarget(player);
+            if (target) {
+                const tx = target.x + target.width / 2;
+                const ty = target.y + target.height / 2;
+                
+                // 粗瞄准线
+                ctx.strokeStyle = `rgba(255, 60, 60, ${0.15 + progress * 0.35})`;
+                ctx.lineWidth = 2 + progress * 2;
+                ctx.setLineDash([8, 6]);
+                ctx.beginPath();
+                ctx.moveTo(px, py);
+                ctx.lineTo(tx, ty);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                
+                // 目标锁定框
+                if (progress > 0.3) {
+                    const lockAlpha = (progress - 0.3) / 0.7;
+                    const lockSize = 12 + Math.sin(now * 0.01) * 2;
+                    ctx.strokeStyle = `rgba(255, 80, 80, ${lockAlpha * 0.8})`;
+                    ctx.lineWidth = 2;
+                    // 四角标记
+                    const corners = [[-1,-1],[1,-1],[1,1],[-1,1]];
+                    for (const [cx, cy] of corners) {
+                        ctx.beginPath();
+                        ctx.moveTo(tx + cx * lockSize, ty + cy * lockSize);
+                        ctx.lineTo(tx + cx * lockSize * 0.5, ty + cy * lockSize);
+                        ctx.moveTo(tx + cx * lockSize, ty + cy * lockSize);
+                        ctx.lineTo(tx + cx * lockSize, ty + cy * lockSize * 0.5);
+                        ctx.stroke();
+                    }
+                }
+            }
+            
+            ctx.restore();
+        }
+        
+        // 光束效果
+        if (this.beamEffect) {
+            const e = this.beamEffect;
+            const elapsed = Date.now() - e.startTime;
+            const alpha = 1 - elapsed / e.duration;
+            
+            ctx.save();
+            
+            // 外层光晕
+            ctx.strokeStyle = `rgba(255, 40, 40, ${alpha * 0.3})`;
+            ctx.lineWidth = 16 * alpha + 4;
+            ctx.shadowColor = '#FF2222';
+            ctx.shadowBlur = 25 * alpha;
+            ctx.beginPath();
+            ctx.moveTo(e.startX, e.startY);
+            ctx.lineTo(e.endX, e.endY);
+            ctx.stroke();
+            
+            // 主光束
+            ctx.strokeStyle = `rgba(255, 80, 60, ${alpha * 0.9})`;
+            ctx.lineWidth = 8 * alpha + 2;
+            ctx.shadowBlur = 15 * alpha;
+            ctx.beginPath();
+            ctx.moveTo(e.startX, e.startY);
+            ctx.lineTo(e.endX, e.endY);
+            ctx.stroke();
+            
+            // 内芯（白热）
+            ctx.strokeStyle = `rgba(255, 230, 220, ${alpha * 0.9})`;
+            ctx.lineWidth = 3 * alpha + 1;
+            ctx.shadowBlur = 0;
+            ctx.beginPath();
+            ctx.moveTo(e.startX, e.startY);
+            ctx.lineTo(e.endX, e.endY);
+            ctx.stroke();
+            
+            // 命中点闪光
+            const flashSize = 20 * alpha;
+            const gradient = ctx.createRadialGradient(e.endX, e.endY, 0, e.endX, e.endY, flashSize);
+            gradient.addColorStop(0, `rgba(255, 255, 200, ${alpha * 0.8})`);
+            gradient.addColorStop(0.4, `rgba(255, 100, 50, ${alpha * 0.4})`);
+            gradient.addColorStop(1, `rgba(255, 50, 30, 0)`);
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(e.endX, e.endY, flashSize, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.restore();
+        }
+        
+        // 过热条（玩家上方）
+        if (this.heat > 0 || this.overheated) {
+            ctx.save();
+            const barWidth = 50;
+            const barHeight = 5;
+            const barX = px - barWidth / 2;
+            const barY = player.y - 15;
+            
+            // 背景
+            ctx.fillStyle = 'rgba(0,0,0,0.6)';
+            ctx.fillRect(barX - 1, barY - 1, barWidth + 2, barHeight + 2);
+            
+            const ratio = Math.min(1, this.heat / this.maxHeatBar);
+            
+            // 过热闪烁
+            if (this.overheated) {
+                const blink = Math.sin(Date.now() * 0.01) > 0;
+                ctx.fillStyle = blink ? '#FF0000' : '#CC0000';
+                ctx.fillRect(barX, barY, barWidth, barHeight);
+            } else {
+                // 渐变热量条
+                const grad = ctx.createLinearGradient(barX, barY, barX + barWidth * ratio, barY);
+                grad.addColorStop(0, '#FFCC00');
+                grad.addColorStop(Math.min(1, ratio * 1.2), ratio > 0.7 ? '#FF3300' : '#FF8800');
+                ctx.fillStyle = grad;
+                ctx.fillRect(barX, barY, barWidth * ratio, barHeight);
+            }
+            
+            // 边框
+            ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(barX - 1, barY - 1, barWidth + 2, barHeight + 2);
+            
+            ctx.restore();
+        }
+    }
+    
+    getStatus() {
+        if (this.overheated) {
+            const remaining = this.overheatDuration - (Date.now() - this.overheatStartTime);
+            return { text: `过热! ${(remaining / 1000).toFixed(1)}s`, color: '#FF0000' };
+        }
+        if (this.isCharging) {
+            const progress = Math.min(1, (Date.now() - this.chargeStartTime) / this.chargeTime);
+            return { text: `蓄力中 ${Math.round(progress * 100)}%`, color: '#FF6666' };
+        }
+        const now = Date.now();
+        if (now - this.lastFireTime < this.fireInterval) {
+            return { text: '冷却中...', color: '#CC6666' };
+        }
+        return { text: `热量: ${Math.round(this.heat)}/${this.maxHeatBar}`, color: '#FFAA00' };
+    }
+}
+
 // 镭射长枪类
 class LaserSpear extends Weapon {
     constructor() {
@@ -2192,6 +2567,7 @@ WEAPON_TYPES.sword = Sword;
 WEAPON_TYPES.gun = Gun; 
 WEAPON_TYPES.laser_spear = LaserSpear;
 WEAPON_TYPES.missile_launcher = MissileLauncher; 
+WEAPON_TYPES.laser_rifle = LaserRifle;
 WEAPON_TYPES.pulse_shield = PulseShield;
 WEAPON_TYPES.emp = EMP;
 WEAPON_TYPES.super_weapon = SuperWeapon;

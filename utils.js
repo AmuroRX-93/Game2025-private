@@ -81,6 +81,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 game.restart();
                 return;
             }
+            if (gameState.victory) {
+                game.backToMainMenu();
+                return;
+            }
         }
         
         // 胜利画面按键处理（按任意键返回主菜单）

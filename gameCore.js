@@ -209,18 +209,23 @@ class Game {
     }
 
     showVictoryAndReturnToMenu() {
-        // 设置胜利状态
         gameState.victory = true;
         gameState.victoryBossName = BOSS_LEVELS[gameState.selectedLevel]?.name || '未知Boss';
         
-        // 延迟5秒后返回主菜单，让玩家看清胜利画面
-        setTimeout(() => {
-            this.backToMainMenu();
-        }, 5000); // 5秒后返回主菜单
+        if (this._victoryTimer) clearTimeout(this._victoryTimer);
+        this._victoryTimer = setTimeout(() => {
+            this._victoryTimer = null;
+            if (gameState.victory) {
+                this.backToMainMenu();
+            }
+        }, 5000);
     }
 
     backToMainMenu() {
-        // 重置游戏状态，返回主菜单
+        if (this._victoryTimer) {
+            clearTimeout(this._victoryTimer);
+            this._victoryTimer = null;
+        }
         gameState.gameOver = false;
         gameState.paused = false;
         gameState.showModeSelection = true;
@@ -434,32 +439,10 @@ class Game {
                         damageSource = 'bullet'; // 子弹伤害
                     }
                     
-                    const isDead = this.boss.takeDamage(actualDamage, damageSource);
+                    this.boss.takeDamage(actualDamage, damageSource);
                     this.bullets.splice(bulletIndex, 1);
                     gameState.score += bullet.damage;
-                    gameState.totalDamage += actualDamage; // 使用实际伤害值
-                    if (isDead) {
-                        this.boss = null;
-                        gameState.score += 100; // Boss击杀奖励
-                        gameState.bossKillCount++; // 增加Boss击杀计数
-                        
-                        // 根据游戏模式决定下一步
-                        if (gameState.selectedGameMode === 'BOSS_BATTLE') {
-                            // 特定关卡胜利，其他关卡继续
-                            if (gameState.selectedLevel === 'CRIMSON_KING' || gameState.selectedLevel === 'SUBLIME_MOON' || gameState.selectedLevel === 'STAR_DEVOURER') {
-                                // 关卡完成：胜利并回到主菜单
-                                gameState.bossSpawned = false; // 确保不会生成新Boss
-                                this.showVictoryAndReturnToMenu();
-                            } else {
-                                // 其他Boss战模式：立即生成新Boss
-                            gameState.bossSpawned = false;
-                                if (gameState.selectedLevel) {
-                                    this.spawnBossForLevel(gameState.selectedLevel);
-                        }
-                            }
-                        }
-                        // Boss死亡后游戏可能结束或继续
-                    }
+                    gameState.totalDamage += actualDamage;
                     updateUI();
                     break;
                 }
@@ -514,20 +497,15 @@ class Game {
         // Boss战模式：不再自动生成新Boss
         // 删除自动生成Boss的代码，让Boss死亡后直接显示胜利画面
 
-        // 检查Boss是否死亡（血量为0）
+        // 检查Boss是否死亡（血量为0）- 统一入口
         if (this.boss && this.boss.health <= 0) {
             this.boss = null;
-            gameState.score += 100; // Boss击杀奖励
-            gameState.bossKillCount++; // 增加Boss击杀计数
+            gameState.score += 100;
+            gameState.bossKillCount++;
             
-            // 根据游戏模式决定下一步
             if (gameState.selectedGameMode === 'BOSS_BATTLE') {
-                // 特定关卡胜利，其他关卡继续
-                if (gameState.selectedLevel === 'CRIMSON_KING' || gameState.selectedLevel === 'SUBLIME_MOON' || gameState.selectedLevel === 'STAR_DEVOURER' || gameState.selectedLevel === 'UGLY_EMPEROR') {
-                    // 关卡完成：胜利并回到主菜单
-                    gameState.bossSpawned = false; // 确保不会生成新Boss
-                    this.showVictoryAndReturnToMenu();
-                }
+                gameState.bossSpawned = false;
+                this.showVictoryAndReturnToMenu();
             }
         }
 
@@ -620,6 +598,8 @@ class Game {
             return;
         }
 
+        // 绘制游戏世界（try-catch 防止单个错误导致整个UI消失）
+        try {
         // 绘制玩家
         if (this.player) {
             this.player.draw(this.ctx);
@@ -694,6 +674,10 @@ class Game {
         
         // 绘制回旋镖命中特效
         this.drawBoomerangHitEffects();
+        } catch (e) {
+            console.error('游戏绘制错误:', e);
+            this.ctx.restore();
+        }
 
         // 绘制失明效果（在UI之前）
         if (gameState.playerBlinded) {
@@ -956,7 +940,8 @@ class Game {
             { type: 'gun', name: '自动步枪', color: '#4169E1', desc: '远程射击 | 高射速 | 预瞄功能' },
             { type: 'sword', name: '脉冲光束军刀', color: '#ff6b6b', desc: '近战攻击 | 高伤害 | 刀推功能' },
             { type: 'laser_spear', name: '镭射长枪', color: '#00FFFF', desc: '中距离突刺 | 蓄力攻击 | 推进功能' },
-            { type: 'missile_launcher', name: '8连导弹发射器', color: '#FFD700', desc: '强追踪1.1秒 | 范围爆炸 | 高伤害' }
+            { type: 'missile_launcher', name: '8连导弹发射器', color: '#FFD700', desc: '强追踪1.1秒 | 范围爆炸 | 高伤害' },
+            { type: 'laser_rifle', name: '镭射步枪', color: '#FF4444', desc: '长按蓄力 | 预瞄射线 | 过热系统' }
         ];
         
         const shoulderWeaponOptions = [
@@ -1151,7 +1136,8 @@ class Game {
             { type: 'gun', name: '自动步枪', color: '#4169E1', desc: '远程射击 | 高射速 | 预瞄功能' },
             { type: 'sword', name: '脉冲光束军刀', color: '#ff6b6b', desc: '近战攻击 | 高伤害 | 刀推功能' },
             { type: 'laser_spear', name: '镭射长枪', color: '#00FFFF', desc: '中距离突刺 | 蓄力攻击 | 推进功能' },
-            { type: 'missile_launcher', name: '8连导弹发射器', color: '#FFD700', desc: '强追踪1.1秒 | 范围爆炸 | 高伤害' }
+            { type: 'missile_launcher', name: '8连导弹发射器', color: '#FFD700', desc: '强追踪1.1秒 | 范围爆炸 | 高伤害' },
+            { type: 'laser_rifle', name: '镭射步枪', color: '#FF4444', desc: '长按蓄力 | 预瞄射线 | 过热系统' }
         ];
         
         const shoulderWeaponOptions = [
@@ -2051,9 +2037,8 @@ class Game {
             return true;
         }
         
-        // 检查胜利画面点击（点击任意地方返回主菜单）
+        // 胜利画面只允许空格键退出，不响应点击
         if (gameState.victory) {
-            this.backToMainMenu();
             return true;
         }
         
@@ -2279,7 +2264,7 @@ class Game {
         // 绘制返回提示
         this.ctx.font = '20px Arial';
         this.ctx.fillStyle = '#888888';
-        this.ctx.fillText('点击屏幕或按任意键返回主菜单', GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 + 80);
+        this.ctx.fillText('按空格键返回主菜单', GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 + 80);
         
         this.ctx.restore();
     }
