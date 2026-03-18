@@ -20,6 +20,7 @@ class Game {
         this.ciwsBullets = []; // 近防炮子弹数组
         this.plasmaMissiles = []; // 电浆飞弹数组
         this.plasmaFields = []; // 电浆场数组
+        this.clusterMissiles = []; // 分裂飞弹母弹数组
         this.boss = null;
         
         this.init();
@@ -61,6 +62,7 @@ class Game {
                 this.ciwsBullets = [];
                 this.plasmaMissiles = [];
                 this.plasmaFields = [];
+                this.clusterMissiles = [];
                 this.bossMissiles = [];
                 
                 // 在屏幕边缘随机生成，远离玩家中心位置
@@ -287,6 +289,7 @@ class Game {
         this.ciwsBullets = [];
         this.plasmaMissiles = [];
         this.plasmaFields = [];
+        this.clusterMissiles = [];
         this.boss = null;
         
         // 清除所有键盘状态，防止角色不由自主移动
@@ -320,6 +323,7 @@ class Game {
             this.ciwsBullets = [];
             this.plasmaMissiles = [];
             this.plasmaFields = [];
+            this.clusterMissiles = [];
             this.boss = null;
             updateUI();
             return;
@@ -578,6 +582,17 @@ class Game {
             }
         }
         
+        // 更新分裂飞弹母弹
+        if (this.clusterMissiles) {
+            for (let i = this.clusterMissiles.length - 1; i >= 0; i--) {
+                const cm = this.clusterMissiles[i];
+                cm.update();
+                if (cm.shouldDestroy) {
+                    this.clusterMissiles.splice(i, 1);
+                }
+            }
+        }
+        
         // 更新燃烧瓶
         if (this.molotovs) {
             for (let i = this.molotovs.length - 1; i >= 0; i--) {
@@ -668,6 +683,11 @@ class Game {
         // 绘制电浆飞弹
         if (this.plasmaMissiles) {
             this.plasmaMissiles.forEach(pm => pm.draw(this.ctx));
+        }
+        
+        // 绘制分裂飞弹母弹
+        if (this.clusterMissiles) {
+            this.clusterMissiles.forEach(cm => cm.draw(this.ctx));
         }
 
         // 绘制子弹
@@ -980,7 +1000,7 @@ class Game {
             { type: 'gun', name: '自动步枪', color: '#4169E1', desc: '远程射击 | 高射速 | 预瞄功能' },
             { type: 'sword', name: '脉冲光束军刀', color: '#ff6b6b', desc: '近战攻击 | 高伤害 | 刀推功能' },
             { type: 'laser_spear', name: '镭射长枪', color: '#00FFFF', desc: '中距离突刺 | 蓄力攻击 | 推进功能' },
-            { type: 'missile_launcher', name: '8连导弹发射器', color: '#FFD700', desc: '强追踪1.1秒 | 范围爆炸 | 高伤害' },
+            { type: 'cluster_missile', name: '分裂飞弹', color: '#FFD700', desc: '大弹近炸分裂8子弹 | 持续索敌 | 高追踪' },
             { type: 'laser_rifle', name: '镭射步枪', color: '#FF4444', desc: '长按蓄力 | 预瞄射线 | 过热系统' }
         ];
         
@@ -1177,7 +1197,7 @@ class Game {
             { type: 'gun', name: '自动步枪', color: '#4169E1', desc: '远程射击 | 高射速 | 预瞄功能' },
             { type: 'sword', name: '脉冲光束军刀', color: '#ff6b6b', desc: '近战攻击 | 高伤害 | 刀推功能' },
             { type: 'laser_spear', name: '镭射长枪', color: '#00FFFF', desc: '中距离突刺 | 蓄力攻击 | 推进功能' },
-            { type: 'missile_launcher', name: '8连导弹发射器', color: '#FFD700', desc: '强追踪1.1秒 | 范围爆炸 | 高伤害' },
+            { type: 'cluster_missile', name: '分裂飞弹', color: '#FFD700', desc: '大弹近炸分裂8子弹 | 持续索敌 | 高追踪' },
             { type: 'laser_rifle', name: '镭射步枪', color: '#FF4444', desc: '长按蓄力 | 预瞄射线 | 过热系统' }
         ];
         
@@ -2375,6 +2395,7 @@ class Game {
         this.ciwsBullets = [];
         this.plasmaMissiles = [];
         this.plasmaFields = [];
+        this.clusterMissiles = [];
         this.boss = null;
         // 不在这里预生成敌人，等模式选择后再生成
         

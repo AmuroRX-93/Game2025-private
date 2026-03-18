@@ -830,7 +830,7 @@ class LaserSpear extends Weapon {
             type: 'laser_spear',
             name: '镭射长枪',
             damage: 25,
-            cooldown: 2500 // 2.5秒冷却
+            cooldown: 5000 // 5秒冷却
         });
         
         this.chargeRange = 8 * 50; // 冲锋距离：8单位 (转换为像素)
@@ -839,7 +839,7 @@ class LaserSpear extends Weapon {
         this.isCharging = false; // 冲锋状态
         this.chargeStartTime = 0;
         this.chargeDuration = 500; // 冲锋持续时间：0.5秒
-        this.chargeSpeed = 25; // 冲锋速度：25单位/秒
+        this.chargeSpeed = 40; // 冲锋速度：40单位/秒
         this.chargeDirection = 0; // 冲锋方向
         this.attackEndTime = 0;
         this.attackRecoveryDuration = 300; // 攻击后恢复时间：0.3秒
@@ -1174,7 +1174,7 @@ class Missile {
         // 导弹追踪参数
         this.maxLifetime = 3000; // 3秒最大飞行时间
         this.startTime = Date.now();
-        this.trackingRadius = 100; // 追踪半径
+        this.trackingRadius = 160; // 追踪半径
         this.currentTarget = null;
         
         // 加速参数
@@ -1257,7 +1257,7 @@ class Missile {
         let trackingRadius;
         if (elapsedTime <= strongTrackingDuration) {
             // 强追踪期间：大幅扩大追踪范围
-            trackingRadius = this.isSuperMissile ? 630 : 450; // 超级导弹追踪范围更大
+            trackingRadius = this.isSuperMissile ? 630 : 580; // 超级导弹追踪范围更大
         } else {
             // 追踪衰减期间：保持原有范围，但会因为追踪强度降低而逐渐失效
             trackingRadius = this.trackingRadius; // 100像素（超级导弹为140像素）
@@ -1728,7 +1728,7 @@ class MissileLauncher extends Weapon {
         
         this.missilesPerSalvo = isShoulder ? 15 : 8; // 肩部15连，手部8连
         this.range = 25 * 50; // 射程25单位
-        this.missileSpeed = 12; // 导弹飞行速度
+        this.missileSpeed = 16; // 导弹飞行速度
         this.launchDelay = 100; // 导弹发射间隔（毫秒）
         
         this.isLaunching = false;
@@ -2157,7 +2157,7 @@ class SuperWeapon extends Weapon {
         this.isUsed = false; // 是否已经使用过
         this.missilesPerSalvo = 1; // 只发射1枚导弹
         this.range = 25 * 50; // 射程25单位
-        this.missileSpeed = 12; // 导弹飞行速度
+        this.missileSpeed = 16; // 导弹飞行速度
         this.launchDelay = 100; // 导弹发射间隔（毫秒）
         
         this.isLaunching = false;
@@ -2673,7 +2673,7 @@ class PlasmaMissile {
         
         this.maxLifetime = 3000;
         this.startTime = Date.now();
-        this.trackingRadius = 120;
+        this.trackingRadius = 160;
         this.currentTarget = null;
         this.strongTrackingDuration = 1100;
         this.accelerationDuration = 300;
@@ -2737,7 +2737,7 @@ class PlasmaMissile {
         const elapsedTime = Date.now() - this.startTime;
         let trackingRadius;
         if (elapsedTime <= this.strongTrackingDuration) {
-            trackingRadius = 450;
+            trackingRadius = 580;
         } else {
             trackingRadius = this.trackingRadius;
         }
@@ -2904,7 +2904,7 @@ class PlasmaMissileLauncher extends Weapon {
         });
         
         this.missilesPerSalvo = 6;
-        this.missileSpeed = 10;
+        this.missileSpeed = 14;
         this.launchDelay = 100;
         
         this.isLaunching = false;
@@ -3004,6 +3004,324 @@ class PlasmaMissileLauncher extends Weapon {
     }
 }
 
+// 分裂飞弹母弹类 - 靠近敌人后分裂成8枚子弹
+class ClusterMissile {
+    constructor(x, y, targetX, targetY, speed = 16) {
+        this.x = x;
+        this.y = y;
+        this.targetX = targetX;
+        this.targetY = targetY;
+        this.maxSpeed = speed;
+        this.currentSpeed = speed * 0.5;
+        this.shouldDestroy = false;
+        
+        this.splitRadius = 120;
+        this.maxLifetime = 8000;
+        this.startTime = Date.now();
+        this.trackingRadius = 600;
+        this.currentTarget = null;
+        this.hasTarget = false;
+        this.accelerationDuration = 400;
+        
+        this.trail = [];
+        this.maxTrailLength = 12;
+        this.size = 2;
+        
+        const dx = this.targetX - this.x;
+        const dy = this.targetY - this.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance > 0) {
+            this.vx = (dx / distance) * this.currentSpeed;
+            this.vy = (dy / distance) * this.currentSpeed;
+        } else {
+            this.vx = 0;
+            this.vy = this.currentSpeed;
+        }
+    }
+    
+    update() {
+        if (Date.now() - this.startTime > this.maxLifetime) {
+            this.selfDestruct();
+            return;
+        }
+        
+        this.updateSpeed();
+        this.findTarget();
+        if (this.currentTarget) {
+            this.hasTarget = true;
+            this.trackTarget();
+        }
+        
+        this.x += this.vx;
+        this.y += this.vy;
+        
+        this.trail.push({ x: this.x, y: this.y, time: Date.now() });
+        if (this.trail.length > this.maxTrailLength) {
+            this.trail.shift();
+        }
+        
+        if (this.x < -30 || this.x > GAME_CONFIG.WIDTH + 30 ||
+            this.y < -30 || this.y > GAME_CONFIG.HEIGHT + 30) {
+            this.selfDestruct();
+            return;
+        }
+        
+        this.checkProximityAndSplit();
+    }
+    
+    updateSpeed() {
+        const elapsedTime = Date.now() - this.startTime;
+        if (elapsedTime <= this.accelerationDuration) {
+            const progress = elapsedTime / this.accelerationDuration;
+            this.currentSpeed = this.maxSpeed * (0.5 + 0.5 * progress);
+        } else {
+            this.currentSpeed = this.maxSpeed;
+        }
+    }
+    
+    findTarget() {
+        let closestTarget = null;
+        let closestDistance = this.trackingRadius;
+        
+        const allEnemies = [...game.enemies];
+        if (game.boss && game.boss.health > 0) {
+            let bossTargetable = true;
+            if (game.boss instanceof StarDevourer) {
+                if (game.boss.phaseTwo.activated && game.boss.phaseTwo.isInvisible &&
+                    !game.boss.isWithinDetectionRange()) {
+                    bossTargetable = false;
+                }
+                if (game.boss.blindnessSkill && game.boss.blindnessSkill.isActive) {
+                    bossTargetable = false;
+                }
+            }
+            if (bossTargetable) allEnemies.push(game.boss);
+        }
+        
+        allEnemies.forEach(enemy => {
+            const dx = enemy.x + enemy.width / 2 - this.x;
+            const dy = enemy.y + enemy.height / 2 - this.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance < closestDistance) {
+                closestTarget = enemy;
+                closestDistance = distance;
+            }
+        });
+        
+        this.currentTarget = closestTarget;
+    }
+    
+    trackTarget() {
+        if (!this.currentTarget) return;
+        
+        const targetX = this.currentTarget.x + this.currentTarget.width / 2;
+        const targetY = this.currentTarget.y + this.currentTarget.height / 2;
+        const dx = targetX - this.x;
+        const dy = targetY - this.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance > 0) {
+            const turnRate = 0.18;
+            const newVx = (dx / distance) * this.currentSpeed;
+            const newVy = (dy / distance) * this.currentSpeed;
+            this.vx = this.vx * (1 - turnRate) + newVx * turnRate;
+            this.vy = this.vy * (1 - turnRate) + newVy * turnRate;
+            
+            const actualSpeed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+            if (actualSpeed > 0) {
+                this.vx = (this.vx / actualSpeed) * this.currentSpeed;
+                this.vy = (this.vy / actualSpeed) * this.currentSpeed;
+            }
+        }
+    }
+    
+    checkProximityAndSplit() {
+        const allEnemies = [...game.enemies];
+        if (game.boss && game.boss.health > 0) {
+            allEnemies.push(game.boss);
+        }
+        
+        for (const enemy of allEnemies) {
+            const dx = enemy.x + enemy.width / 2 - this.x;
+            const dy = enemy.y + enemy.height / 2 - this.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance < this.splitRadius) {
+                this.split();
+                return;
+            }
+        }
+    }
+    
+    split() {
+        if (this.shouldDestroy) return;
+        
+        if (!game.missiles) game.missiles = [];
+        
+        const childCount = 8;
+        for (let i = 0; i < childCount; i++) {
+            const angle = (Math.PI * 2 / childCount) * i + (Math.random() - 0.5) * 0.3;
+            const spreadDist = 15;
+            const childX = this.x + Math.cos(angle) * spreadDist;
+            const childY = this.y + Math.sin(angle) * spreadDist;
+            
+            let targetX, targetY;
+            if (this.currentTarget) {
+                targetX = this.currentTarget.x + this.currentTarget.width / 2 + (Math.random() - 0.5) * 40;
+                targetY = this.currentTarget.y + this.currentTarget.height / 2 + (Math.random() - 0.5) * 40;
+            } else {
+                targetX = this.x + Math.cos(angle) * 200;
+                targetY = this.y + Math.sin(angle) * 200;
+            }
+            
+            const child = new Missile(childX, childY, targetX, targetY, 3, 14);
+            child.maxLifetime = 2000;
+            child.trackingRadius = 220;
+            child.strongTrackingDuration = 1800;
+            child.isClusterChild = true;
+            game.missiles.push(child);
+        }
+        
+        if (!game.explosions) game.explosions = [];
+        game.explosions.push({
+            x: this.x,
+            y: this.y,
+            startTime: Date.now(),
+            duration: 300,
+            isBossMissile: false,
+            isSuperMissile: false,
+            explosionRadius: 30,
+            isClusterSplit: true
+        });
+        
+        this.shouldDestroy = true;
+    }
+    
+    selfDestruct() {
+        if (this.shouldDestroy) return;
+        
+        if (!game.explosions) game.explosions = [];
+        game.explosions.push({
+            x: this.x,
+            y: this.y,
+            startTime: Date.now(),
+            duration: 400,
+            isBossMissile: false,
+            isSuperMissile: false,
+            explosionRadius: 40
+        });
+        
+        this.shouldDestroy = true;
+    }
+    
+    draw(ctx) {
+        if (this.trail.length > 1) {
+            ctx.save();
+            for (let i = 1; i < this.trail.length; i++) {
+                const alpha = (i / this.trail.length) * 0.7;
+                ctx.globalAlpha = alpha;
+                ctx.strokeStyle = '#FFA500';
+                ctx.lineWidth = 3 + (i / this.trail.length) * 2;
+                ctx.beginPath();
+                ctx.moveTo(this.trail[i - 1].x, this.trail[i - 1].y);
+                ctx.lineTo(this.trail[i].x, this.trail[i].y);
+                ctx.stroke();
+            }
+            ctx.restore();
+        }
+        
+        const angle = Math.atan2(this.vy, this.vx);
+        
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(angle);
+        
+        // 大号导弹主体
+        ctx.fillStyle = '#CC6600';
+        ctx.fillRect(-8, -4, 16, 8);
+        
+        // 弹头
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.moveTo(8, -4);
+        ctx.lineTo(13, 0);
+        ctx.lineTo(8, 4);
+        ctx.fill();
+        
+        // 尾焰
+        ctx.fillStyle = '#FF8C00';
+        ctx.fillRect(-13, -2.5, 5, 5);
+        
+        // 分裂标记环
+        const pulse = 0.5 + 0.5 * Math.sin(Date.now() * 0.01);
+        ctx.globalAlpha = 0.3 + 0.2 * pulse;
+        ctx.strokeStyle = '#FFD700';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(0, 0, 10, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        ctx.restore();
+    }
+}
+
+// 分裂飞弹发射器
+class ClusterMissileLauncher extends Weapon {
+    constructor() {
+        super({
+            type: 'cluster_missile',
+            name: '分裂飞弹',
+            damage: 3,
+            cooldown: 4000
+        });
+        
+        this.missileSpeed = 16;
+    }
+    
+    use(player) {
+        if (!this.canUse()) return false;
+        this.lastUseTime = Date.now();
+        
+        const launchX = player.x + player.width / 2;
+        const launchY = player.y + player.height / 2;
+        
+        let targetX, targetY;
+        if (gameState.lockMode === 'manual') {
+            targetX = mouse.x;
+            targetY = mouse.y;
+        } else {
+            const target = player.getCurrentTarget();
+            if (target) {
+                targetX = target.x + target.width / 2;
+                targetY = target.y + target.height / 2;
+            } else {
+                const angle = player.direction * Math.PI / 180;
+                targetX = launchX + Math.cos(angle) * 300;
+                targetY = launchY + Math.sin(angle) * 300;
+            }
+        }
+        
+        const missile = new ClusterMissile(launchX, launchY, targetX, targetY, this.missileSpeed);
+        
+        if (!game.clusterMissiles) game.clusterMissiles = [];
+        game.clusterMissiles.push(missile);
+        
+        return true;
+    }
+    
+    update(player) {
+    }
+    
+    draw(ctx, player) {
+    }
+    
+    getStatus() {
+        const remaining = Math.max(0, this.cooldown - (Date.now() - this.lastUseTime));
+        if (remaining > 0) return { text: `冷却: ${(remaining / 1000).toFixed(1)}s`, color: '#888888' };
+        return { text: '就绪', color: '#FFD700' };
+    }
+}
+
 // 填充武器类型映射
 WEAPON_TYPES.sword = Sword;
 WEAPON_TYPES.gun = Gun; 
@@ -3015,3 +3333,4 @@ WEAPON_TYPES.emp = EMP;
 WEAPON_TYPES.super_weapon = SuperWeapon;
 WEAPON_TYPES.ciws = CIWS;
 WEAPON_TYPES.plasma_missile = PlasmaMissileLauncher;
+WEAPON_TYPES.cluster_missile = ClusterMissileLauncher;
