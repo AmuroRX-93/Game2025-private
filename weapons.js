@@ -3174,7 +3174,7 @@ class ClusterMissile {
                 targetY = this.y + Math.sin(angle) * 200;
             }
             
-            const child = new Missile(childX, childY, targetX, targetY, 3, 14);
+            const child = new Missile(childX, childY, targetX, targetY, 3, 21);
             child.maxLifetime = 2000;
             child.trackingRadius = 220;
             child.strongTrackingDuration = 1800;
