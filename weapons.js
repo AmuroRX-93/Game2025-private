@@ -312,7 +312,7 @@ class Gun extends Weapon {
             cooldown: 0 // 枪使用射速而不是冷却时间
         });
         
-        this.fireRate = 3.5; // 提高射速到每秒3.5发
+        this.fireRate = 5; // 每秒5发
         this.magazineSize = 30;
         this.range = 35 * 50; // 射程35 (转换为像素)
         this.bulletSpeed = 25; // 提高弹速到每帧25像素
@@ -454,7 +454,7 @@ class LaserRifle extends Weapon {
         super({
             type: 'laser_rifle',
             name: '镭射步枪',
-            damage: 20,
+            damage: 18,
             cooldown: 0
         });
         
@@ -1208,8 +1208,10 @@ class Missile {
         // 处理加速逻辑
         this.updateSpeed();
         
-        // 处理延迟制导逻辑
-        if (this.isBossMissileDelayed) {
+        // 分裂子弹散开延迟：刚分裂时不制导，先扇形散开
+        if (this.guidanceDelay && Date.now() - this.startTime < this.guidanceDelay) {
+            // 散开阶段：不追踪，保持初始扇形方向飞行
+        } else if (this.isBossMissileDelayed) {
             this.updateDelayedGuidance();
         } else {
         // 寻找最近的敌人进行追踪
@@ -1267,14 +1269,14 @@ class Missile {
         let closestDistance = trackingRadius;
         
         if (this.isBossMissile) {
-            // Boss导弹追踪玩家
-            if (game.player) {
-                const dx = game.player.x + game.player.width / 2 - this.x;
-                const dy = game.player.y + game.player.height / 2 - this.y;
+            const bossTarget = getBossTarget();
+            if (bossTarget) {
+                const dx = bossTarget.x + bossTarget.width / 2 - this.x;
+                const dy = bossTarget.y + bossTarget.height / 2 - this.y;
                 const distance = Math.sqrt(dx * dx + dy * dy);
                 
                 if (distance < closestDistance) {
-                    closestTarget = game.player;
+                    closestTarget = bossTarget;
                 }
             }
         } else {
@@ -1337,23 +1339,21 @@ class Missile {
             return;
         }
         
-        // 延迟结束：开始制导玩家
-        if (!game.player) return;
+        const bossTarget = getBossTarget();
+        if (!bossTarget) return;
         
-        const playerCenterX = game.player.x + game.player.width / 2;
-        const playerCenterY = game.player.y + game.player.height / 2;
+        const targetCenterX = bossTarget.x + bossTarget.width / 2;
+        const targetCenterY = bossTarget.y + bossTarget.height / 2;
         const missileCenterX = this.x;
         const missileCenterY = this.y;
         
-        // 检查距离是否在制导范围内
         const distance = Math.sqrt(
-            Math.pow(playerCenterX - missileCenterX, 2) + 
-            Math.pow(playerCenterY - missileCenterY, 2)
+            Math.pow(targetCenterX - missileCenterX, 2) + 
+            Math.pow(targetCenterY - missileCenterY, 2)
         );
         
         if (distance <= this.guideRange) {
-            // 在制导范围内，设置玩家为目标
-            this.currentTarget = game.player;
+            this.currentTarget = bossTarget;
             this.trackTarget();
         }
     }
@@ -1421,8 +1421,7 @@ class Missile {
         const distance = Math.sqrt(dx * dx + dy * dy);
         
         if (distance > 0) {
-            // 动态转向率：强追踪时更高，随时间减弱
-            const baseTurnRate = 0.15; // 提升基础强追踪转向率
+            const baseTurnRate = this.isClusterChild ? 0.28 : 0.15;
             const turnRate = baseTurnRate * trackingStrength;
             
             const newVx = (dx / distance) * this.currentSpeed;
@@ -1456,10 +1455,22 @@ class Missile {
             }
         }
         
-        // 获取所有敌人
+        // Boss导弹可以命中诱饵
+        if (this.isBossMissile && game.decoys) {
+            for (const decoy of game.decoys) {
+                const ddx = decoy.x + decoy.width / 2 - this.x;
+                const ddy = decoy.y + decoy.height / 2 - this.y;
+                const dd = Math.sqrt(ddx * ddx + ddy * ddy);
+                if (dd < (decoy.width + decoy.height) / 4 + 8) {
+                    decoy.takeDamage(this.damage);
+                    this.explode();
+                    return;
+                }
+            }
+        }
+        
         const allEnemies = [...game.enemies];
         
-        // 如果是Boss导弹，不要检测与Boss的碰撞；如果是玩家导弹，可以撞击Boss
         if (!this.isBossMissile && game.boss) {
             allEnemies.push(game.boss);
         }
@@ -1469,7 +1480,6 @@ class Missile {
             const dy = enemy.y + enemy.height / 2 - this.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
             
-            // 碰撞检测
             if (distance < (enemy.width + enemy.height) / 4 + 8) {
                 this.explode();
             }
@@ -2144,6 +2154,504 @@ class EMP extends Weapon {
     }
 }
 
+// 反制重击（隐藏机能）- 3秒减伤40% + 反射50%伤害
+class CounterMech extends Weapon {
+    constructor() {
+        super({
+            type: 'counter_mech',
+            name: '反制重击',
+            damage: 0,
+            cooldown: 50000
+        });
+        
+        this.isActive = false;
+        this.activationTime = 0;
+        this.duration = 3000;
+        this.damageReduction = 0.4;
+        this.reflectRatio = 0.5;
+        this.effect = null;
+    }
+    
+    canUse() {
+        return !this.isActive && super.canUse();
+    }
+    
+    use(player) {
+        if (!this.canUse()) return false;
+        
+        this.lastUseTime = Date.now();
+        this.isActive = true;
+        this.activationTime = Date.now();
+        this.effect = { particles: [], flashAlpha: 1.0 };
+        
+        return true;
+    }
+    
+    isDamageReduced() {
+        return this.isActive;
+    }
+    
+    getDamageReduction() {
+        return this.isActive ? this.damageReduction : 0;
+    }
+    
+    reflectDamage(actualDamage) {
+        if (!this.isActive) return;
+        
+        const reflectedDmg = Math.max(1, Math.round(actualDamage * this.reflectRatio));
+        
+        const targets = [];
+        if (game.boss && game.boss.health > 0) targets.push(game.boss);
+        if (game.enemies) {
+            for (const e of game.enemies) {
+                if (e.health > 0) targets.push(e);
+            }
+        }
+        
+        // 反射给距离最近的伤害来源
+        if (targets.length === 0) return;
+        
+        const px = game.player.x + game.player.width / 2;
+        const py = game.player.y + game.player.height / 2;
+        
+        let nearest = null;
+        let nearestDist = Infinity;
+        for (const t of targets) {
+            const dx = t.x + t.width / 2 - px;
+            const dy = t.y + t.height / 2 - py;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < nearestDist) {
+                nearestDist = dist;
+                nearest = t;
+            }
+        }
+        
+        if (nearest) {
+            nearest.takeDamage(reflectedDmg, 'reflect');
+            gameState.score += reflectedDmg;
+            gameState.totalDamage += reflectedDmg;
+            
+            // 反射闪光特效
+            if (this.effect) {
+                this.effect.flashAlpha = 1.0;
+                const tx = nearest.x + nearest.width / 2;
+                const ty = nearest.y + nearest.height / 2;
+                this.effect.reflectLine = { tx, ty, alpha: 1.0 };
+            }
+        }
+    }
+    
+    update(player) {
+        if (this.isActive) {
+            const elapsed = Date.now() - this.activationTime;
+            if (elapsed >= this.duration) {
+                this.isActive = false;
+                this.effect = null;
+                return;
+            }
+            
+            if (this.effect) {
+                this.effect.flashAlpha = Math.max(0, this.effect.flashAlpha - 0.05);
+                if (this.effect.reflectLine) {
+                    this.effect.reflectLine.alpha -= 0.08;
+                    if (this.effect.reflectLine.alpha <= 0) {
+                        this.effect.reflectLine = null;
+                    }
+                }
+                
+                if (Math.random() < 0.4) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const r = 30 + Math.random() * 10;
+                    this.effect.particles.push({
+                        ox: Math.cos(angle) * r,
+                        oy: Math.sin(angle) * r,
+                        life: 1.0
+                    });
+                }
+                this.effect.particles = this.effect.particles.filter(p => {
+                    p.life -= 0.04;
+                    return p.life > 0;
+                });
+            }
+        }
+    }
+    
+    draw(ctx, player) {
+        if (!this.isActive || !this.effect) return;
+        
+        const cx = player.x + player.width / 2;
+        const cy = player.y + player.height / 2;
+        const elapsed = Date.now() - this.activationTime;
+        const remaining = 1 - elapsed / this.duration;
+        
+        ctx.save();
+        
+        // 防护六边形光环
+        const baseAlpha = 0.3 + 0.2 * remaining;
+        const pulseR = 35 + 3 * Math.sin(Date.now() * 0.008);
+        ctx.strokeStyle = `rgba(255, 140, 0, ${baseAlpha})`;
+        ctx.lineWidth = 2.5;
+        ctx.shadowColor = '#FF8C00';
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+            const a = (Math.PI * 2 / 6) * i - Math.PI / 2;
+            const px2 = cx + Math.cos(a) * pulseR;
+            const py2 = cy + Math.sin(a) * pulseR;
+            if (i === 0) ctx.moveTo(px2, py2);
+            else ctx.lineTo(px2, py2);
+        }
+        ctx.closePath();
+        ctx.stroke();
+        
+        // 内圈渐变
+        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, pulseR);
+        grad.addColorStop(0, `rgba(255, 100, 0, ${baseAlpha * 0.25})`);
+        grad.addColorStop(1, 'rgba(255, 60, 0, 0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, pulseR, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 粒子
+        for (const p of this.effect.particles) {
+            ctx.globalAlpha = p.life * 0.7;
+            ctx.fillStyle = '#FF6600';
+            ctx.fillRect(cx + p.ox - 1, cy + p.oy - 1, 2, 2);
+        }
+        
+        // 反射连线特效
+        if (this.effect.reflectLine) {
+            const rl = this.effect.reflectLine;
+            ctx.globalAlpha = rl.alpha * 0.8;
+            ctx.strokeStyle = '#FF4400';
+            ctx.lineWidth = 2;
+            ctx.shadowColor = '#FF4400';
+            ctx.shadowBlur = 8;
+            ctx.beginPath();
+            ctx.moveTo(cx, cy);
+            ctx.lineTo(rl.tx, rl.ty);
+            ctx.stroke();
+        }
+        
+        ctx.restore();
+    }
+    
+    getStatus() {
+        if (this.isActive) {
+            const remaining = Math.max(0, this.duration - (Date.now() - this.activationTime));
+            return { text: `反制中: ${(remaining / 1000).toFixed(1)}s`, color: '#FF8C00' };
+        }
+        const remaining = Math.max(0, this.cooldown - (Date.now() - this.lastUseTime));
+        if (remaining > 0) return { text: `冷却: ${(remaining / 1000).toFixed(1)}s`, color: '#888888' };
+        return { text: '就绪', color: '#FF8C00' };
+    }
+}
+
+// 诱饵实体类
+class Decoy {
+    constructor(startX, startY, targetX, targetY) {
+        this.x = startX;
+        this.y = startY;
+        this.targetX = targetX;
+        this.targetY = targetY;
+        this.width = 30;
+        this.height = 30;
+        
+        this.maxHealth = 40;
+        this.health = this.maxHealth;
+        this.shouldDestroy = false;
+        this.startTime = Date.now();
+        this.maxLifetime = 7000;
+        
+        this.moveStartTime = Date.now();
+        this.moveDuration = 400;
+        this.startPosX = startX;
+        this.startPosY = startY;
+        this.arrived = false;
+        
+        this.flickerPhase = Math.random() * Math.PI * 2;
+        this.particles = [];
+    }
+    
+    takeDamage(damage) {
+        this.health -= damage;
+        if (this.health <= 0) {
+            this.health = 0;
+            this.shouldDestroy = true;
+        }
+        return this.shouldDestroy;
+    }
+    
+    update() {
+        if (Date.now() - this.startTime > this.maxLifetime) {
+            this.shouldDestroy = true;
+            return;
+        }
+        
+        if (!this.arrived) {
+            const elapsed = Date.now() - this.moveStartTime;
+            const t = Math.min(1, elapsed / this.moveDuration);
+            const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+            this.x = this.startPosX + (this.targetX - this.startPosX) * ease;
+            this.y = this.startPosY + (this.targetY - this.startPosY) * ease;
+            if (t >= 1) this.arrived = true;
+        }
+        
+        if (Math.random() < 0.5) {
+            const angle = Math.random() * Math.PI * 2;
+            const r = 15 + Math.random() * 8;
+            this.particles.push({
+                ox: Math.cos(angle) * r,
+                oy: Math.sin(angle) * r,
+                life: 1.0,
+                speed: 0.3 + Math.random() * 0.3
+            });
+        }
+        this.particles = this.particles.filter(p => {
+            p.life -= 0.03 + p.speed * 0.02;
+            p.oy -= 0.3;
+            return p.life > 0;
+        });
+    }
+    
+    draw(ctx) {
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const elapsed = Date.now() - this.startTime;
+        
+        ctx.save();
+        
+        // 全息闪烁效果
+        const flicker = 0.4 + 0.3 * Math.sin(elapsed * 0.012 + this.flickerPhase);
+        const glitch = Math.random() < 0.05 ? 0.1 : 0;
+        ctx.globalAlpha = flicker - glitch;
+        
+        // 全息蓝色主体
+        ctx.fillStyle = '#4488FF';
+        ctx.shadowColor = '#4488FF';
+        ctx.shadowBlur = 12;
+        ctx.fillRect(this.x, this.y, this.width, this.height);
+        
+        // 扫描线效果
+        ctx.globalAlpha = 0.15;
+        ctx.fillStyle = '#FFFFFF';
+        for (let sy = 0; sy < this.height; sy += 3) {
+            if ((sy + Math.floor(elapsed * 0.05)) % 6 < 3) {
+                ctx.fillRect(this.x, this.y + sy, this.width, 1);
+            }
+        }
+        
+        // 外框
+        ctx.globalAlpha = flicker * 0.6;
+        ctx.strokeStyle = '#66AAFF';
+        ctx.lineWidth = 1.5;
+        ctx.shadowBlur = 6;
+        ctx.strokeRect(this.x - 2, this.y - 2, this.width + 4, this.height + 4);
+        
+        // 粒子
+        for (const p of this.particles) {
+            ctx.globalAlpha = p.life * 0.5;
+            ctx.fillStyle = '#66CCFF';
+            ctx.fillRect(cx + p.ox - 1, cy + p.oy - 1, 2, 2);
+        }
+        
+        // 血量条
+        if (this.health < this.maxHealth) {
+            ctx.globalAlpha = 0.8;
+            const barW = this.width;
+            const barH = 3;
+            const barX = this.x;
+            const barY = this.y - 7;
+            ctx.fillStyle = '#333333';
+            ctx.fillRect(barX, barY, barW, barH);
+            ctx.fillStyle = '#4488FF';
+            ctx.fillRect(barX, barY, barW * (this.health / this.maxHealth), barH);
+        }
+        
+        ctx.restore();
+    }
+    
+    collidesWith(other) {
+        return this.x < other.x + other.width &&
+               this.x + this.width > other.x &&
+               this.y < other.y + other.height &&
+               this.y + this.height > other.y;
+    }
+}
+
+// 诱饵分身（隐藏机能）- 释放3个诱饵 + 4秒不可锁定
+class DecoyClone extends Weapon {
+    constructor() {
+        super({
+            type: 'decoy_clone',
+            name: '诱饵分身',
+            damage: 0,
+            cooldown: 35000
+        });
+        
+        this.stealthDuration = 4000;
+        this.isStealthActive = false;
+        this.stealthStartTime = 0;
+        this.decoySpread = 150;
+    }
+    
+    canUse() {
+        return !this.isStealthActive && super.canUse();
+    }
+    
+    use(player) {
+        if (!this.canUse()) return false;
+        
+        this.lastUseTime = Date.now();
+        this.isStealthActive = true;
+        this.stealthStartTime = Date.now();
+        
+        player.isUntargetable = true;
+        player.untargetableEndTime = Date.now() + this.stealthDuration;
+        
+        const cx = player.x + player.width / 2;
+        const cy = player.y + player.height / 2;
+        
+        if (!game.decoys) game.decoys = [];
+        
+        for (let i = 0; i < 3; i++) {
+            const angle = (Math.PI * 2 / 3) * i - Math.PI / 2;
+            const tx = cx + Math.cos(angle) * this.decoySpread - 15;
+            const ty = cy + Math.sin(angle) * this.decoySpread - 15;
+            game.decoys.push(new Decoy(player.x, player.y, tx, ty));
+        }
+        
+        // 解除所有敌方对玩家的锁定
+        if (game.bossMissiles) {
+            game.bossMissiles.forEach(m => {
+                if (m.currentTarget === player) m.currentTarget = null;
+            });
+        }
+        if (game.crescentBullets) {
+            game.crescentBullets.forEach(b => {
+                if (b.currentTarget === player) b.currentTarget = null;
+            });
+        }
+        
+        return true;
+    }
+    
+    update(player) {
+        if (this.isStealthActive) {
+            if (Date.now() - this.stealthStartTime >= this.stealthDuration) {
+                this.isStealthActive = false;
+                player.isUntargetable = false;
+            }
+        }
+        
+        if (!this.isStealthActive && player.isUntargetable && 
+            Date.now() >= (player.untargetableEndTime || 0)) {
+            player.isUntargetable = false;
+        }
+    }
+    
+    draw(ctx, player) {
+        if (!this.isStealthActive) return;
+        
+        const cx = player.x + player.width / 2;
+        const cy = player.y + player.height / 2;
+        const elapsed = Date.now() - this.stealthStartTime;
+        const remaining = 1 - elapsed / this.stealthDuration;
+        
+        ctx.save();
+        
+        // 隐身闪烁菱形光环
+        const baseAlpha = 0.25 * remaining;
+        const pulse = 0.5 + 0.5 * Math.sin(elapsed * 0.01);
+        ctx.strokeStyle = `rgba(68, 136, 255, ${baseAlpha + 0.15 * pulse})`;
+        ctx.lineWidth = 1.5;
+        ctx.shadowColor = '#4488FF';
+        ctx.shadowBlur = 8;
+        const r = 25 + 3 * Math.sin(elapsed * 0.006);
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - r);
+        ctx.lineTo(cx + r, cy);
+        ctx.lineTo(cx, cy + r);
+        ctx.lineTo(cx - r, cy);
+        ctx.closePath();
+        ctx.stroke();
+        
+        ctx.restore();
+    }
+    
+    getStatus() {
+        if (this.isStealthActive) {
+            const remaining = Math.max(0, this.stealthDuration - (Date.now() - this.stealthStartTime));
+            return { text: `隐身中: ${(remaining / 1000).toFixed(1)}s`, color: '#4488FF' };
+        }
+        const remaining = Math.max(0, this.cooldown - (Date.now() - this.lastUseTime));
+        if (remaining > 0) return { text: `冷却: ${(remaining / 1000).toFixed(1)}s`, color: '#888888' };
+        return { text: '就绪', color: '#4488FF' };
+    }
+}
+
+// 月光大剑 - 占用双肩+右手+隐藏机能共4槽位
+class MoonlightGreatsword extends Weapon {
+    constructor() {
+        super({
+            type: 'moonlight_greatsword',
+            name: '月光大剑',
+            damage: 200,
+            cooldown: 999999
+        });
+        this.isUsed = false;
+        this.range = 3 * 50 * 7;
+        this.slashes = [];
+        this.isAttacking = false;
+    }
+
+    canUse() {
+        if (this.isUsed) return false;
+        return !this.isAttacking;
+    }
+
+    use(player) {
+        if (!this.canUse()) return false;
+        this.isUsed = true;
+        this.lastUseTime = Date.now();
+        this.isAttacking = true;
+
+        const slash = new MoonlightSlash(
+            player.x, player.y,
+            player.direction,
+            this.range,
+            this.damage
+        );
+        this.slashes.push(slash);
+        return true;
+    }
+
+    update(player) {
+        for (let i = this.slashes.length - 1; i >= 0; i--) {
+            this.slashes[i].update();
+            if (this.slashes[i].isFinished) {
+                this.slashes.splice(i, 1);
+            }
+        }
+        if (this.isAttacking && this.slashes.length === 0) {
+            this.isAttacking = false;
+        }
+    }
+
+    draw(ctx, player) {
+        for (const slash of this.slashes) {
+            slash.draw(ctx);
+        }
+    }
+
+    getStatus() {
+        if (this.isAttacking) return { text: '斩击中...', color: '#88CCFF' };
+        if (this.isUsed) return { text: '已使用', color: '#555555' };
+        return { text: '就绪', color: '#88CCFF' };
+    }
+}
+
 // 超级武器类 - 占用两个肩部槽位，使用导弹发射器逻辑但只发射1枚导弹
 class SuperWeapon extends Weapon {
     constructor() {
@@ -2371,7 +2879,19 @@ class CIWS extends Weapon {
         
         // 优先级5：敌人本体（boss + 普通敌人）
         const enemies = [];
-        if (game.boss && game.boss.health > 0) enemies.push(game.boss);
+        if (game.boss && game.boss.health > 0) {
+            let bossTargetable = true;
+            if (game.boss instanceof StarDevourer) {
+                if (game.boss.phaseTwo.activated && game.boss.phaseTwo.isInvisible &&
+                    !game.boss.isWithinDetectionRange()) {
+                    bossTargetable = false;
+                }
+                if (game.boss.blindnessSkill && game.boss.blindnessSkill.isActive) {
+                    bossTargetable = false;
+                }
+            }
+            if (bossTargetable) enemies.push(game.boss);
+        }
         if (game.enemies) {
             for (const e of game.enemies) {
                 if (e.health > 0) enemies.push(e);
@@ -3066,7 +3586,22 @@ class ClusterMissile {
             return;
         }
         
-        this.checkProximityAndSplit();
+        if (this.isReversed) {
+            this.checkPlayerCollision();
+        } else {
+            this.checkProximityAndSplit();
+        }
+    }
+    
+    checkPlayerCollision() {
+        if (!game.player) return;
+        const dx = game.player.x + game.player.width / 2 - this.x;
+        const dy = game.player.y + game.player.height / 2 - this.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance < (game.player.width + game.player.height) / 4 + 10) {
+            game.player.takeDamage(5);
+            this.selfDestruct();
+        }
     }
     
     updateSpeed() {
@@ -3080,6 +3615,14 @@ class ClusterMissile {
     }
     
     findTarget() {
+        // 被反转时追踪玩家
+        if (this.isReversed) {
+            if (game.player) {
+                this.currentTarget = game.player;
+            }
+            return;
+        }
+        
         let closestTarget = null;
         let closestDistance = this.trackingRadius;
         
@@ -3159,26 +3702,25 @@ class ClusterMissile {
         if (!game.missiles) game.missiles = [];
         
         const childCount = 8;
+        const baseAngle = Math.atan2(this.vy, this.vx);
         for (let i = 0; i < childCount; i++) {
-            const angle = (Math.PI * 2 / childCount) * i + (Math.random() - 0.5) * 0.3;
-            const spreadDist = 15;
+            // 以母弹飞行方向为中心，均匀扇形散开
+            const fanSpread = Math.PI * 50 / 180;
+            const angle = baseAngle - fanSpread / 2 + (fanSpread / (childCount - 1)) * i + (Math.random() - 0.5) * 0.15;
+            const spreadDist = 12;
             const childX = this.x + Math.cos(angle) * spreadDist;
             const childY = this.y + Math.sin(angle) * spreadDist;
             
-            let targetX, targetY;
-            if (this.currentTarget) {
-                targetX = this.currentTarget.x + this.currentTarget.width / 2 + (Math.random() - 0.5) * 40;
-                targetY = this.currentTarget.y + this.currentTarget.height / 2 + (Math.random() - 0.5) * 40;
-            } else {
-                targetX = this.x + Math.cos(angle) * 200;
-                targetY = this.y + Math.sin(angle) * 200;
-            }
+            // 初始目标设为扇形散开方向（散开阶段用）
+            const targetX = this.x + Math.cos(angle) * 200;
+            const targetY = this.y + Math.sin(angle) * 200;
             
-            const child = new Missile(childX, childY, targetX, targetY, 3, 21);
-            child.maxLifetime = 2000;
-            child.trackingRadius = 220;
-            child.strongTrackingDuration = 1800;
+            const child = new Missile(childX, childY, targetX, targetY, 3, 13);
+            child.maxLifetime = 2500;
+            child.trackingRadius = 250;
+            child.strongTrackingDuration = 2200;
             child.isClusterChild = true;
+            child.guidanceDelay = 200;
             game.missiles.push(child);
         }
         
@@ -3334,3 +3876,6 @@ WEAPON_TYPES.super_weapon = SuperWeapon;
 WEAPON_TYPES.ciws = CIWS;
 WEAPON_TYPES.plasma_missile = PlasmaMissileLauncher;
 WEAPON_TYPES.cluster_missile = ClusterMissileLauncher;
+WEAPON_TYPES.counter_mech = CounterMech;
+WEAPON_TYPES.decoy_clone = DecoyClone;
+WEAPON_TYPES.moonlight_greatsword = MoonlightGreatsword;

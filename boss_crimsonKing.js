@@ -20,6 +20,12 @@ class Boss extends GameObject {
         this.lastDodgeTime = 0;
         this.dodgeCooldown = 600;
         
+        // 累积减伤系统：1秒内受到越多伤害减伤越高，每秒重置
+        this.damageWindow = {
+            accumulated: 0,
+            windowStart: Date.now()
+        };
+        
         // 扎穿系统
         this.isImpaled = false;
         this.impaledBy = null;
@@ -499,8 +505,9 @@ class Boss extends GameObject {
         
         const bossCX = this.x + this.width / 2;
         const bossCY = this.y + this.height / 2;
-        const playerCX = game.player.x + game.player.width / 2;
-        const playerCY = game.player.y + game.player.height / 2;
+        const aiTarget = getBossTargetCenter();
+        const playerCX = aiTarget ? aiTarget.x : bossCX;
+        const playerCY = aiTarget ? aiTarget.y : bossCY;
         
         const dx = playerCX - bossCX;
         const dy = playerCY - bossCY;
@@ -677,12 +684,26 @@ class Boss extends GameObject {
     }
 
     takeDamage(damage) {
-        this.health -= damage;
+        const now = Date.now();
         
-        // 添加受击提示
-        this.addHitIndicator(damage);
+        // 每秒重置累积伤害窗口
+        if (now - this.damageWindow.windowStart >= 1000) {
+            this.damageWindow.accumulated = 0;
+            this.damageWindow.windowStart = now;
+        }
         
-        return this.health <= 0; // 返回是否死亡
+        // 根据本窗口已累积伤害计算减伤比例
+        // 累积越多减伤越高，但永远不会减到0
+        const reductionFactor = this.damageWindow.accumulated / (this.damageWindow.accumulated + 30);
+        const actualDamage = Math.max(1, Math.round(damage * (1 - reductionFactor)));
+        
+        this.damageWindow.accumulated += damage;
+        
+        this.health -= actualDamage;
+        
+        this.addHitIndicator(actualDamage);
+        
+        return this.health <= 0;
     }
     
     // 添加受击提示

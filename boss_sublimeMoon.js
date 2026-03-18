@@ -35,9 +35,9 @@ class CrescentBullet extends GameObject {
     }
     
     findTarget() {
-        // 找到玩家作为目标
-        if (game.player) {
-            this.currentTarget = game.player;
+        const target = getBossTarget();
+        if (target) {
+            this.currentTarget = target;
         }
     }
     
@@ -79,24 +79,35 @@ class CrescentBullet extends GameObject {
     }
     
     checkCollisions() {
-        // 检查与玩家的碰撞
+        const bulletCenterX = this.x + this.width / 2;
+        const bulletCenterY = this.y + this.height / 2;
+        
         if (game.player) {
             const playerCenterX = game.player.x + game.player.width / 2;
             const playerCenterY = game.player.y + game.player.height / 2;
-            const bulletCenterX = this.x + this.width / 2;
-            const bulletCenterY = this.y + this.height / 2;
-            
             const distance = Math.sqrt(
                 Math.pow(playerCenterX - bulletCenterX, 2) + 
                 Math.pow(playerCenterY - bulletCenterY, 2)
             );
-            
-            if (distance < 20) { // 碰撞检测半径
-                // 对玩家造成伤害和僵直
+            if (distance < 20) {
                 game.player.takeDamage(this.damage);
-                game.player.setStunned(600); // 5秒僵直
+                game.player.setStunned(600);
                 updateUI();
                 this.shouldDestroy = true;
+                return;
+            }
+        }
+        
+        if (game.decoys) {
+            for (const decoy of game.decoys) {
+                const dcx = decoy.x + decoy.width / 2;
+                const dcy = decoy.y + decoy.height / 2;
+                const dist = Math.sqrt(Math.pow(dcx - bulletCenterX, 2) + Math.pow(dcy - bulletCenterY, 2));
+                if (dist < 20) {
+                    decoy.takeDamage(this.damage);
+                    this.shouldDestroy = true;
+                    return;
+                }
             }
         }
     }
@@ -554,9 +565,10 @@ class SublimeMoon extends GameObject {
     checkMissileLaunch() {
         if (!game.player || !this.canLaunchMissiles()) return;
         
-        // 计算与玩家的距离
-        const playerCenterX = game.player.x + game.player.width / 2;
-        const playerCenterY = game.player.y + game.player.height / 2;
+        const missileTarget = getBossTarget();
+        if (!missileTarget) return;
+        const playerCenterX = missileTarget.x + missileTarget.width / 2;
+        const playerCenterY = missileTarget.y + missileTarget.height / 2;
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
         
@@ -589,24 +601,23 @@ class SublimeMoon extends GameObject {
     fireBossMissile() {
         if (!game.player) return;
         
+        const fireTarget = getBossTarget();
+        if (!fireTarget) return;
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
-        const playerCenterX = game.player.x + game.player.width / 2;
-        const playerCenterY = game.player.y + game.player.height / 2;
+        const playerCenterX = fireTarget.x + fireTarget.width / 2;
+        const playerCenterY = fireTarget.y + fireTarget.height / 2;
         
-        // 添加一些随机散布，使导弹不会完全重叠
-        const spreadAngle = (Math.random() - 0.5) * Math.PI / 6; // ±30度散布
+        const spreadAngle = (Math.random() - 0.5) * Math.PI / 6;
         const baseAngle = Math.atan2(playerCenterY - bossCenterY, playerCenterX - bossCenterX);
         const missileAngle = baseAngle + spreadAngle;
         
-        // 计算导弹发射位置（从Boss边缘发射）
         const launchDistance = this.width / 2 + 10;
         const launchX = bossCenterX + Math.cos(missileAngle) * launchDistance;
         const launchY = bossCenterY + Math.sin(missileAngle) * launchDistance;
         
-        // 计算目标位置（玩家当前位置 + 一些预测）
-        const playerVx = game.player.vx || 0;
-        const playerVy = game.player.vy || 0;
+        const playerVx = fireTarget.vx || 0;
+        const playerVy = fireTarget.vy || 0;
         const predictionTime = 0.5; // 0.5秒预测
         const targetX = playerCenterX + playerVx * predictionTime;
         const targetY = playerCenterY + playerVy * predictionTime;
@@ -696,9 +707,10 @@ class SublimeMoon extends GameObject {
     // 冲刺向玩家
     chargeTowardsPlayer() {
         if (!game.player) return;
-        
-        const playerCenterX = game.player.x + game.player.width / 2;
-        const playerCenterY = game.player.y + game.player.height / 2;
+        const chargeTarget = getBossTarget();
+        if (!chargeTarget) return;
+        const playerCenterX = chargeTarget.x + chargeTarget.width / 2;
+        const playerCenterY = chargeTarget.y + chargeTarget.height / 2;
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
         
@@ -717,9 +729,10 @@ class SublimeMoon extends GameObject {
     // 获取与玩家的距离
     getDistanceToPlayer() {
         if (!game.player) return Infinity;
-        
-        const playerCenterX = game.player.x + game.player.width / 2;
-        const playerCenterY = game.player.y + game.player.height / 2;
+        const distTarget = getBossTarget();
+        if (!distTarget) return Infinity;
+        const playerCenterX = distTarget.x + distTarget.width / 2;
+        const playerCenterY = distTarget.y + distTarget.height / 2;
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
         
@@ -796,11 +809,11 @@ class SublimeMoon extends GameObject {
         this.dashStartTime = Date.now();
         this.dashCount++;
         
-        // 计算突进目标（玩家附近随机位置）
-        const playerX = game.player.x + game.player.width / 2;
-        const playerY = game.player.y + game.player.height / 2;
+        const dashAimTarget = getBossTarget();
+        const playerX = dashAimTarget ? dashAimTarget.x + dashAimTarget.width / 2 : game.player.x + game.player.width / 2;
+        const playerY = dashAimTarget ? dashAimTarget.y + dashAimTarget.height / 2 : game.player.y + game.player.height / 2;
         const angle = Math.random() * Math.PI * 2;
-        const distance = 40 + Math.random() * 30; // 玩家周围40-70像素
+        const distance = 40 + Math.random() * 30;
         
         this.dashTarget = {
             x: playerX + Math.cos(angle) * distance,
@@ -1030,11 +1043,12 @@ class SublimeMoon extends GameObject {
         boomerang.attackStartTime = Date.now();
         boomerang.hasHitPlayer = false;
         
-        // 设置攻击目标为玩家当前位置 + 预测
-        const playerX = game.player.x + game.player.width / 2;
-        const playerY = game.player.y + game.player.height / 2;
-        const playerVx = game.player.vx || 0;
-        const playerVy = game.player.vy || 0;
+        const boomTarget = getBossTarget();
+        if (!boomTarget) return;
+        const playerX = boomTarget.x + boomTarget.width / 2;
+        const playerY = boomTarget.y + boomTarget.height / 2;
+        const playerVx = boomTarget.vx || 0;
+        const playerVy = boomTarget.vy || 0;
         
         boomerang.attackTarget = {
             x: playerX + playerVx * 0.5, // 0.5秒预测
@@ -1241,17 +1255,18 @@ class SublimeMoon extends GameObject {
             }
         }
         
-        // 常规玩家距离检查
-        const playerCenterX = game.player.x + game.player.width / 2;
-        const playerCenterY = game.player.y + game.player.height / 2;
+        const slashTarget = getBossTarget();
+        const playerCenterX = slashTarget ? slashTarget.x + slashTarget.width / 2 : game.player.x + game.player.width / 2;
+        const playerCenterY = slashTarget ? slashTarget.y + slashTarget.height / 2 : game.player.y + game.player.height / 2;
         
         const distance = Math.sqrt(
             Math.pow(playerCenterX - bossCenterX, 2) + 
             Math.pow(playerCenterY - bossCenterY, 2)
         );
         
-        // 增加预判范围，考虑玩家的移动速度
-        const playerSpeed = Math.sqrt(game.player.vx * game.player.vx + game.player.vy * game.player.vy);
+        const pvx = slashTarget ? (slashTarget.vx || 0) : (game.player.vx || 0);
+        const pvy = slashTarget ? (slashTarget.vy || 0) : (game.player.vy || 0);
+        const playerSpeed = Math.sqrt(pvx * pvx + pvy * pvy);
         const extendedRange = this.spinSlashRange + Math.max(playerSpeed * 1.5, 10); // 根据玩家速度扩展检测范围，最少增加10像素
         
         // 如果玩家在扩展范围内，立即执行回旋斩（非常激进的检测）
@@ -1320,9 +1335,9 @@ class SublimeMoon extends GameObject {
         // 检查瞬移冷却
         if (now - this.lastTeleport < this.teleportCooldown) return;
         
-        // 计算与玩家的距离
-        const playerCenterX = game.player.x + game.player.width / 2;
-        const playerCenterY = game.player.y + game.player.height / 2;
+        const teleTarget = getBossTarget();
+        const playerCenterX = teleTarget ? teleTarget.x + teleTarget.width / 2 : game.player.x + game.player.width / 2;
+        const playerCenterY = teleTarget ? teleTarget.y + teleTarget.height / 2 : game.player.y + game.player.height / 2;
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
         
@@ -1331,7 +1346,6 @@ class SublimeMoon extends GameObject {
             Math.pow(playerCenterY - bossCenterY, 2)
         );
         
-        // 如果玩家距离太远，执行瞬移
         if (distance > this.teleportRange) {
             this.performTeleport();
         }
@@ -1346,11 +1360,10 @@ class SublimeMoon extends GameObject {
         // 创建瞬移前的特效
         this.createTeleportEffect(this.x + this.width / 2, this.y + this.height / 2, 'departure');
         
-        // 计算玩家背后的位置
-        const playerCenterX = game.player.x + game.player.width / 2;
-        const playerCenterY = game.player.y + game.player.height / 2;
+        const tpTarget = getBossTarget();
+        const playerCenterX = tpTarget ? tpTarget.x + tpTarget.width / 2 : game.player.x + game.player.width / 2;
+        const playerCenterY = tpTarget ? tpTarget.y + tpTarget.height / 2 : game.player.y + game.player.height / 2;
         
-        // 获取玩家的朝向（从玩家的direction属性）
         const playerDirection = game.player.direction * Math.PI / 180; // 转换为弧度
         
         // 在玩家背后120像素的位置出现（增加距离）
@@ -1398,18 +1411,17 @@ class SublimeMoon extends GameObject {
         const now = Date.now();
         if (now - this.lastCrescentBullet < this.crescentBulletCooldown) return;
         
-        // 计算与玩家的距离
-        const playerCenterX = game.player.x + game.player.width / 2;
-        const playerCenterY = game.player.y + game.player.height / 2;
+        const cbTarget = getBossTarget();
+        const cbTX = cbTarget ? cbTarget.x + cbTarget.width / 2 : game.player.x + game.player.width / 2;
+        const cbTY = cbTarget ? cbTarget.y + cbTarget.height / 2 : game.player.y + game.player.height / 2;
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
         
         const distance = Math.sqrt(
-            Math.pow(playerCenterX - bossCenterX, 2) + 
-            Math.pow(playerCenterY - bossCenterY, 2)
+            Math.pow(cbTX - bossCenterX, 2) + 
+            Math.pow(cbTY - bossCenterY, 2)
         );
         
-        // 如果玩家在安全攻击区域内，发射月牙追踪弹
         if (distance >= this.safeAttackRangeMin && distance <= this.safeAttackRangeMax) {
             this.fireCrescentBullets();
         }
@@ -1430,10 +1442,11 @@ class SublimeMoon extends GameObject {
         }
         
         // 发射5颗月牙弹，呈扇形散布
+        const crescentTarget = getBossTarget();
         for (let i = 0; i < this.crescentBulletsPerSalvo; i++) {
-            const spreadAngle = (i - 2) * (Math.PI / 8); // -π/4到π/4的扇形散布
-            const playerCenterX = game.player.x + game.player.width / 2;
-            const playerCenterY = game.player.y + game.player.height / 2;
+            const spreadAngle = (i - 2) * (Math.PI / 8);
+            const playerCenterX = crescentTarget ? crescentTarget.x + crescentTarget.width / 2 : game.player.x + game.player.width / 2;
+            const playerCenterY = crescentTarget ? crescentTarget.y + crescentTarget.height / 2 : game.player.y + game.player.height / 2;
             const baseAngle = Math.atan2(playerCenterY - bossCenterY, playerCenterX - bossCenterX);
             const bulletAngle = baseAngle + spreadAngle;
             
@@ -1480,9 +1493,10 @@ class SublimeMoon extends GameObject {
         // 清除旧的分身
         game.iceClones = [];
         
-        const playerCenterX = game.player.x + game.player.width / 2;
-        const playerCenterY = game.player.y + game.player.height / 2;
-        const radius = 250; // 围绕玩家的半径（增加距离）
+        const cloneSpawnTarget = getBossTarget();
+        const playerCenterX = cloneSpawnTarget ? cloneSpawnTarget.x + cloneSpawnTarget.width / 2 : game.player.x + game.player.width / 2;
+        const playerCenterY = cloneSpawnTarget ? cloneSpawnTarget.y + cloneSpawnTarget.height / 2 : game.player.y + game.player.height / 2;
+        const radius = 250;
         
         // 创建4个分身，等距分布在玩家周围
         for (let i = 0; i < 4; i++) {
@@ -2008,10 +2022,10 @@ class IceClone extends GameObject {
             return;
         }
         
-        // 跟随玩家移动，保持相对位置
         if (game.player) {
-            const playerCenterX = game.player.x + game.player.width / 2;
-            const playerCenterY = game.player.y + game.player.height / 2;
+            const cloneFollowTarget = getBossTarget();
+            const playerCenterX = cloneFollowTarget ? cloneFollowTarget.x + cloneFollowTarget.width / 2 : this.x;
+            const playerCenterY = cloneFollowTarget ? cloneFollowTarget.y + cloneFollowTarget.height / 2 : this.y;
             
             // 根据相对角度和半径计算新位置
             const newX = playerCenterX + Math.cos(this.relativeAngle) * this.radius - this.width / 2;
@@ -2035,14 +2049,14 @@ class IceClone extends GameObject {
     fireCrescentBullet() {
         if (!game.player) return;
         
-        // 确保月牙弹数组存在
         if (!game.crescentBullets) {
             game.crescentBullets = [];
         }
         
-        // 计算向玩家的方向
-        const playerCenterX = game.player.x + game.player.width / 2;
-        const playerCenterY = game.player.y + game.player.height / 2;
+        const cloneFireTarget = getBossTarget();
+        if (!cloneFireTarget) return;
+        const playerCenterX = cloneFireTarget.x + cloneFireTarget.width / 2;
+        const playerCenterY = cloneFireTarget.y + cloneFireTarget.height / 2;
         const cloneCenterX = this.x + this.width / 2;
         const cloneCenterY = this.y + this.height / 2;
         

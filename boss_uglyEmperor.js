@@ -124,11 +124,12 @@ class UglyEmperor extends GameObject {
     // 混沌弹幕攻击
     fireChaosBarrage() {
         if (!game.player) return;
-        
+        const barrageTarget = getBossTarget();
+        if (!barrageTarget) return;
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
-        const playerCenterX = game.player.x + game.player.width / 2;
-        const playerCenterY = game.player.y + game.player.height / 2;
+        const playerCenterX = barrageTarget.x + barrageTarget.width / 2;
+        const playerCenterY = barrageTarget.y + barrageTarget.height / 2;
         
         // 计算到玩家的角度
         const dx = playerCenterX - bossCenterX;
@@ -172,9 +173,10 @@ class UglyEmperor extends GameObject {
             return;
         }
         
-        // 计算传送目标位置（玩家附近随机位置）
-        const playerCenterX = game.player.x + game.player.width / 2;
-        const playerCenterY = game.player.y + game.player.height / 2;
+        const teleTarget = getBossTarget();
+        if (!teleTarget) return;
+        const playerCenterX = teleTarget.x + teleTarget.width / 2;
+        const playerCenterY = teleTarget.y + teleTarget.height / 2;
         
         const angle = Math.random() * 2 * Math.PI;
         const distance = Math.random() * this.chaosTeleport.teleportRange;
@@ -346,15 +348,17 @@ class UglyEmperor extends GameObject {
     // 投掷燃烧瓶
     throwMolotov() {
         if (!game.player) return;
-        
+        const molotovTarget = getBossTarget();
+        if (!molotovTarget) return;
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
-        const playerCenterX = game.player.x + game.player.width / 2;
-        const playerCenterY = game.player.y + game.player.height / 2;
+        const playerCenterX = molotovTarget.x + molotovTarget.width / 2;
+        const playerCenterY = molotovTarget.y + molotovTarget.height / 2;
         
-        // 预测玩家位置（根据玩家当前速度和方向）
-        const playerSpeed = Math.sqrt(game.player.vx * game.player.vx + game.player.vy * game.player.vy);
-        const playerDirection = Math.atan2(game.player.vy, game.player.vx);
+        const pvx = molotovTarget.vx || 0;
+        const pvy = molotovTarget.vy || 0;
+        const playerSpeed = Math.sqrt(pvx * pvx + pvy * pvy);
+        const playerDirection = Math.atan2(pvy, pvx);
         
         // 计算燃烧瓶飞行时间
         const distance = Math.sqrt(
@@ -475,15 +479,16 @@ class UglyEmperor extends GameObject {
     
     getDistanceToPlayer() {
         if (!game.player) return Infinity;
-        
+        const distTarget = getBossTarget();
+        if (!distTarget) return Infinity;
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
-        const playerCenterX = game.player.x + game.player.width / 2;
-        const playerCenterY = game.player.y + game.player.height / 2;
+        const tcx = distTarget.x + distTarget.width / 2;
+        const tcy = distTarget.y + distTarget.height / 2;
         
         return Math.sqrt(
-            Math.pow(bossCenterX - playerCenterX, 2) + 
-            Math.pow(bossCenterY - playerCenterY, 2)
+            Math.pow(bossCenterX - tcx, 2) + 
+            Math.pow(bossCenterY - tcy, 2)
         );
     }
     
@@ -1034,6 +1039,17 @@ class ChaosBullet extends GameObject {
             game.player.takeDamage(this.damage);
             this.shouldDestroy = true;
             return;
+        }
+        
+        // 检查与诱饵的碰撞
+        if (game.decoys) {
+            for (const decoy of game.decoys) {
+                if (this.collidesWith(decoy)) {
+                    decoy.takeDamage(this.damage);
+                    this.shouldDestroy = true;
+                    return;
+                }
+            }
         }
         
         // 拦截玩家导弹：混沌子弹可以提前引爆导弹

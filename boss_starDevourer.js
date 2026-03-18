@@ -31,10 +31,10 @@ class FloatingDrone extends Enemy {
     }
     
     update() {
-        // 浮游炮的更新逻辑（类似原来的attacking状态）
         const now = Date.now();
-        const playerCenterX = game.player.x + game.player.width / 2;
-        const playerCenterY = game.player.y + game.player.height / 2;
+        const fgTarget = getBossTarget();
+        const playerCenterX = fgTarget ? fgTarget.x + fgTarget.width / 2 : game.player.x + game.player.width / 2;
+        const playerCenterY = fgTarget ? fgTarget.y + fgTarget.height / 2 : game.player.y + game.player.height / 2;
         
         // 计算理想攻击位置
         const idealX = playerCenterX + Math.cos(this.formationAngle) * this.attackRange;
@@ -538,8 +538,9 @@ class StarDevourer extends GameObject {
             if (this.phaseTwo.activated && game.player) {
                 const bossCenterX = this.x + this.width / 2;
                 const bossCenterY = this.y + this.height / 2;
-                const playerCenterX = game.player.x + game.player.width / 2;
-                const playerCenterY = game.player.y + game.player.height / 2;
+                const p2MoveTarget = getBossTarget();
+                const playerCenterX = p2MoveTarget ? p2MoveTarget.x + p2MoveTarget.width / 2 : game.player.x + game.player.width / 2;
+                const playerCenterY = p2MoveTarget ? p2MoveTarget.y + p2MoveTarget.height / 2 : game.player.y + game.player.height / 2;
                 const dx = playerCenterX - bossCenterX;
                 const dy = playerCenterY - bossCenterY;
                 const distance = Math.sqrt(dx * dx + dy * dy);
@@ -656,16 +657,17 @@ class StarDevourer extends GameObject {
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
         
-        // 预瞄：计算提前量
-        const playerCenterX = game.player.x + game.player.width / 2;
-        const playerCenterY = game.player.y + game.player.height / 2;
+        const rifleTarget = getBossTarget();
+        if (!rifleTarget) return;
+        const playerCenterX = rifleTarget.x + rifleTarget.width / 2;
+        const playerCenterY = rifleTarget.y + rifleTarget.height / 2;
         const dx = playerCenterX - bossCenterX;
         const dy = playerCenterY - bossCenterY;
         const dist = Math.sqrt(dx * dx + dy * dy);
         
         const flightTime = dist / this.autoRifle.bulletSpeed;
-        const predictedX = playerCenterX + (game.player.vx || 0) * flightTime;
-        const predictedY = playerCenterY + (game.player.vy || 0) * flightTime;
+        const predictedX = playerCenterX + (rifleTarget.vx || 0) * flightTime;
+        const predictedY = playerCenterY + (rifleTarget.vy || 0) * flightTime;
         
         const pdx = predictedX - bossCenterX;
         const pdy = predictedY - bossCenterY;
@@ -786,43 +788,51 @@ class StarDevourer extends GameObject {
     
     // 导弹反转系统
     updateMissileReversal() {
-        if (!this.missileReversal.enabled || !game.missiles) return;
+        if (!this.missileReversal.enabled) return;
         
         const now = Date.now();
         
-        // 直接检测是否存在未反转的玩家导弹
-        const unreversedPlayerMissiles = game.missiles.filter(
-            m => !m.isBossMissile && !m.isReversed
-        );
+        // 检测所有未反转的玩家导弹（包括普通导弹和分裂飞弹母弹）
+        const allPlayerMissiles = [];
+        if (game.missiles) {
+            allPlayerMissiles.push(...game.missiles.filter(m => !m.isBossMissile && !m.isReversed));
+        }
+        if (game.clusterMissiles) {
+            allPlayerMissiles.push(...game.clusterMissiles.filter(m => !m.isReversed));
+        }
         
-        if (unreversedPlayerMissiles.length > 0) {
-            // 发现未反转导弹，开始计时（如果尚未开始）
+        if (allPlayerMissiles.length > 0) {
             if (this.missileReversal.lastMissileLaunchTime === 0) {
                 this.missileReversal.lastMissileLaunchTime = now;
             }
             
-            // 延迟到达后执行反转
             if (now - this.missileReversal.lastMissileLaunchTime >= this.missileReversal.reversalDelay) {
                 this.reverseMissiles();
                 this.missileReversal.lastMissileLaunchTime = 0;
             }
         } else {
-            // 没有未反转的玩家导弹，重置计时
             this.missileReversal.lastMissileLaunchTime = 0;
         }
         
-        // 清理已销毁的导弹引用，防止内存泄漏
-        this.missileReversal.reversedMissiles = this.missileReversal.reversedMissiles.filter(
-            m => !m.shouldDestroy && game.missiles.includes(m)
-        );
+        // 清理已销毁的导弹引用
+        this.missileReversal.reversedMissiles = this.missileReversal.reversedMissiles.filter(m => {
+            if (m.shouldDestroy) return false;
+            if (game.missiles && game.missiles.includes(m)) return true;
+            if (game.clusterMissiles && game.clusterMissiles.includes(m)) return true;
+            return false;
+        });
     }
     
     // 反转导弹
     reverseMissiles() {
-        if (!game.missiles || game.missiles.length === 0) return;
-        
-        // 只反转玩家导弹，不反转Boss导弹
-        const playerMissiles = game.missiles.filter(missile => !missile.isBossMissile);
+        // 收集所有可反转的玩家导弹
+        const playerMissiles = [];
+        if (game.missiles) {
+            playerMissiles.push(...game.missiles.filter(m => !m.isBossMissile && !m.isReversed));
+        }
+        if (game.clusterMissiles) {
+            playerMissiles.push(...game.clusterMissiles.filter(m => !m.isReversed));
+        }
         
         if (playerMissiles.length === 0) return;
         
@@ -954,8 +964,10 @@ class StarDevourer extends GameObject {
         if (!game.player) return;
         
         const now = Date.now();
-        const playerCenterX = game.player.x + game.player.width / 2;
-        const playerCenterY = game.player.y + game.player.height / 2;
+        const recordTarget = getBossTarget();
+        if (!recordTarget) return;
+        const playerCenterX = recordTarget.x + recordTarget.width / 2;
+        const playerCenterY = recordTarget.y + recordTarget.height / 2;
         
         // 添加当前位置到历史记录
         this.playerPositionHistory.push({
@@ -1156,10 +1168,10 @@ class StarDevourer extends GameObject {
 
                 
                 case 'attacking':
-                    // 动态阵型追踪模式：每炮后重新追踪玩家，射击前后静止
                     const now = Date.now();
-                    const playerCenterX = game.player.x + game.player.width / 2;
-                    const playerCenterY = game.player.y + game.player.height / 2;
+                    const ballAimTarget = getBossTarget();
+                    const playerCenterX = ballAimTarget ? ballAimTarget.x + ballAimTarget.width / 2 : game.player.x + game.player.width / 2;
+                    const playerCenterY = ballAimTarget ? ballAimTarget.y + ballAimTarget.height / 2 : game.player.y + game.player.height / 2;
                     
                     // 计算当前浮游炮在阵型中的理想位置（基于标准120度间隔）
                     const ballIndex = this.orbitBalls.indexOf(ball);
@@ -1424,13 +1436,16 @@ class StarDevourer extends GameObject {
         const now = Date.now();
         if (now - this.lastDodgeTime < this.dodgeCooldown) return;
         
-        if (!game.missiles || game.missiles.length === 0) return;
+        const allMissiles = [];
+        if (game.missiles) allMissiles.push(...game.missiles);
+        if (game.clusterMissiles) allMissiles.push(...game.clusterMissiles);
+        if (allMissiles.length === 0) return;
 
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
-        const missileDodgeDistance = 120; // 基础导弹闪避距离
+        const missileDodgeDistance = 120;
 
-        for (const missile of game.missiles) {
+        for (const missile of allMissiles) {
             // 计算导弹到Boss的距离
             const distanceToMissile = Math.sqrt(
                 Math.pow(missile.x - bossCenterX, 2) + 
@@ -1610,15 +1625,17 @@ class StarDevourer extends GameObject {
     // 计算与玩家的距离（新增）
     getDistanceToPlayer() {
         if (!game.player) return Infinity;
+        const target = getBossTarget();
+        if (!target) return Infinity;
         
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
-        const playerCenterX = game.player.x + game.player.width / 2;
-        const playerCenterY = game.player.y + game.player.height / 2;
+        const tcx = target.x + target.width / 2;
+        const tcy = target.y + target.height / 2;
         
         return Math.sqrt(
-            Math.pow(playerCenterX - bossCenterX, 2) + 
-            Math.pow(playerCenterY - bossCenterY, 2)
+            Math.pow(tcx - bossCenterX, 2) + 
+            Math.pow(tcy - bossCenterY, 2)
         );
     }
     
@@ -2211,6 +2228,17 @@ class StarDevourerBullet extends GameObject {
         if (game.player && this.collidesWith(game.player)) {
             game.player.takeDamage(this.damage);
             this.shouldDestroy = true;
+        }
+        
+        // 碰撞检测：击中诱饵
+        if (!this.shouldDestroy && game.decoys) {
+            for (const decoy of game.decoys) {
+                if (this.collidesWith(decoy)) {
+                    decoy.takeDamage(this.damage);
+                    this.shouldDestroy = true;
+                    break;
+                }
+            }
         }
     }
     

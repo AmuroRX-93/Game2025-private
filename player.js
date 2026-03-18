@@ -51,24 +51,39 @@ class Player extends GameObject {
         // 无敌模式
         this.isInvincible = gameState.invincibleMode;
         
+        // 诱饵分身 - 不可锁定状态
+        this.isUntargetable = false;
+        this.untargetableEndTime = 0;
+        
         // 受击提示系统
         this.hitIndicators = [];
     }
     
     loadDefaultWeapons() {
-        // 清空现有武器
         this.leftHandWeapon = null;
         this.rightHandWeapon = null;
         this.hiddenAbilityWeapon = null;
         this.leftShoulderWeapon = null;
         this.rightShoulderWeapon = null;
         
-        // 根据gameState的武器配置创建武器实例
         const leftWeaponType = gameState.weaponConfig.leftHand;
         const rightWeaponType = gameState.weaponConfig.rightHand;
         const hiddenAbilityType = gameState.weaponConfig.hiddenAbility;
         const leftShoulderType = gameState.weaponConfig.leftShoulder;
         const rightShoulderType = gameState.weaponConfig.rightShoulder;
+        
+        const allTypes = [leftWeaponType, rightWeaponType, hiddenAbilityType, leftShoulderType, rightShoulderType];
+        if (allTypes.includes('moonlight_greatsword')) {
+            const mg = new MoonlightGreatsword();
+            this.rightHandWeapon = mg;
+            this.leftShoulderWeapon = mg;
+            this.rightShoulderWeapon = mg;
+            this.hiddenAbilityWeapon = mg;
+            if (leftWeaponType && leftWeaponType !== 'moonlight_greatsword' && WEAPON_TYPES[leftWeaponType]) {
+                this.leftHandWeapon = new WEAPON_TYPES[leftWeaponType]();
+            }
+            return;
+        }
         
         if (leftWeaponType && WEAPON_TYPES[leftWeaponType]) {
             this.leftHandWeapon = new WEAPON_TYPES[leftWeaponType]();
@@ -83,11 +98,11 @@ class Player extends GameObject {
         }
         
         if (leftShoulderType && WEAPON_TYPES[leftShoulderType]) {
-            this.leftShoulderWeapon = new WEAPON_TYPES[leftShoulderType](true); // 肩部武器
+            this.leftShoulderWeapon = new WEAPON_TYPES[leftShoulderType](true);
         }
         
         if (rightShoulderType && WEAPON_TYPES[rightShoulderType]) {
-            this.rightShoulderWeapon = new WEAPON_TYPES[rightShoulderType](true); // 肩部武器
+            this.rightShoulderWeapon = new WEAPON_TYPES[rightShoulderType](true);
         }
     }
     
@@ -118,12 +133,11 @@ class Player extends GameObject {
     
     // 获取所有武器（用于统一更新）
     getAllWeapons() {
+        const seen = new Set();
         const weapons = [];
-        if (this.leftHandWeapon) weapons.push(this.leftHandWeapon);
-        if (this.rightHandWeapon) weapons.push(this.rightHandWeapon);
-        if (this.hiddenAbilityWeapon) weapons.push(this.hiddenAbilityWeapon);
-        if (this.leftShoulderWeapon) weapons.push(this.leftShoulderWeapon);
-        if (this.rightShoulderWeapon) weapons.push(this.rightShoulderWeapon);
+        [this.leftHandWeapon, this.rightHandWeapon, this.hiddenAbilityWeapon, this.leftShoulderWeapon, this.rightShoulderWeapon].forEach(w => {
+            if (w && !seen.has(w)) { seen.add(w); weapons.push(w); }
+        });
         return weapons;
     }
     
@@ -576,6 +590,12 @@ class Player extends GameObject {
             actualDamage = Math.max(1, Math.round(actualDamage));
         }
         
+        // 反制重击：反射伤害给攻击者
+        if (this.hiddenAbilityWeapon && this.hiddenAbilityWeapon.reflectDamage && 
+            this.hiddenAbilityWeapon.isActive) {
+            this.hiddenAbilityWeapon.reflectDamage(actualDamage);
+        }
+        
         // 扣除生命值
         this.health -= actualDamage;
         
@@ -695,22 +715,33 @@ class Player extends GameObject {
         ctx.translate(centerX, centerY);
         ctx.rotate(this.direction * Math.PI / 180);
         
+        // 隐身闪烁效果（诱饵分身）
+        if (this.isUntargetable) {
+            const now = Date.now();
+            const flick = 0.15 + 0.12 * Math.sin(now * 0.025) + 0.08 * Math.sin(now * 0.063);
+            const glitch = Math.random() < 0.08 ? 0 : 1;
+            ctx.globalAlpha = flick * glitch;
+            ctx.shadowColor = '#4488FF';
+            ctx.shadowBlur = 10;
+        }
+        
         // 无敌状态的视觉效果
-        if (this.isInvincible) {
-            // 无敌发光效果
+        if (this.isInvincible && !this.isUntargetable) {
             ctx.shadowColor = '#FFD700';
             ctx.shadowBlur = 15;
             ctx.shadowOffsetX = 0;
             ctx.shadowOffsetY = 0;
             
-            // 闪烁效果
             const time = Date.now();
             const alpha = 0.7 + 0.3 * Math.sin(time * 0.01);
             ctx.globalAlpha = alpha;
         }
         
         // 绘制旋转后的角色主体
-        ctx.fillStyle = this.isInvincible ? '#FFD700' : this.color;
+        let bodyColor = this.color;
+        if (this.isUntargetable) bodyColor = '#4488FF';
+        else if (this.isInvincible) bodyColor = '#FFD700';
+        ctx.fillStyle = bodyColor;
         ctx.fillRect(-this.width / 2, -this.height / 2, this.width, this.height);
         
         // 绘制推进器火焰效果

@@ -36,7 +36,12 @@ const gameState = {
     repairKits: 3, // 维修包数量
     maxRepairKits: 3, // 最大维修包数量
     // 无敌模式
-    invincibleMode: true
+    invincibleMode: true,
+    // 游戏简介系统
+    showGuide: false,
+    guideCategory: null,
+    guideSubItem: null,
+    guideScrollOffset: 0
 };
 
 // 键盘输入状态

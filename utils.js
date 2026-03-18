@@ -1,4 +1,20 @@
 // 工具函数
+
+// 获取Boss的攻击目标（玩家不可锁定时转向诱饵）
+function getBossTarget() {
+    if (!game || !game.player) return null;
+    if (game.player.isUntargetable && game.decoys && game.decoys.length > 0) {
+        return game.decoys[Math.floor(Math.random() * game.decoys.length)];
+    }
+    return game.player;
+}
+
+function getBossTargetCenter() {
+    const target = getBossTarget();
+    if (!target) return null;
+    return { x: target.x + target.width / 2, y: target.y + target.height / 2, entity: target };
+}
+
 function updateUI() {
     document.getElementById('score').textContent = Math.floor(gameState.score);
 }
@@ -36,6 +52,23 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.key.length === 1) {
             keys[e.key.toLowerCase()] = true;
             keys[e.key.toUpperCase()] = true;
+        }
+        
+        // 游戏简介界面导航
+        if (gameState.showGuide) {
+            if (e.key === 'Escape' || e.key === 'b' || e.key === 'B') {
+                if (gameState.guideSubItem !== null) {
+                    gameState.guideSubItem = null;
+                    gameState.guideScrollOffset = 0;
+                } else if (gameState.guideCategory) {
+                    gameState.guideCategory = null;
+                    gameState.guideScrollOffset = 0;
+                } else {
+                    gameState.showGuide = false;
+                    gameState.showModeSelection = true;
+                }
+            }
+            return;
         }
         
         // 游戏模式选择（支持键盘和点击）
@@ -126,9 +159,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     game.player.useHiddenAbility();
                 }
             } else if (e.key === 'q' || e.key === 'Q') {
-                // Q键使用左肩武器或超级武器
                 if (game && game.player) {
-                    // 检查是否有超级武器
                     const leftWeapon = game.player.getLeftShoulderWeapon();
                     const rightWeapon = game.player.getRightShoulderWeapon();
                     if ((leftWeapon && leftWeapon.type === 'super_weapon') || 
@@ -139,9 +170,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
             } else if (e.key === 'e' || e.key === 'E') {
-                // E键使用右肩武器或超级武器
                 if (game && game.player) {
-                    // 检查是否有超级武器
                     const leftWeapon = game.player.getLeftShoulderWeapon();
                     const rightWeapon = game.player.getRightShoulderWeapon();
                     if ((leftWeapon && leftWeapon.type === 'super_weapon') || 
@@ -213,6 +242,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const contentHeight = 200 + levels.length * 140;
             const maxScroll = Math.max(0, contentHeight - GAME_CONFIG.HEIGHT + 60);
             gameState.levelScrollOffset = Math.max(0, Math.min(gameState.levelScrollOffset, maxScroll));
+        }
+        if (gameState.showGuide && (gameState.guideCategory || gameState.guideSubItem !== null)) {
+            e.preventDefault();
+            gameState.guideScrollOffset += e.deltaY * 0.5;
+            gameState.guideScrollOffset = Math.max(0, gameState.guideScrollOffset);
         }
     }, { passive: false });
 }); 
