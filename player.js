@@ -640,14 +640,14 @@ class Player extends GameObject {
     
     // 设置僵直状态
     setStunned(duration = 400) {
-        // 如果已经在僵直状态中，不重复设置或延长僵直
-        if (this.stunned) {
-            return;
-        }
+        if (this.stunned) return;
+        
+        // 月光大剑释放期间免疫控制
+        const weapons = this.getAllWeapons();
+        if (weapons.some(w => w.type === 'moonlight_greatsword' && w.isAttacking)) return;
         
         this.stunned = true;
         this.stunEndTime = Date.now() + duration;
-        // 停止移动
         this.vx = 0;
         this.vy = 0;
     }

@@ -1,32 +1,63 @@
 // 工具函数
 
-// 获取Boss的攻击目标（玩家不可锁定时锁定最近的诱饵，诱饵销毁后重新选择）
+// 获取Boss的攻击目标（有诱饵存活时选最近目标，隐身期间排除玩家）
 function getBossTarget(fromX, fromY) {
     if (!game || !game.player) return null;
-    if (game.player.isUntargetable && game.decoys && game.decoys.length > 0) {
-        // 检查当前锁定的诱饵是否仍然存活
-        if (game._lockedDecoy && !game._lockedDecoy.shouldDestroy && game.decoys.includes(game._lockedDecoy)) {
-            return game._lockedDecoy;
-        }
-        // 锁定的诱饵已销毁，选最近的重新锁定
-        let closest = null;
-        let closestDist = Infinity;
-        const fx = fromX !== undefined ? fromX : (game.boss ? game.boss.x + game.boss.width / 2 : 0);
-        const fy = fromY !== undefined ? fromY : (game.boss ? game.boss.y + game.boss.height / 2 : 0);
-        for (const decoy of game.decoys) {
-            const dx = decoy.x + decoy.width / 2 - fx;
-            const dy = decoy.y + decoy.height / 2 - fy;
-            const dist = dx * dx + dy * dy;
-            if (dist < closestDist) {
-                closestDist = dist;
-                closest = decoy;
+    
+    const hasDecoys = game.decoys && game.decoys.length > 0;
+    
+    if (!hasDecoys) {
+        game._lockedDecoy = null;
+        return game.player.isUntargetable ? null : game.player;
+    }
+    
+    // 有诱饵存活：从候选列表中选最近的目标
+    if (game._lockedDecoy && !game._lockedDecoy.shouldDestroy && game.decoys.includes(game._lockedDecoy)) {
+        // 当前锁定的诱饵还活着，保持锁定（隐身期间不会切到玩家）
+        if (game.player.isUntargetable) return game._lockedDecoy;
+        // 隐身结束后，检查玩家是否比锁定的诱饵更近，如果是则切到玩家
+        if (fromX !== undefined && fromY !== undefined) {
+            const dcx = game._lockedDecoy.x + game._lockedDecoy.width / 2;
+            const dcy = game._lockedDecoy.y + game._lockedDecoy.height / 2;
+            const ddist = (dcx - fromX) * (dcx - fromX) + (dcy - fromY) * (dcy - fromY);
+            const pcx = game.player.x + game.player.width / 2;
+            const pcy = game.player.y + game.player.height / 2;
+            const pdist = (pcx - fromX) * (pcx - fromX) + (pcy - fromY) * (pcy - fromY);
+            if (pdist < ddist) {
+                game._lockedDecoy = null;
+                return game.player;
             }
         }
-        game._lockedDecoy = closest;
-        return closest;
+        return game._lockedDecoy;
     }
-    game._lockedDecoy = null;
-    return game.player;
+    
+    // 需要选新目标：从所有候选中选最近的
+    const fx = fromX !== undefined ? fromX : (game.boss ? game.boss.x + game.boss.width / 2 : 0);
+    const fy = fromY !== undefined ? fromY : (game.boss ? game.boss.y + game.boss.height / 2 : 0);
+    
+    let closest = null;
+    let closestDist = Infinity;
+    
+    // 隐身结束后，玩家也是候选目标
+    if (!game.player.isUntargetable) {
+        const pcx = game.player.x + game.player.width / 2;
+        const pcy = game.player.y + game.player.height / 2;
+        closestDist = (pcx - fx) * (pcx - fx) + (pcy - fy) * (pcy - fy);
+        closest = game.player;
+    }
+    
+    for (const decoy of game.decoys) {
+        const dx = decoy.x + decoy.width / 2 - fx;
+        const dy = decoy.y + decoy.height / 2 - fy;
+        const dist = dx * dx + dy * dy;
+        if (dist < closestDist) {
+            closestDist = dist;
+            closest = decoy;
+        }
+    }
+    
+    game._lockedDecoy = (closest !== game.player) ? closest : null;
+    return closest;
 }
 
 function getBossTargetCenter(fromX, fromY) {

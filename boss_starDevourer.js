@@ -104,39 +104,53 @@ class FloatingDrone extends Enemy {
     }
     
     checkLaserHit(angle) {
-        if (!game.player || game.player.isUntargetable) return;
+        if (!game.player) return;
         
         const laserRange = 500;
         const laserWidth = 4;
-        
-        const playerCenterX = game.player.x + game.player.width / 2;
-        const playerCenterY = game.player.y + game.player.height / 2;
-        
         const laserDx = Math.cos(angle);
         const laserDy = Math.sin(angle);
         
-        const playerDx = playerCenterX - this.x;
-        const playerDy = playerCenterY - this.y;
-        
-        const projection = playerDx * laserDx + playerDy * laserDy;
-        
-        if (projection > 0 && projection <= laserRange) {
-            const projX = this.x + laserDx * projection;
-            const projY = this.y + laserDy * projection;
+        if (!game.player.isUntargetable) {
+            const playerCenterX = game.player.x + game.player.width / 2;
+            const playerCenterY = game.player.y + game.player.height / 2;
+            const playerDx = playerCenterX - this.x;
+            const playerDy = playerCenterY - this.y;
+            const projection = playerDx * laserDx + playerDy * laserDy;
             
-            const distanceToLaser = Math.sqrt(
-                Math.pow(playerCenterX - projX, 2) + 
-                Math.pow(playerCenterY - projY, 2)
-            );
-            
-            if (distanceToLaser <= laserWidth + 10) {
-                game.player.takeDamage(15);
-                game.player.setStunned(700);
-                updateUI();
+            if (projection > 0 && projection <= laserRange) {
+                const projX = this.x + laserDx * projection;
+                const projY = this.y + laserDy * projection;
+                const distanceToLaser = Math.sqrt(
+                    Math.pow(playerCenterX - projX, 2) + 
+                    Math.pow(playerCenterY - projY, 2)
+                );
+                if (distanceToLaser <= laserWidth + 10) {
+                    game.player.takeDamage(15);
+                    game.player.setStunned(700);
+                    updateUI();
+                }
             }
         }
         
-        // 添加镭射视觉效果
+        if (game.decoys) {
+            for (const decoy of game.decoys) {
+                const dcx = decoy.x + decoy.width / 2;
+                const dcy = decoy.y + decoy.height / 2;
+                const ddx = dcx - this.x;
+                const ddy = dcy - this.y;
+                const proj = ddx * laserDx + ddy * laserDy;
+                if (proj > 0 && proj <= laserRange) {
+                    const px = this.x + laserDx * proj;
+                    const py = this.y + laserDy * proj;
+                    const dist = Math.sqrt((dcx - px) * (dcx - px) + (dcy - py) * (dcy - py));
+                    if (dist <= laserWidth + 10) {
+                        decoy.takeDamage(15);
+                    }
+                }
+            }
+        }
+        
         this.laserEffect = {
             endX: this.x + Math.cos(angle) * laserRange,
             endY: this.y + Math.sin(angle) * laserRange,
@@ -1047,44 +1061,54 @@ class StarDevourer extends GameObject {
     }
     
     checkBeamCollision() {
-        if (!game.player || game.player.isUntargetable) return;
+        if (!game.player) return;
         
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
-        const playerCenterX = game.player.x + game.player.width / 2;
-        const playerCenterY = game.player.y + game.player.height / 2;
-        
-        // 简化碰撞检测：检查玩家中心是否接近光束路径
         const beamDx = Math.cos(this.beamRifle.targetAngle);
         const beamDy = Math.sin(this.beamRifle.targetAngle);
+        const range = this.beamRifle.range;
+        const halfWidth = this.beamRifle.width / 2 + 10;
         
-        // 计算玩家相对于Boss的位置
-        const playerDx = playerCenterX - bossCenterX;
-        const playerDy = playerCenterY - bossCenterY;
+        if (!game.player.isUntargetable) {
+            const pcx = game.player.x + game.player.width / 2;
+            const pcy = game.player.y + game.player.height / 2;
+            const pdx = pcx - bossCenterX;
+            const pdy = pcy - bossCenterY;
+            const proj = pdx * beamDx + pdy * beamDy;
+            if (proj > 0 && proj <= range) {
+                const px = bossCenterX + beamDx * proj;
+                const py = bossCenterY + beamDy * proj;
+                const dist = Math.sqrt((pcx - px) * (pcx - px) + (pcy - py) * (pcy - py));
+                if (dist <= halfWidth) {
+                    game.player.takeDamage(this.beamRifle.damage);
+                    game.player.setStunned(700);
+                    updateUI();
+                    this.beamRifle.isFiring = false;
+                    this.beamRifle.lastFire = Date.now();
+                    return;
+                }
+            }
+        }
         
-        // 计算玩家在光束方向上的投影
-        const projectionLength = playerDx * beamDx + playerDy * beamDy;
-        
-        // 检查投影是否在有效范围内
-        if (projectionLength > 0 && projectionLength <= this.beamRifle.range) {
-            // 计算玩家到光束路径的垂直距离
-            const projectionX = bossCenterX + beamDx * projectionLength;
-            const projectionY = bossCenterY + beamDy * projectionLength;
-            
-            const distanceToBeam = Math.sqrt(
-                Math.pow(playerCenterX - projectionX, 2) + 
-                Math.pow(playerCenterY - projectionY, 2)
-            );
-            
-            // 检查是否在光束宽度内
-            if (distanceToBeam <= this.beamRifle.width / 2 + 10) { // 增加一些容差
-                // 命中玩家
-                game.player.takeDamage(this.beamRifle.damage);
-                game.player.setStunned(700); // 0.7秒僵直
-                updateUI();
-                // 停止发射避免重复伤害
-                this.beamRifle.isFiring = false;
-                this.beamRifle.lastFire = Date.now();
+        if (game.decoys) {
+            for (const decoy of game.decoys) {
+                const dcx = decoy.x + decoy.width / 2;
+                const dcy = decoy.y + decoy.height / 2;
+                const ddx = dcx - bossCenterX;
+                const ddy = dcy - bossCenterY;
+                const proj = ddx * beamDx + ddy * beamDy;
+                if (proj > 0 && proj <= range) {
+                    const px = bossCenterX + beamDx * proj;
+                    const py = bossCenterY + beamDy * proj;
+                    const dist = Math.sqrt((dcx - px) * (dcx - px) + (dcy - py) * (dcy - py));
+                    if (dist <= halfWidth) {
+                        decoy.takeDamage(this.beamRifle.damage);
+                        this.beamRifle.isFiring = false;
+                        this.beamRifle.lastFire = Date.now();
+                        return;
+                    }
+                }
             }
         }
     }
@@ -1321,52 +1345,57 @@ class StarDevourer extends GameObject {
     }
     
     checkBallLaserHit(ball, angle) {
-        if (!game.player || game.player.isUntargetable) return;
+        if (!game.player) return;
         
-        const laserRange = 500; // 增加射程
+        const laserRange = 500;
         const laserWidth = 4;
-        
-        // 计算镭射终点
-        const endX = ball.x + Math.cos(angle) * laserRange;
-        const endY = ball.y + Math.sin(angle) * laserRange;
-        
-        // 检查玩家是否在镭射路径上
-        const playerCenterX = game.player.x + game.player.width / 2;
-        const playerCenterY = game.player.y + game.player.height / 2;
-        
-        // 简化碰撞检测：点到线段的距离
         const laserDx = Math.cos(angle);
         const laserDy = Math.sin(angle);
+        const endX = ball.x + laserDx * laserRange;
+        const endY = ball.y + laserDy * laserRange;
         
-        const playerDx = playerCenterX - ball.x;
-        const playerDy = playerCenterY - ball.y;
-        
-        const projection = playerDx * laserDx + playerDy * laserDy;
-        
-        if (projection > 0 && projection <= laserRange) {
-            const projX = ball.x + laserDx * projection;
-            const projY = ball.y + laserDy * projection;
-            
-            const distanceToLaser = Math.sqrt(
-                Math.pow(playerCenterX - projX, 2) + 
-                Math.pow(playerCenterY - projY, 2)
-            );
-            
-            if (distanceToLaser <= laserWidth + 10) { // 容差
-                // 命中玩家
-                game.player.takeDamage(15);
-                game.player.setStunned(700); // 0.7秒僵直
-                updateUI();
+        if (!game.player.isUntargetable) {
+            const pcx = game.player.x + game.player.width / 2;
+            const pcy = game.player.y + game.player.height / 2;
+            const pdx = pcx - ball.x;
+            const pdy = pcy - ball.y;
+            const proj = pdx * laserDx + pdy * laserDy;
+            if (proj > 0 && proj <= laserRange) {
+                const px = ball.x + laserDx * proj;
+                const py = ball.y + laserDy * proj;
+                const dist = Math.sqrt((pcx - px) * (pcx - px) + (pcy - py) * (pcy - py));
+                if (dist <= laserWidth + 10) {
+                    game.player.takeDamage(15);
+                    game.player.setStunned(700);
+                    updateUI();
+                }
             }
         }
         
-        // 添加镭射视觉效果
+        if (game.decoys) {
+            for (const decoy of game.decoys) {
+                const dcx = decoy.x + decoy.width / 2;
+                const dcy = decoy.y + decoy.height / 2;
+                const ddx = dcx - ball.x;
+                const ddy = dcy - ball.y;
+                const proj = ddx * laserDx + ddy * laserDy;
+                if (proj > 0 && proj <= laserRange) {
+                    const px = ball.x + laserDx * proj;
+                    const py = ball.y + laserDy * proj;
+                    const dist = Math.sqrt((dcx - px) * (dcx - px) + (dcy - py) * (dcy - py));
+                    if (dist <= laserWidth + 10) {
+                        decoy.takeDamage(15);
+                    }
+                }
+            }
+        }
+        
         ball.laserEffect = {
             endX: endX,
             endY: endY,
             angle: angle,
             startTime: Date.now(),
-            duration: 300 // 0.3秒显示时间
+            duration: 300
         };
     }
     
