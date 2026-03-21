@@ -124,10 +124,10 @@ class UglyEmperor extends GameObject {
     // 混沌弹幕攻击
     fireChaosBarrage() {
         if (!game.player) return;
-        const barrageTC = getBossTargetCenter();
-        if (!barrageTC) return;
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
+        const barrageTC = getBossTargetCenter(bossCenterX, bossCenterY);
+        if (!barrageTC) return;
         const playerCenterX = barrageTC.x;
         const playerCenterY = barrageTC.y;
         
@@ -173,7 +173,7 @@ class UglyEmperor extends GameObject {
             return;
         }
         
-        const teleTC = getBossTargetCenter();
+        const teleTC = getBossTargetCenter(this.x + this.width / 2, this.y + this.height / 2);
         if (!teleTC) return;
         const playerCenterX = teleTC.x;
         const playerCenterY = teleTC.y;
@@ -348,7 +348,7 @@ class UglyEmperor extends GameObject {
     // 投掷燃烧瓶
     throwMolotov() {
         if (!game.player) return;
-        const molotovTC = getBossTargetCenter();
+        const molotovTC = getBossTargetCenter(this.x + this.width / 2, this.y + this.height / 2);
         if (!molotovTC) return;
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
@@ -356,7 +356,7 @@ class UglyEmperor extends GameObject {
         const playerCenterY = molotovTC.y;
         
         const pvx = molotovTC.entity.vx || 0;
-        const pvy = molotovTarget.vy || 0;
+        const pvy = molotovTC.entity.vy || 0;
         const playerSpeed = Math.sqrt(pvx * pvx + pvy * pvy);
         const playerDirection = Math.atan2(pvy, pvx);
         
@@ -395,7 +395,7 @@ class UglyEmperor extends GameObject {
     
     // 检查光环伤害
     checkAuraDamage() {
-        if (!game.player) return;
+        if (!game.player || game.player.isUntargetable) return;
         
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
@@ -455,7 +455,7 @@ class UglyEmperor extends GameObject {
             
             if (distance > 0) {
                 this.vx = (dx / distance) * this.dodgeSpeed;
-                this.vy = (dy / distance) * this.vx;
+                this.vy = (dy / distance) * this.dodgeSpeed;
             } else {
                 // 如果距离为0，随机方向闪避
                 const angle = Math.random() * 2 * Math.PI;
@@ -1023,8 +1023,7 @@ class ChaosBullet extends GameObject {
             return;
         }
         
-        // 检查与玩家的碰撞
-        if (game.player && this.collidesWith(game.player)) {
+        if (game.player && !game.player.isUntargetable && this.collidesWith(game.player)) {
             game.player.takeDamage(this.damage);
             this.shouldDestroy = true;
             return;
@@ -1131,24 +1130,33 @@ class Mine extends GameObject {
             this.pulseEffect.offset = 0;
         }
         
-        // 检查玩家距离，决定是否可见
+        const mineCenterX = this.x + this.width / 2;
+        const mineCenterY = this.y + this.height / 2;
+        
         if (game.player) {
             const playerCenterX = game.player.x + game.player.width / 2;
             const playerCenterY = game.player.y + game.player.height / 2;
-            const mineCenterX = this.x + this.width / 2;
-            const mineCenterY = this.y + this.height / 2;
-            
             const distance = Math.sqrt(
                 Math.pow(playerCenterX - mineCenterX, 2) + 
                 Math.pow(playerCenterY - mineCenterY, 2)
             );
             
-            // 更新可见性（算法上250像素内可见，但实际显示200像素）
             this.isVisible = distance <= 250;
             
-            // 检查是否应该引爆
-            if (distance <= this.triggerDistance) {
+            if (!game.player.isUntargetable && distance <= this.triggerDistance) {
                 this.explode();
+            }
+        }
+        
+        if (game.decoys) {
+            for (const decoy of game.decoys) {
+                const dx = decoy.x + decoy.width / 2 - mineCenterX;
+                const dy = decoy.y + decoy.height / 2 - mineCenterY;
+                if (Math.sqrt(dx * dx + dy * dy) <= this.triggerDistance) {
+                    this.explode();
+                    decoy.takeDamage(this.damage);
+                    break;
+                }
             }
         }
     }
@@ -1159,8 +1167,7 @@ class Mine extends GameObject {
         this.isExploded = true;
         this.explosionStartTime = Date.now();
         
-        // 对玩家造成伤害
-        if (game.player) {
+        if (game.player && !game.player.isUntargetable) {
             const playerCenterX = game.player.x + game.player.width / 2;
             const playerCenterY = game.player.y + game.player.height / 2;
             const mineCenterX = this.x + this.width / 2;
@@ -1171,7 +1178,6 @@ class Mine extends GameObject {
                 Math.pow(playerCenterY - mineCenterY, 2)
             );
             
-            // 在爆炸半径内造成伤害
             if (distance <= this.explosionRadius) {
                 game.player.takeDamage(this.damage, 'mine');
             }
@@ -1329,7 +1335,7 @@ class MolotovCocktail extends GameObject {
     }
     
     checkBurnInRange() {
-        if (!game.player) return;
+        if (!game.player || game.player.isUntargetable) return;
         const centerX = this.x + this.width / 2;
         const centerY = this.y + this.height / 2;
         const playerCenterX = game.player.x + game.player.width / 2;

@@ -481,15 +481,12 @@ class Game {
         }
 
         // Boss导弹与玩家碰撞检测
-        if (this.player && this.bossMissiles && this.bossMissiles.length > 0) {
+        if (this.player && !this.player.isUntargetable && this.bossMissiles && this.bossMissiles.length > 0) {
             for (let missileIndex = this.bossMissiles.length - 1; missileIndex >= 0; missileIndex--) {
                 const missile = this.bossMissiles[missileIndex];
                 if (missile.collidesWith(this.player)) {
-                    // 导弹撞击玩家，触发爆炸效果
                     missile.explode();
                     this.bossMissiles.splice(missileIndex, 1);
-                    
-                    // 调用玩家受伤方法
                     this.player.takeDamage(missile.damage || 3);
                     updateUI();
                     break;
@@ -498,14 +495,13 @@ class Game {
         }
 
         // 敌人与玩家碰撞检测
-        if (this.player && this.enemies.length > 0) {
+        if (this.player && !this.player.isUntargetable && this.enemies.length > 0) {
             for (let enemyIndex = this.enemies.length - 1; enemyIndex >= 0; enemyIndex--) {
                 const enemy = this.enemies[enemyIndex];
                 if (enemy.collidesWith(this.player)) {
-                    // 敌人撞击玩家造成伤害
-                    this.player.takeDamage(1); // 普通敌人造成1点伤害
+                    this.player.takeDamage(1);
                     updateUI();
-                    break; // 一次只处理一个碰撞，避免多重伤害
+                    break;
                 }
             }
         }
@@ -2053,7 +2049,7 @@ class Game {
                         '冷却 40秒',
                     ]},
                     { name: 'EMP电磁脉冲', color: '#66CCFF', lines: [
-                        '范围 350px | 最大伤害 100',
+                        '范围 490px | 最大伤害 100',
                         '距离越远伤害越低 | 附加0.5秒僵直',
                         '冷却 30秒',
                     ]},

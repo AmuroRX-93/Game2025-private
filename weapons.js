@@ -1223,15 +1223,11 @@ class Missile {
     }
     
     findTarget() {
-        // 反转导弹专门追踪玩家
         if (this.isReversed) {
-            if (game.player) {
-                this.currentTarget = game.player;
-            }
+            this.currentTarget = getBossTarget(this.x, this.y) || game.player;
             return;
         }
         
-        // 计算飞行时间和追踪范围
         const elapsedTime = Date.now() - this.startTime;
         const strongTrackingDuration = this.strongTrackingDuration || 1100; // 前1.1秒强追踪（超级导弹为4.1秒）
         
@@ -1248,7 +1244,7 @@ class Missile {
         let closestDistance = trackingRadius;
         
         if (this.isBossMissile) {
-            const bossTarget = getBossTarget();
+            const bossTarget = getBossTarget(this.x, this.y);
             if (bossTarget) {
                 const dx = bossTarget.x + bossTarget.width / 2 - this.x;
                 const dy = bossTarget.y + bossTarget.height / 2 - this.y;
@@ -1318,7 +1314,7 @@ class Missile {
             return;
         }
         
-        const bossTarget = getBossTarget();
+        const bossTarget = getBossTarget(this.x, this.y);
         if (!bossTarget) return;
         
         const targetCenterX = bossTarget.x + bossTarget.width / 2;
@@ -1419,18 +1415,22 @@ class Missile {
     }
     
     checkCollisions() {
-        // 检查反转导弹与玩家的碰撞
-        if (this.isReversed && game.player) {
-            const dx = game.player.x + game.player.width / 2 - this.x;
-            const dy = game.player.y + game.player.height / 2 - this.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-            
-            // 碰撞检测
-            if (distance < (game.player.width + game.player.height) / 4 + 8) {
-                // 反转导弹击中玩家
-                game.player.takeDamage(this.damage);
-                this.explode();
-                return;
+        if (this.isReversed) {
+            const target = getBossTarget(this.x, this.y);
+            if (target) {
+                const dx = target.x + target.width / 2 - this.x;
+                const dy = target.y + target.height / 2 - this.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance < (target.width + target.height) / 4 + 8) {
+                    if (target === game.player) {
+                        game.player.takeDamage(this.damage);
+                    } else {
+                        target.takeDamage(this.damage);
+                    }
+                    this.explode();
+                    return;
+                }
             }
         }
         
@@ -1994,7 +1994,7 @@ class EMP extends Weapon {
             cooldown: 30000
         });
         
-        this.radius = 350;
+        this.radius = 490;
         this.stunDuration = 500;
         this.empEffect = null;
     }
@@ -2122,7 +2122,7 @@ class CounterMech extends Weapon {
             type: 'counter_mech',
             name: '反制重击',
             damage: 0,
-            cooldown: 50000
+            cooldown: 15000
         });
         
         this.isActive = false;
@@ -3555,12 +3555,17 @@ class ClusterMissile {
     }
     
     checkPlayerCollision() {
-        if (!game.player) return;
-        const dx = game.player.x + game.player.width / 2 - this.x;
-        const dy = game.player.y + game.player.height / 2 - this.y;
+        const target = getBossTarget(this.x, this.y);
+        if (!target) return;
+        const dx = target.x + target.width / 2 - this.x;
+        const dy = target.y + target.height / 2 - this.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
-        if (distance < (game.player.width + game.player.height) / 4 + 10) {
-            game.player.takeDamage(5);
+        if (distance < (target.width + target.height) / 4 + 10) {
+            if (target === game.player) {
+                game.player.takeDamage(5);
+            } else {
+                target.takeDamage(5);
+            }
             this.selfDestruct();
         }
     }
@@ -3576,11 +3581,8 @@ class ClusterMissile {
     }
     
     findTarget() {
-        // 被反转时追踪玩家
         if (this.isReversed) {
-            if (game.player) {
-                this.currentTarget = game.player;
-            }
+            this.currentTarget = getBossTarget(this.x, this.y) || game.player;
             return;
         }
         

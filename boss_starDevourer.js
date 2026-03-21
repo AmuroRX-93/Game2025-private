@@ -32,7 +32,7 @@ class FloatingDrone extends Enemy {
     
     update() {
         const now = Date.now();
-        const fgTC = getBossTargetCenter();
+        const fgTC = getBossTargetCenter(this.x, this.y);
         if (!fgTC) return;
         const playerCenterX = fgTC.x;
         const playerCenterY = fgTC.y;
@@ -104,12 +104,11 @@ class FloatingDrone extends Enemy {
     }
     
     checkLaserHit(angle) {
-        if (!game.player) return;
+        if (!game.player || game.player.isUntargetable) return;
         
         const laserRange = 500;
         const laserWidth = 4;
         
-        // 镭射碰撞检测
         const playerCenterX = game.player.x + game.player.width / 2;
         const playerCenterY = game.player.y + game.player.height / 2;
         
@@ -539,7 +538,7 @@ class StarDevourer extends GameObject {
             if (this.phaseTwo.activated && game.player) {
                 const bossCenterX = this.x + this.width / 2;
                 const bossCenterY = this.y + this.height / 2;
-                const p2TC = getBossTargetCenter();
+                const p2TC = getBossTargetCenter(bossCenterX, bossCenterY);
                 const playerCenterX = p2TC ? p2TC.x : this.x + this.width / 2;
                 const playerCenterY = p2TC ? p2TC.y : this.y + this.height / 2;
                 const dx = playerCenterX - bossCenterX;
@@ -658,7 +657,7 @@ class StarDevourer extends GameObject {
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
         
-        const rifleTC = getBossTargetCenter();
+        const rifleTC = getBossTargetCenter(bossCenterX, bossCenterY);
         if (!rifleTC) return;
         const playerCenterX = rifleTC.x;
         const playerCenterY = rifleTC.y;
@@ -667,8 +666,8 @@ class StarDevourer extends GameObject {
         const dist = Math.sqrt(dx * dx + dy * dy);
         
         const flightTime = dist / this.autoRifle.bulletSpeed;
-        const predictedX = playerCenterX + (rifleTarget.vx || 0) * flightTime;
-        const predictedY = playerCenterY + (rifleTarget.vy || 0) * flightTime;
+        const predictedX = playerCenterX + (rifleTC.entity.vx || 0) * flightTime;
+        const predictedY = playerCenterY + (rifleTC.entity.vy || 0) * flightTime;
         
         const pdx = predictedX - bossCenterX;
         const pdy = predictedY - bossCenterY;
@@ -860,30 +859,25 @@ class StarDevourer extends GameObject {
     reverseMissile(missile) {
         if (!missile || !game.player) return;
         
-        // 将导弹标记为紫色（反转状态）
         missile.isReversed = true;
-        missile.color = '#800080'; // 紫色
+        missile.color = '#800080';
         
-        // 反转导弹方向，使其攻击玩家
-        const playerCenterX = game.player.x + game.player.width / 2;
-        const playerCenterY = game.player.y + game.player.height / 2;
+        const reverseTarget = getBossTarget(missile.x, missile.y);
+        const targetCX = reverseTarget.x + reverseTarget.width / 2;
+        const targetCY = reverseTarget.y + reverseTarget.height / 2;
         
-        // 计算从导弹到玩家的方向
-        const dx = playerCenterX - missile.x;
-        const dy = playerCenterY - missile.y;
+        const dx = targetCX - missile.x;
+        const dy = targetCY - missile.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
         
         if (distance > 0) {
-            // 设置导弹速度为攻击玩家的方向
             missile.vx = (dx / distance) * missile.maxSpeed;
             missile.vy = (dy / distance) * missile.maxSpeed;
             
-            // 更新目标为玩家
-            missile.targetX = playerCenterX;
-            missile.targetY = playerCenterY;
-            missile.currentTarget = game.player;
+            missile.targetX = targetCX;
+            missile.targetY = targetCY;
+            missile.currentTarget = reverseTarget;
             
-            // 重置导弹的追踪时间，使其有更强的追踪能力
             missile.startTime = Date.now();
         }
     }
@@ -965,7 +959,7 @@ class StarDevourer extends GameObject {
         if (!game.player) return;
         
         const now = Date.now();
-        const recordTC = getBossTargetCenter();
+        const recordTC = getBossTargetCenter(this.x + this.width / 2, this.y + this.height / 2);
         if (!recordTC) return;
         const playerCenterX = recordTC.x;
         const playerCenterY = recordTC.y;
@@ -986,7 +980,9 @@ class StarDevourer extends GameObject {
     // 获取0.2秒前的玩家位置
     getPlayerPositionDelay(delayMs = 200) {
         if (!game.player || this.playerPositionHistory.length === 0) {
-            // 如果没有历史记录，返回当前位置
+            const tc = getBossTargetCenter(this.x + this.width / 2, this.y + this.height / 2);
+            if (tc) return { x: tc.x, y: tc.y };
+            if (!game.player) return { x: this.x, y: this.y };
             return {
                 x: game.player.x + game.player.width / 2,
                 y: game.player.y + game.player.height / 2
@@ -1051,7 +1047,7 @@ class StarDevourer extends GameObject {
     }
     
     checkBeamCollision() {
-        if (!game.player) return;
+        if (!game.player || game.player.isUntargetable) return;
         
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
@@ -1170,7 +1166,7 @@ class StarDevourer extends GameObject {
                 
                 case 'attacking':
                     const now = Date.now();
-                    const ballTC = getBossTargetCenter();
+                    const ballTC = getBossTargetCenter(this.x + this.width / 2, this.y + this.height / 2);
                     if (!ballTC) break;
                     const playerCenterX = ballTC.x;
                     const playerCenterY = ballTC.y;
@@ -1325,7 +1321,7 @@ class StarDevourer extends GameObject {
     }
     
     checkBallLaserHit(ball, angle) {
-        if (!game.player) return;
+        if (!game.player || game.player.isUntargetable) return;
         
         const laserRange = 500; // 增加射程
         const laserWidth = 4;
@@ -2145,8 +2141,7 @@ class StarDevourerBullet extends GameObject {
             return;
         }
         
-        // 碰撞检测：击中玩家
-        if (game.player && this.collidesWith(game.player)) {
+        if (game.player && !game.player.isUntargetable && this.collidesWith(game.player)) {
             game.player.takeDamage(this.damage);
             this.shouldDestroy = true;
         }

@@ -388,8 +388,6 @@ class Boss extends GameObject {
         
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
-        const playerCenterX = game.player.x + game.player.width / 2;
-        const playerCenterY = game.player.y + game.player.height / 2;
         
         // 从四个面发射导弹（上、下、左、右）
         const directions = [
@@ -457,7 +455,7 @@ class Boss extends GameObject {
         
         const bossCX = this.x + this.width / 2;
         const bossCY = this.y + this.height / 2;
-        const aiTarget = getBossTargetCenter();
+        const aiTarget = getBossTargetCenter(bossCX, bossCY);
         const playerCX = aiTarget ? aiTarget.x : bossCX;
         const playerCY = aiTarget ? aiTarget.y : bossCY;
         

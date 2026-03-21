@@ -1,16 +1,36 @@
 // 工具函数
 
-// 获取Boss的攻击目标（玩家不可锁定时转向诱饵）
-function getBossTarget() {
+// 获取Boss的攻击目标（玩家不可锁定时锁定最近的诱饵，诱饵销毁后重新选择）
+function getBossTarget(fromX, fromY) {
     if (!game || !game.player) return null;
     if (game.player.isUntargetable && game.decoys && game.decoys.length > 0) {
-        return game.decoys[Math.floor(Math.random() * game.decoys.length)];
+        // 检查当前锁定的诱饵是否仍然存活
+        if (game._lockedDecoy && !game._lockedDecoy.shouldDestroy && game.decoys.includes(game._lockedDecoy)) {
+            return game._lockedDecoy;
+        }
+        // 锁定的诱饵已销毁，选最近的重新锁定
+        let closest = null;
+        let closestDist = Infinity;
+        const fx = fromX !== undefined ? fromX : (game.boss ? game.boss.x + game.boss.width / 2 : 0);
+        const fy = fromY !== undefined ? fromY : (game.boss ? game.boss.y + game.boss.height / 2 : 0);
+        for (const decoy of game.decoys) {
+            const dx = decoy.x + decoy.width / 2 - fx;
+            const dy = decoy.y + decoy.height / 2 - fy;
+            const dist = dx * dx + dy * dy;
+            if (dist < closestDist) {
+                closestDist = dist;
+                closest = decoy;
+            }
+        }
+        game._lockedDecoy = closest;
+        return closest;
     }
+    game._lockedDecoy = null;
     return game.player;
 }
 
-function getBossTargetCenter() {
-    const target = getBossTarget();
+function getBossTargetCenter(fromX, fromY) {
+    const target = getBossTarget(fromX, fromY);
     if (!target) return null;
     return { x: target.x + target.width / 2, y: target.y + target.height / 2, entity: target };
 }
@@ -78,6 +98,7 @@ function startBossDodge(boss) {
 }
 
 function handleBossKill() {
+    if (!game.boss) return;
     game.boss = null;
     gameState.score += 100;
     gameState.bossKillCount++;
@@ -88,7 +109,7 @@ function handleBossKill() {
 }
 
 function getDistanceFromBoss(boss) {
-    const tc = getBossTargetCenter();
+    const tc = getBossTargetCenter(boss.x + boss.width / 2, boss.y + boss.height / 2);
     if (!tc) return Infinity;
     const bcx = boss.x + boss.width / 2;
     const bcy = boss.y + boss.height / 2;

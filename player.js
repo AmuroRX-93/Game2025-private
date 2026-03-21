@@ -266,9 +266,10 @@ class Player extends GameObject {
             if (weapon.type === 'sword') {
                 return weapon.isAttacking || weapon.isDashing;
             } else if (weapon.type === 'laser_spear') {
-                return weapon.isCharging; // 冲锋时限制移动
+                return weapon.isCharging;
+            } else if (weapon.type === 'moonlight_greatsword') {
+                return weapon.isAttacking;
             }
-            // 枪械射击不限制移动，所以不算作"正在攻击"
             return false;
         });
     }
@@ -437,7 +438,8 @@ class Player extends GameObject {
         // 检查是否有武器正在控制玩家移动
         const isWeaponControllingMovement = weapons.some(weapon => 
             (weapon.type === 'laser_spear' && weapon.isCharging) ||
-            (weapon.type === 'sword' && weapon.isDashing)
+            (weapon.type === 'sword' && weapon.isDashing) ||
+            (weapon.type === 'moonlight_greatsword' && weapon.isAttacking)
         );
         
         // 移动控制
