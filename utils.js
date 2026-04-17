@@ -160,6 +160,8 @@ document.addEventListener('DOMContentLoaded', () => {
     canvas.height = window.innerHeight;
     
     game = new Game();
+    document.title = t('ui.gameTitle');
+    document.documentElement.lang = gameState.language === 'zh' ? 'zh-CN' : 'en';
     updateUI();
     
     // 确保Canvas获得焦点

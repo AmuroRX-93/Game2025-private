@@ -1599,7 +1599,7 @@ class SublimeMoon extends GameObject {
         ctx.fillStyle = '#00CCFF';
         ctx.font = '12px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText('冰之姬', this.x + this.width/2, this.y - 16);
+        ctx.fillText(t('boss.SUBLIME_MOON'), this.x + this.width/2, this.y - 16);
         
         // 绘制受击提示
         this.drawHitIndicators(ctx);
@@ -1619,7 +1619,7 @@ class SublimeMoon extends GameObject {
             ctx.fillStyle = '#FFFFFF';
             ctx.font = '14px Arial';
             ctx.textAlign = 'center';
-            ctx.fillText('扎穿!', this.x + this.width/2, this.y - 25);
+            ctx.fillText(t('boss.pierce'), this.x + this.width/2, this.y - 25);
             
             ctx.setLineDash([]);
             ctx.restore();
@@ -2024,7 +2024,7 @@ class IceClone extends GameObject {
         ctx.fillStyle = '#87CEEB';
         ctx.font = '10px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText('分身', this.x + this.width/2, this.y - 8);
+        ctx.fillText(t('boss.clone'), this.x + this.width/2, this.y - 8);
         
         // 恢复上下文
         ctx.restore();

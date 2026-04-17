@@ -11,25 +11,25 @@ class Game {
 
     getWeaponOptions() {
         const weaponOptions = [
-            { type: 'gun', name: '自动步枪', color: '#4169E1', desc: '远程射击 | 高射速 | 预瞄功能' },
-            { type: 'sword', name: '脉冲光束军刀', color: '#ff6b6b', desc: '近战攻击 | 高伤害 | 刀推功能' },
-            { type: 'laser_spear', name: '镭射长枪', color: '#00FFFF', desc: '中距离突刺 | 蓄力攻击 | 推进功能' },
-            { type: 'cluster_missile', name: '分裂飞弹', color: '#FFD700', desc: '大弹近炸分裂8子弹 | 持续索敌 | 高追踪' },
-            { type: 'laser_rifle', name: '镭射步枪', color: '#FF4444', desc: '长按蓄力 | 预瞄射线 | 过热系统' }
+            { type: 'gun', name: t('weapon.gun'), color: '#4169E1', desc: t('weaponDesc.gun') },
+            { type: 'sword', name: t('weapon.sword'), color: '#ff6b6b', desc: t('weaponDesc.sword') },
+            { type: 'laser_spear', name: t('weapon.laser_spear'), color: '#00FFFF', desc: t('weaponDesc.laser_spear') },
+            { type: 'cluster_missile', name: t('weapon.cluster_missile'), color: '#FFD700', desc: t('weaponDesc.cluster_missile') },
+            { type: 'laser_rifle', name: t('weapon.laser_rifle'), color: '#FF4444', desc: t('weaponDesc.laser_rifle') }
         ];
         const shoulderWeaponOptions = [
-            { type: 'missile_launcher', name: '15连导弹发射器', color: '#FFD700', desc: '强追踪1.1秒 | 范围爆炸 | 高伤害' },
-            { type: 'ciws', name: '近防炮', color: '#00FF88', desc: '自动拦截制导武器 | 30发弹仓 | 优先打导弹' },
-            { type: 'plasma_missile', name: '6连电浆飞弹', color: '#00FFCC', desc: '近炸引信 | 电浆场持续伤害 | 可叠加' },
-            { type: 'super_weapon', name: '超级导弹', color: '#FF0000', desc: '100伤害 | 一次战斗只能用一次 | 占用双槽位' },
-            { type: 'moonlight_greatsword', name: '月光大剑', color: '#88CCFF', desc: '200伤害 | 超大范围光刃 | 占用4槽位 | 一次性' }
+            { type: 'missile_launcher', name: t('weapon.missile_launcher'), color: '#FFD700', desc: t('weaponDesc.missile_launcher') },
+            { type: 'ciws', name: t('weapon.ciws'), color: '#00FF88', desc: t('weaponDesc.ciws') },
+            { type: 'plasma_missile', name: t('weapon.plasma_missile'), color: '#00FFCC', desc: t('weaponDesc.plasma_missile') },
+            { type: 'super_weapon', name: t('weapon.super_weapon'), color: '#FF0000', desc: t('weaponDesc.super_weapon') },
+            { type: 'moonlight_greatsword', name: t('weapon.moonlight_greatsword'), color: '#88CCFF', desc: t('weaponDesc.moonlight_greatsword') }
         ];
         const hiddenAbilityOptions = [
-            { type: 'pulse_shield', name: '脉冲护盾', color: '#00FFFF', desc: '70%伤害减免 | 15秒持续 | 40秒冷却' },
-            { type: 'emp', name: 'EMP电磁脉冲', color: '#66CCFF', desc: '范围伤害+僵直 | 距离越远伤害越低 | 30秒冷却' },
-            { type: 'counter_mech', name: '反制重击', color: '#FF8C00', desc: '3秒减伤40% | 反射50%伤害 | 50秒冷却' },
-            { type: 'decoy_clone', name: '诱饵分身', color: '#4488FF', desc: '释放3诱饵 | 4秒隐身 | 35秒冷却' },
-            { type: 'moonlight_greatsword', name: '月光大剑', color: '#88CCFF', desc: '200伤害 | 超大范围光刃 | 占用4槽位 | 一次性' }
+            { type: 'pulse_shield', name: t('weapon.pulse_shield'), color: '#00FFFF', desc: t('weaponDesc.pulse_shield') },
+            { type: 'emp', name: t('weapon.emp'), color: '#66CCFF', desc: t('weaponDesc.emp') },
+            { type: 'counter_mech', name: t('weapon.counter_mech'), color: '#FF8C00', desc: t('weaponDesc.counter_mech') },
+            { type: 'decoy_clone', name: t('weapon.decoy_clone'), color: '#4488FF', desc: t('weaponDesc.decoy_clone') },
+            { type: 'moonlight_greatsword', name: t('weapon.moonlight_greatsword'), color: '#88CCFF', desc: t('weaponDesc.moonlight_greatsword') }
         ];
         return { weaponOptions, shoulderWeaponOptions, hiddenAbilityOptions };
     }
@@ -277,7 +277,8 @@ class Game {
 
     showVictoryAndReturnToMenu() {
         gameState.victory = true;
-        gameState.victoryBossName = BOSS_LEVELS[gameState.selectedLevel]?.name || '未知Boss';
+        gameState.victoryBossLevel = gameState.selectedLevel;
+        gameState.victoryBossName = gameState.selectedLevel ? t('boss.' + gameState.selectedLevel) : t('boss.unknown');
         
         if (this._victoryTimer) clearTimeout(this._victoryTimer);
         this._victoryTimer = setTimeout(() => {
@@ -820,10 +821,10 @@ class Game {
         this.ctx.fillStyle = 'white';
         this.ctx.font = '32px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('开始 Boss 战', bossButtonX + bossButtonWidth / 2, bossButtonY + 45);
+        this.ctx.fillText(t('menu.startBoss'), bossButtonX + bossButtonWidth / 2, bossButtonY + 45);
         
         this.ctx.font = '16px Arial';
-        this.ctx.fillText('挑战强大的Boss敌人', bossButtonX + bossButtonWidth / 2, bossButtonY + 75);
+        this.ctx.fillText(t('menu.startBossDesc'), bossButtonX + bossButtonWidth / 2, bossButtonY + 75);
         
         // 定制机甲按钮
         const customButtonWidth = 400;
@@ -843,10 +844,10 @@ class Game {
         this.ctx.fillStyle = 'white';
         this.ctx.font = '28px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('定制机甲', customButtonX + customButtonWidth / 2, customButtonY + 35);
+        this.ctx.fillText(t('menu.customizeMech'), customButtonX + customButtonWidth / 2, customButtonY + 35);
         
         this.ctx.font = '14px Arial';
-        this.ctx.fillText('配置武器装备，自定义作战风格', customButtonX + customButtonWidth / 2, customButtonY + 65);
+        this.ctx.fillText(t('menu.customizeDesc'), customButtonX + customButtonWidth / 2, customButtonY + 65);
         
         // 游戏简介按钮
         const guideButtonWidth = 400;
@@ -863,7 +864,26 @@ class Game {
         this.ctx.fillStyle = '#DDDDDD';
         this.ctx.font = '22px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('游戏简介', guideButtonX + guideButtonWidth / 2, guideButtonY + 38);
+        this.ctx.fillText(t('menu.guide'), guideButtonX + guideButtonWidth / 2, guideButtonY + 38);
+        
+        // Language toggle button (top-right)
+        const langBtnW = 80;
+        const langBtnH = 36;
+        const langBtnX = GAME_CONFIG.WIDTH - langBtnW - 20;
+        const langBtnY = 20;
+        
+        this.ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        this.ctx.fillRect(langBtnX, langBtnY, langBtnW, langBtnH);
+        this.ctx.strokeStyle = '#AAAAAA';
+        this.ctx.lineWidth = 1;
+        this.ctx.strokeRect(langBtnX, langBtnY, langBtnW, langBtnH);
+        
+        this.ctx.fillStyle = '#FFFFFF';
+        this.ctx.font = 'bold 16px Arial';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText(t('ui.langToggle'), langBtnX + langBtnW / 2, langBtnY + 24);
+        
+        this.langButton = { x: langBtnX, y: langBtnY, width: langBtnW, height: langBtnH };
         
         // 存储按钮位置供点击检测使用
         this.bossButton = { x: bossButtonX, y: bossButtonY, width: bossButtonWidth, height: bossButtonHeight };
@@ -922,20 +942,20 @@ class Game {
                 this.ctx.fillStyle = 'white';
                 this.ctx.font = '28px Arial';
                 this.ctx.textAlign = 'center';
-                this.ctx.fillText(level.name, buttonX + buttonWidth / 2, buttonY + 40);
+                this.ctx.fillText(t('boss.' + level.id), buttonX + buttonWidth / 2, buttonY + 40);
                 
                 this.ctx.font = '16px Arial';
                 this.ctx.fillStyle = '#DDDDDD';
-                this.ctx.fillText(level.description, buttonX + buttonWidth / 2, buttonY + 70);
+                this.ctx.fillText(t('bossDesc.' + level.id), buttonX + buttonWidth / 2, buttonY + 70);
                 
                 this.ctx.font = '14px Arial';
                 this.ctx.fillStyle = '#FFAA00';
-                this.ctx.fillText(`难度: ${'★'.repeat(level.difficulty)}`, buttonX + buttonWidth / 2, buttonY + 95);
+                this.ctx.fillText(t('menu.difficulty') + '★'.repeat(level.difficulty), buttonX + buttonWidth / 2, buttonY + 95);
             } else {
                 this.ctx.fillStyle = '#999999';
                 this.ctx.font = '24px Arial';
                 this.ctx.textAlign = 'center';
-                this.ctx.fillText('🔒 未解锁', buttonX + buttonWidth / 2, buttonY + 60);
+                this.ctx.fillText(t('menu.locked'), buttonX + buttonWidth / 2, buttonY + 60);
             }
             
             if (level.unlocked) {
@@ -958,11 +978,11 @@ class Game {
         this.ctx.fillStyle = 'white';
         this.ctx.font = '36px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('选择关卡', GAME_CONFIG.WIDTH / 2, 100);
+        this.ctx.fillText(t('menu.selectLevel'), GAME_CONFIG.WIDTH / 2, 100);
         
         this.ctx.font = '18px Arial';
         this.ctx.fillStyle = '#CCCCCC';
-        this.ctx.fillText('Boss战模式 - 挑战强大的敌人', GAME_CONFIG.WIDTH / 2, 140);
+        this.ctx.fillText(t('menu.bossModeSub'), GAME_CONFIG.WIDTH / 2, 140);
         
         // Scroll indicators
         const contentHeight = startY + levels.length * buttonSpacing;
@@ -1012,7 +1032,7 @@ class Game {
         this.ctx.fillStyle = 'white';
         this.ctx.font = '18px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('返回', backButtonX + backButtonWidth / 2, backButtonY + 32);
+        this.ctx.fillText(t('menu.back'), backButtonX + backButtonWidth / 2, backButtonY + 32);
         
         this.backButton = { x: backButtonX, y: backButtonY, width: backButtonWidth, height: backButtonHeight };
         
@@ -1036,7 +1056,7 @@ class Game {
         this.ctx.fillStyle = currentMode.color;
         this.ctx.font = '18px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText(`已选择：${currentMode.name}`, GAME_CONFIG.WIDTH / 2, 50);
+        this.ctx.fillText(t('cfg.selected', t('mode.' + gameState.selectedGameMode)), GAME_CONFIG.WIDTH / 2, 50);
         
         const { weaponOptions, shoulderWeaponOptions, hiddenAbilityOptions } = this.getWeaponOptions();
         
@@ -1044,40 +1064,40 @@ class Game {
         const weaponSlots = [
             { 
                 key: 'leftHand', 
-                name: '左手武器', 
-                keyHint: '(左键)', 
+                name: t('cfg.leftHand'), 
+                keyHint: t('cfg.leftKey'), 
                 color: '#4169E1',
                 options: weaponOptions,
                 currentValue: gameState.weaponConfig.leftHand
             },
             { 
                 key: 'rightHand', 
-                name: '右手武器', 
-                keyHint: '(右键)', 
+                name: t('cfg.rightHand'), 
+                keyHint: t('cfg.rightKey'), 
                 color: '#ff6b6b',
                 options: weaponOptions,
                 currentValue: gameState.weaponConfig.rightHand
             },
             { 
                 key: 'leftShoulder', 
-                name: '左肩武器', 
-                keyHint: '(Q键)', 
+                name: t('cfg.leftShoulder'), 
+                keyHint: t('cfg.qKey'), 
                 color: '#FF4444',
                 options: shoulderWeaponOptions,
                 currentValue: gameState.weaponConfig.leftShoulder
             },
             { 
                 key: 'rightShoulder', 
-                name: '右肩武器', 
-                keyHint: '(E键)', 
+                name: t('cfg.rightShoulder'), 
+                keyHint: t('cfg.eKey'), 
                 color: '#FF8800',
                 options: shoulderWeaponOptions,
                 currentValue: gameState.weaponConfig.rightShoulder
             },
             { 
                 key: 'hiddenAbility', 
-                name: '隐藏机能', 
-                keyHint: '(Shift键)', 
+                name: t('cfg.hiddenAbility'), 
+                keyHint: t('cfg.shiftKey'), 
                 color: '#00FFFF',
                 options: hiddenAbilityOptions,
                 currentValue: gameState.weaponConfig.hiddenAbility
@@ -1100,7 +1120,7 @@ class Game {
             
             // 获取当前选中的武器名称
             const currentWeapon = slot.options.find(w => w.type === slot.currentValue);
-            const displayName = currentWeapon ? currentWeapon.name : '无';
+            const displayName = currentWeapon ? currentWeapon.name : t('cfg.none');
             
             // 绘制按钮背景
             this.ctx.fillStyle = slot.color;
@@ -1137,16 +1157,16 @@ class Game {
         this.ctx.fillStyle = 'white';
         this.ctx.font = '20px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('当前配置：', centerX, centerY + 100);
+        this.ctx.fillText(t('cfg.currentConfig'), centerX, centerY + 100);
         
         // 显示所有槽位的配置
         weaponSlots.forEach((slot, index) => {
             const currentWeapon = slot.options.find(w => w.type === slot.currentValue);
-            const displayName = currentWeapon ? currentWeapon.name : '无';
+            const displayName = currentWeapon ? currentWeapon.name : t('cfg.none');
         
         this.ctx.fillStyle = 'white';
             this.ctx.font = '16px Arial';
-            this.ctx.fillText(`${slot.name}：${displayName}`, centerX + (index - 2) * buttonSpacing, centerY + 130);
+            this.ctx.fillText(`${slot.name}: ${displayName}`, centerX + (index - 2) * buttonSpacing, centerY + 130);
         });
         
         // 无敌模式开关
@@ -1165,7 +1185,7 @@ class Game {
         this.ctx.fillStyle = 'white';
         this.ctx.font = 'bold 16px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText(invOn ? '无敌模式：开启' : '无敌模式：关闭', centerX, toggleY + 26);
+        this.ctx.fillText(invOn ? t('cfg.invincibleOn') : t('cfg.invincibleOff'), centerX, toggleY + 26);
         
         this.invincibleToggleButton = {
             x: toggleX, y: toggleY, width: toggleWidth, height: toggleHeight
@@ -1186,7 +1206,7 @@ class Game {
         this.ctx.fillStyle = 'white';
         this.ctx.font = 'bold 20px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('开始游戏', centerX, startButtonY + 32);
+        this.ctx.fillText(t('cfg.startGame'), centerX, startButtonY + 32);
         
         // 存储开始游戏按钮位置
         this.startGameButton = {
@@ -1200,7 +1220,7 @@ class Game {
         this.ctx.fillStyle = 'white';
         this.ctx.font = '16px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('点击武器槽位选择武器，然后点击开始游戏', centerX, GAME_CONFIG.HEIGHT - 60);
+        this.ctx.fillText(t('cfg.configHint'), centerX, GAME_CONFIG.HEIGHT - 60);
         
         // 返回按钮
         this.drawBackButton();
@@ -1215,16 +1235,16 @@ class Game {
         this.ctx.fillStyle = 'white';
         this.ctx.font = 'bold 36px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('定制机甲', GAME_CONFIG.WIDTH / 2, 50);
+        this.ctx.fillText(t('menu.customizeMech'), GAME_CONFIG.WIDTH / 2, 50);
         
         const { weaponOptions, shoulderWeaponOptions, hiddenAbilityOptions } = this.getWeaponOptions();
         
         const weaponSlots = [
-            { key: 'leftHand', name: '左手武器', keyHint: '(左键)', color: '#4169E1', options: weaponOptions },
-            { key: 'rightHand', name: '右手武器', keyHint: '(右键)', color: '#ff6b6b', options: weaponOptions },
-            { key: 'leftShoulder', name: '左肩武器', keyHint: '(Q键)', color: '#FF4444', options: shoulderWeaponOptions },
-            { key: 'rightShoulder', name: '右肩武器', keyHint: '(E键)', color: '#FF8800', options: shoulderWeaponOptions },
-            { key: 'hiddenAbility', name: '隐藏机能', keyHint: '(Shift键)', color: '#00FFFF', options: hiddenAbilityOptions }
+            { key: 'leftHand', name: t('cfg.leftHand'), keyHint: t('cfg.leftKey'), color: '#4169E1', options: weaponOptions },
+            { key: 'rightHand', name: t('cfg.rightHand'), keyHint: t('cfg.rightKey'), color: '#ff6b6b', options: weaponOptions },
+            { key: 'leftShoulder', name: t('cfg.leftShoulder'), keyHint: t('cfg.qKey'), color: '#FF4444', options: shoulderWeaponOptions },
+            { key: 'rightShoulder', name: t('cfg.rightShoulder'), keyHint: t('cfg.eKey'), color: '#FF8800', options: shoulderWeaponOptions },
+            { key: 'hiddenAbility', name: t('cfg.hiddenAbility'), keyHint: t('cfg.shiftKey'), color: '#00FFFF', options: hiddenAbilityOptions }
         ];
         
         const centerX = GAME_CONFIG.WIDTH / 2;
@@ -1240,7 +1260,7 @@ class Game {
             const y = centerY - 50;
             
             const currentWeapon = slot.options.find(w => w.type === gameState.weaponConfig[slot.key]);
-            const displayName = currentWeapon ? currentWeapon.name : '无';
+            const displayName = currentWeapon ? currentWeapon.name : t('cfg.none');
             
             this.ctx.fillStyle = slot.color;
             this.ctx.fillRect(x - buttonWidth/2, y, buttonWidth, buttonHeight);
@@ -1271,20 +1291,20 @@ class Game {
         this.ctx.fillStyle = 'white';
         this.ctx.font = '20px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('当前配置：', centerX, centerY + 100);
+        this.ctx.fillText(t('cfg.currentConfig'), centerX, centerY + 100);
         
         weaponSlots.forEach((slot, index) => {
             const currentWeapon = slot.options.find(w => w.type === gameState.weaponConfig[slot.key]);
-            const displayName = currentWeapon ? currentWeapon.name : '无';
+            const displayName = currentWeapon ? currentWeapon.name : t('cfg.none');
             this.ctx.fillStyle = 'white';
             this.ctx.font = '16px Arial';
-            this.ctx.fillText(`${slot.name}：${displayName}`, centerX + (index - 2) * buttonSpacing, centerY + 130);
+            this.ctx.fillText(`${slot.name}: ${displayName}`, centerX + (index - 2) * buttonSpacing, centerY + 130);
         });
         
         this.ctx.fillStyle = 'white';
         this.ctx.font = '16px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('点击武器槽位选择武器，然后返回主菜单', centerX, GAME_CONFIG.HEIGHT - 60);
+        this.ctx.fillText(t('cfg.customHint'), centerX, GAME_CONFIG.HEIGHT - 60);
         
         this.drawBackButton();
     }
@@ -1597,11 +1617,11 @@ class Game {
         this.ctx.fillStyle = 'white';
         this.ctx.font = '16px Arial';
         this.ctx.textAlign = 'left';
-        this.ctx.fillText(`机甲: ${this.player.mech.name}`, 10, 25);
+        this.ctx.fillText(t('hud.mech', t('mech.' + this.player.mechType)), 10, 25);
         
         // 生命值显示
         this.ctx.fillStyle = 'white';
-        this.ctx.fillText('❤️ 生命值: ', 10, 245);
+        this.ctx.fillText(t('hud.health'), 10, 245);
         
         // 生命条背景
         const healthBarX = 90;
@@ -1643,122 +1663,120 @@ class Game {
             this.ctx.fillStyle = '#FFD700';
             this.ctx.font = 'bold 18px Arial';
             this.ctx.textAlign = 'left';
-            this.ctx.fillText('⭐ 无敌模式 ⭐', 10, 270);
+            this.ctx.fillText(t('hud.invincible'), 10, 270);
         }
         
         // 左手武器状态 (左键)
         const leftWeapon = this.player.getLeftHandWeapon();
         this.ctx.fillStyle = 'white';
-        this.ctx.fillText('��️ 左键 - ', 10, 45);
+        this.ctx.fillText(t('hud.leftKey'), 10, 45);
         
         if (leftWeapon) {
-            // 检查是否因为闪避而无法攻击
             if (!this.player.canAttack()) {
                 this.ctx.fillStyle = '#CC6666';
-                this.ctx.fillText(`${leftWeapon.name}: 闪避限制`, 90, 45);
+                this.ctx.fillText(`${t('weapon.' + leftWeapon.type)}: ${t('hud.dodgeLimit')}`, 90, 45);
             } else {
                 const leftStatus = leftWeapon.getStatus();
                 this.ctx.fillStyle = leftStatus.color;
-                this.ctx.fillText(`${leftWeapon.name}: ${leftStatus.text}`, 90, 45);
+                this.ctx.fillText(`${t('weapon.' + leftWeapon.type)}: ${leftStatus.text}`, 90, 45);
             }
         } else {
             this.ctx.fillStyle = '#666666';
-            this.ctx.fillText('无武器', 90, 45);
+            this.ctx.fillText(t('hud.noWeapon'), 90, 45);
         }
         
         // 右手武器状态 (右键)
         const rightWeapon = this.player.getRightHandWeapon();
         this.ctx.fillStyle = 'white';
-        this.ctx.fillText('🖐️ 右键 - ', 10, 85);
+        this.ctx.fillText(t('hud.rightKey'), 10, 85);
         
         if (rightWeapon) {
-            // 检查是否因为闪避而无法攻击
             if (!this.player.canAttack()) {
                 this.ctx.fillStyle = '#CC6666';
-                this.ctx.fillText(`${rightWeapon.name}: 闪避限制`, 90, 85);
+                this.ctx.fillText(`${t('weapon.' + rightWeapon.type)}: ${t('hud.dodgeLimit')}`, 90, 85);
             } else {
                 const rightStatus = rightWeapon.getStatus();
                 this.ctx.fillStyle = rightStatus.color;
-                this.ctx.fillText(`${rightWeapon.name}: ${rightStatus.text}`, 90, 85);
+                this.ctx.fillText(`${t('weapon.' + rightWeapon.type)}: ${rightStatus.text}`, 90, 85);
             }
         } else {
             this.ctx.fillStyle = '#666666';
-            this.ctx.fillText('无武器', 90, 85);
+            this.ctx.fillText(t('hud.noWeapon'), 90, 85);
         }
         
         // 闪避状态 (空格键)
         const dodgeStatus = this.player.getDodgeStatus();
         this.ctx.fillStyle = 'white';
-        this.ctx.fillText('⚡ 空格 - ', 10, 105);
+        this.ctx.fillText(t('hud.dodgeKey'), 10, 105);
         this.ctx.fillStyle = dodgeStatus.color;
-        this.ctx.fillText(`闪避: ${dodgeStatus.text}`, 90, 105);
+        this.ctx.fillText(t('hud.dodge', dodgeStatus.text), 90, 105);
         
         // 锁定模式 (F键切换)
         this.ctx.fillStyle = 'white';
-        this.ctx.fillText('🎯 F键 - ', 10, 125);
+        this.ctx.fillText(t('hud.lockKey'), 10, 125);
         const lockModeText = this.player.getLockModeText();
         this.ctx.fillStyle = gameState.lockMode === 'manual' ? '#FFD700' : 'white';
-        this.ctx.fillText(`锁定模式: ${lockModeText}`, 90, 125);
+        this.ctx.fillText(t('hud.lockMode', lockModeText), 90, 125);
         
         // 隐藏机能状态 (Shift键)
         const hiddenAbility = this.player.getHiddenAbilityWeapon();
         this.ctx.fillStyle = 'white';
-        this.ctx.fillText('🛡️ Shift键 - ', 10, 145);
+        this.ctx.fillText(t('hud.shiftKey'), 10, 145);
         
         if (hiddenAbility) {
             const hiddenStatus = hiddenAbility.getStatus();
             this.ctx.fillStyle = hiddenStatus.color;
-            this.ctx.fillText(`${hiddenAbility.name}: ${hiddenStatus.text}`, 90, 145);
+            this.ctx.fillText(`${t('weapon.' + hiddenAbility.type)}: ${hiddenStatus.text}`, 90, 145);
         } else {
             this.ctx.fillStyle = '#666666';
-            this.ctx.fillText('无隐藏机能', 90, 145);
+            this.ctx.fillText(t('hud.noHidden'), 90, 145);
         }
         
         // 硬锁模式下的C键提示
         if (gameState.lockMode === 'hard') {
             this.ctx.fillStyle = 'white';
-            this.ctx.fillText('🔄 C键 - ', 10, 165);
+            this.ctx.fillText(t('hud.cKey'), 10, 165);
             this.ctx.fillStyle = '#87CEEB';
-            this.ctx.fillText('切换目标', 90, 165);
+            this.ctx.fillText(t('hud.switchTarget'), 90, 165);
         }
         
         // 左肩武器状态 (Q键)
         const leftShoulderWeapon = this.player.getLeftShoulderWeapon();
         this.ctx.fillStyle = 'white';
-        this.ctx.fillText('🚀 Q键 - ', 10, 185);
+        this.ctx.fillText(t('hud.qKey'), 10, 185);
         
         if (leftShoulderWeapon) {
             const leftShoulderStatus = leftShoulderWeapon.getStatus();
             this.ctx.fillStyle = leftShoulderStatus.color;
-            this.ctx.fillText(`${leftShoulderWeapon.name}: ${leftShoulderStatus.text}`, 90, 185);
+            this.ctx.fillText(`${t('weapon.' + leftShoulderWeapon.type)}: ${leftShoulderStatus.text}`, 90, 185);
         } else {
             this.ctx.fillStyle = '#666666';
-            this.ctx.fillText('无左肩武器', 90, 185);
+            this.ctx.fillText(t('hud.noLeftShoulder'), 90, 185);
         }
         
         // 右肩武器状态 (E键)
         const rightShoulderWeapon = this.player.getRightShoulderWeapon();
         this.ctx.fillStyle = 'white';
-        this.ctx.fillText('🚀 E键 - ', 10, 205);
+        this.ctx.fillText(t('hud.eKey'), 10, 205);
         
         if (rightShoulderWeapon) {
             const rightShoulderStatus = rightShoulderWeapon.getStatus();
             this.ctx.fillStyle = rightShoulderStatus.color;
-            this.ctx.fillText(`${rightShoulderWeapon.name}: ${rightShoulderStatus.text}`, 90, 205);
+            this.ctx.fillText(`${t('weapon.' + rightShoulderWeapon.type)}: ${rightShoulderStatus.text}`, 90, 205);
         } else {
             this.ctx.fillStyle = '#666666';
-            this.ctx.fillText('无右肩武器', 90, 205);
+            this.ctx.fillText(t('hud.noRightShoulder'), 90, 205);
         }
         
         // 维修包状态 (Control键)
         this.ctx.fillStyle = 'white';
-        this.ctx.fillText('🛠️ Ctrl键 - ', 10, 225);
+        this.ctx.fillText(t('hud.ctrlKey'), 10, 225);
         if (gameState.repairKits > 0) {
-            this.ctx.fillStyle = '#00FF00'; // 绿色，有维修包
-            this.ctx.fillText(`维修包: ${gameState.repairKits}/${gameState.maxRepairKits}`, 90, 225);
+            this.ctx.fillStyle = '#00FF00';
+            this.ctx.fillText(t('hud.repairKit', gameState.repairKits, gameState.maxRepairKits), 90, 225);
         } else {
-            this.ctx.fillStyle = '#FF6666'; // 红色，无维修包
-            this.ctx.fillText('维修包: 已用完', 90, 225);
+            this.ctx.fillStyle = '#FF6666';
+            this.ctx.fillText(t('hud.repairEmpty'), 90, 225);
         }
         
         // 根据游戏模式显示不同的统计信息
@@ -1769,11 +1787,11 @@ class Game {
         // 显示当前游戏模式
         const currentMode = GAME_MODES[gameState.selectedGameMode];
         this.ctx.fillStyle = currentMode.color;
-        this.ctx.fillText(`模式: ${currentMode.name}`, GAME_CONFIG.WIDTH - 10, 25);
+        this.ctx.fillText(t('hud.mode', t('mode.' + gameState.selectedGameMode)), GAME_CONFIG.WIDTH - 10, 25);
         
         // Boss战模式：显示Boss击杀数
             this.ctx.fillStyle = 'white';
-            this.ctx.fillText(`Boss击杀数: ${gameState.bossKillCount}`, GAME_CONFIG.WIDTH - 10, 45);
+            this.ctx.fillText(t('hud.bossKills', gameState.bossKillCount), GAME_CONFIG.WIDTH - 10, 45);
             
         // Boss血条显示在屏幕上方中央
             if (this.boss) {
@@ -1831,13 +1849,13 @@ class Game {
         this.ctx.fillStyle = 'white';
         this.ctx.font = 'bold 16px Arial';
         this.ctx.textAlign = 'center';
-        let bossName = '血红之王'; // 默认名字
+        let bossName = t('boss.CRIMSON_KING');
         if (this.boss instanceof SublimeMoon) {
-            bossName = '冰之姬';
+            bossName = t('boss.SUBLIME_MOON');
         } else if (this.boss instanceof StarDevourer) {
-            bossName = '噬星者';
+            bossName = t('boss.STAR_DEVOURER');
         } else if (this.boss instanceof UglyEmperor) {
-            bossName = '丑皇';
+            bossName = t('boss.UGLY_EMPEROR');
         }
         // 确保血量显示不为负数
         const displayHealth = Math.max(0, this.boss.health);
@@ -1855,28 +1873,28 @@ class Game {
             if (skill.isActive) {
                 const remaining = Math.max(0, params.duration - (now - skill.startTime));
                 const remainingSeconds = (remaining / 1000).toFixed(1);
-                statusText = `失明激活中 ${remainingSeconds}s`;
+                statusText = t('boss.blindActive', remainingSeconds);
                 statusColor = '#8B00FF';
             } else if (!skill.unlocked) {
                 const damageTaken = this.boss.maxHealth - this.boss.health;
                 const damageNeeded = 50 - damageTaken;
                 if (damageNeeded > 0) {
-                    statusText = `失明技能解锁: 还需 ${damageNeeded} 伤害`;
+                    statusText = t('boss.blindUnlockNeed', damageNeeded);
                     statusColor = '#aaaaaa';
                 } else {
-                    statusText = '失明技能已解锁';
+                    statusText = t('boss.blindUnlocked');
                     statusColor = '#ffff00';
                 }
             } else {
                 const cooldownRemaining = Math.max(0, params.cooldown - (now - skill.lastUse));
                 if (cooldownRemaining > 0) {
                     const cooldownSeconds = (cooldownRemaining / 1000).toFixed(1);
-                    const phaseInfo = this.boss.phaseTwo.activated ? '(二阶段)' : '(一阶段)';
-                    statusText = `失明冷却中 ${cooldownSeconds}s ${phaseInfo}`;
+                    const phaseInfo = this.boss.phaseTwo.activated ? t('boss.phase2label') : t('boss.phase1');
+                    statusText = t('boss.blindCooldown', cooldownSeconds, phaseInfo);
                     statusColor = '#ff8888';
                 } else {
-                    const phaseInfo = this.boss.phaseTwo.activated ? '(二阶段)' : '(一阶段)';
-                    statusText = `失明技能准备就绪 ${phaseInfo}`;
+                    const phaseInfo = this.boss.phaseTwo.activated ? t('boss.phase2label') : t('boss.phase1');
+                    statusText = t('boss.blindReady', phaseInfo);
                     statusColor = '#88ff88';
                 }
             }
@@ -1898,18 +1916,18 @@ class Game {
                     const maxRange = this.boss.phaseTwo.detectionRange;
                     
                     if (withinRange) {
-                        phaseText = `二阶段 - 距离 ${distance}/${maxRange} - 可见可锁定`;
-                        phaseColor = '#00ff00'; // 绿色，可见状态
+                        phaseText = t('boss.phase2Visible', distance, maxRange);
+                        phaseColor = '#00ff00';
                     } else {
-                        phaseText = `二阶段 - 距离 ${distance}/${maxRange} - 隐身状态`;
-                        phaseColor = '#ff0000'; // 红色，隐身状态
+                        phaseText = t('boss.phase2Cloaked', distance, maxRange);
+                        phaseColor = '#ff0000';
                     }
                 } else {
                     const currentHealth = this.boss.health;
                     const triggerHealth = this.boss.phaseTwo.triggerHealth;
                     if (currentHealth > triggerHealth) {
                         const damageNeeded = currentHealth - triggerHealth;
-                        phaseText = `二阶段触发: 还需 ${damageNeeded} 伤害`;
+                        phaseText = t('boss.phase2Trigger', damageNeeded);
                         phaseColor = '#ffaa00'; // 橙色提示
                     }
                 }
@@ -1945,217 +1963,14 @@ class Game {
         this.ctx.fillStyle = 'black';
         this.ctx.font = 'bold 16px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('暂停', buttonX + buttonWidth / 2, buttonY + buttonHeight / 2 + 6);
+        this.ctx.fillText(t('ui.pauseBtn'), buttonX + buttonWidth / 2, buttonY + buttonHeight / 2 + 6);
         
         // 存储按钮位置供点击检测使用
         this.pauseButton = { x: buttonX, y: buttonY, width: buttonWidth, height: buttonHeight };
     }
     
     getGuideData() {
-        return [
-            {
-                id: 'controls', name: '操作说明', color: '#4488FF',
-                content: [
-                    '【移动】 WASD / 方向键',
-                    '【左手武器】 鼠标左键',
-                    '【右手武器】 鼠标右键',
-                    '【左肩武器】 Q键',
-                    '【右肩武器】 E键',
-                    '【隐藏机能】 Shift键',
-                    '【闪避】 空格 + 方向键（0.15秒，冷却0.35秒）',
-                    '【切换锁定】 F键（软锁→硬锁→手动锁）',
-                    '【切换目标】 C键（硬锁模式下）',
-                    '【重装弹药】 R键',
-                    '【维修包】 Ctrl键（+60HP，共3个）',
-                    '【暂停】 P键',
-                    '【返回主菜单】 ESC键',
-                    '',
-                    '— 锁定系统 —',
-                    '软锁：自动瞄准最近敌人',
-                    '硬锁：锁定当前目标不放，C键切换',
-                    '手动锁：鼠标控制瞄准方向',
-                ]
-            },
-            {
-                id: 'hand_weapons', name: '手部武器', color: '#4169E1',
-                items: [
-                    { name: '自动步枪', color: '#4169E1', lines: [
-                        '伤害 6/发 | 射速 5发/秒',
-                        '弹匣 30发 | 重装 2秒',
-                        '自动预瞄：根据目标速度预判落点',
-                    ]},
-                    { name: '脉冲光束军刀', color: '#ff6b6b', lines: [
-                        '伤害 50 | 120°扇形范围',
-                        '冷却 4.8秒',
-                        '刀推：距目标过远时自动冲刺接近',
-                    ]},
-                    { name: '镭射长枪', color: '#00FFFF', lines: [
-                        '伤害 25 | 冲锋距离 400像素',
-                        '冲锋速度 40 | 冷却 5秒',
-                        '可扎穿敌人并带其一起移动',
-                    ]},
-                    { name: '镭射步枪', color: '#FF4444', lines: [
-                        '伤害 18 | 蓄力 1秒后发射',
-                        '射击间隔 0.7秒 | 射程无限',
-                        '过热系统：每发+50热量，≥200过热',
-                        '过热后强制散热7秒',
-                    ]},
-                    { name: '分裂飞弹', color: '#FFD700', lines: [
-                        '发射1枚母弹，持续索敌（8秒无目标自爆）',
-                        '接近敌人120px分裂为8枚子弹',
-                        '子弹伤害 3 | 高追踪性 | 冷却 4秒',
-                        '分裂后先扇形散开再制导',
-                    ]},
-                ]
-            },
-            {
-                id: 'shoulder_weapons', name: '肩部武器', color: '#FF8800',
-                items: [
-                    { name: '15连导弹发射器', color: '#FFD700', lines: [
-                        '每次齐射 15枚 | 每枚 3伤害',
-                        '前1.1秒强追踪 | 爆炸半径 80px',
-                        '冷却 4秒',
-                    ]},
-                    { name: '近防炮 (CIWS)', color: '#00FF88', lines: [
-                        '全自动射击 30发/秒 | 弹仓 30发',
-                        '优先级：导弹 > 月牙弹 > 策反弹 > 机雷 > 敌人',
-                        '对制导武器一发摧毁',
-                        '对敌人本体 40%概率造成伤害',
-                    ]},
-                    { name: '6连电浆飞弹', color: '#00FFCC', lines: [
-                        '6枚连射 | 近炸引信（55px引爆）',
-                        '生成电浆场：持续1秒，每0.25秒造成3伤害',
-                        '多个电浆场可叠加 | 冷却 5秒',
-                    ]},
-                    { name: '超级导弹', color: '#FF0000', lines: [
-                        '伤害 100 | 占用左右肩双槽位',
-                        '爆炸半径 400px | 超强追踪 4.1秒',
-                        '每场战斗限用1次',
-                    ]},
-                    { name: '月光大剑', color: '#88CCFF', lines: [
-                        '伤害 200 | 占用右手+双肩+隐藏机能共4槽位',
-                        '光刃长度为光束军刀的7倍（1050px）',
-                        '机体朝向±90°共180°范围 | 1秒完成扫击',
-                        '无法秒杀Boss（最低保留1HP）',
-                        '每场战斗限用1次',
-                    ]},
-                ]
-            },
-            {
-                id: 'hidden', name: '隐藏机能', color: '#00FFFF',
-                items: [
-                    { name: '脉冲护盾', color: '#00FFFF', lines: [
-                        '70%伤害减免 | 持续 15秒',
-                        '冷却 40秒',
-                    ]},
-                    { name: 'EMP电磁脉冲', color: '#66CCFF', lines: [
-                        '范围 490px | 最大伤害 100',
-                        '距离越远伤害越低 | 附加0.5秒僵直',
-                        '冷却 30秒',
-                    ]},
-                    { name: '反制重击', color: '#FF8C00', lines: [
-                        '持续 3秒 | 受伤减少 40%',
-                        '将受到伤害的50%反射给最近敌人',
-                        '冷却 50秒',
-                    ]},
-                    { name: '诱饵分身', color: '#4488FF', lines: [
-                        '释放 3 个全息诱饵（等边三角形散开）',
-                        '诱饵 40HP | 最多存活 7秒',
-                        '玩家进入 4秒不可锁定状态',
-                        '敌方AI/导弹/子弹转向攻击诱饵',
-                        '冷却 35秒',
-                    ]},
-                ]
-            },
-            {
-                id: 'bosses', name: 'Boss图鉴', color: '#FF4444',
-                items: [
-                    { name: '★ 血红之王', color: '#8B0000', lines: [
-                        'HP 300 | 导弹洗地型',
-                        '',
-                        '— 攻击方式 —',
-                        '60枚导弹齐射，四方向轮流，每枚6伤害',
-                        '导弹带延迟制导，0.3秒后开始追踪',
-                        '',
-                        '— 特殊机制 —',
-                        '累积减伤：1秒内受伤越多减伤越高（不归零）',
-                        '导弹闪避：被追踪时80%闪避',
-                        '回血：每3秒 45%概率恢复6-20HP',
-                        '',
-                        '— 建议 —',
-                        '近防炮拦截导弹，配合近战输出',
-                        '避免短时间集中火力触发高减伤',
-                    ]},
-                    { name: '★★ 冰之姬', color: '#4682B4', lines: [
-                        'HP 200 | 高机动刺客型',
-                        '',
-                        '— 攻击方式 —',
-                        '月牙追踪弹：5发齐射，10伤害+僵直',
-                        '回旋斩：两段(12+18)伤害，可摧毁附近导弹',
-                        '回旋镖形态：5个回旋镖，每个30伤害',
-                        '分身：4个分身，每1.5秒发射15伤害月牙弹',
-                        '',
-                        '— 特殊机制 —',
-                        '瞬移：距远或导弹靠近时瞬移到玩家背后',
-                        '极高导弹闪避：90%概率闪避',
-                        '',
-                        '— 建议 —',
-                        '近防炮拦截月牙弹，导弹对她效果有限',
-                        '注意瞬移后的背刺，保持移动',
-                    ]},
-                    { name: '★★★ 噬星者', color: '#333333', lines: [
-                        'HP 300 | 战术压制型',
-                        '',
-                        '— 攻击方式 —',
-                        '光束步枪：25伤害+0.7秒僵直',
-                        '自动步枪：近距离6伤害/发，30发/秒',
-                        '浮游炮×3：各70HP，镭射15伤害+僵直',
-                        '',
-                        '— 特殊机制 —',
-                        '失明：屏幕全黑，无法切换锁定',
-                        '二阶段(≤80HP)：隐身(200px内可见)',
-                        '导弹反转：75%玩家导弹被策反攻击玩家',
-                        '',
-                        '— 建议 —',
-                        '优先摧毁浮游炮，近防炮拦截策反导弹',
-                        '失明时保持移动，二阶段需近距离作战',
-                    ]},
-                    { name: '★★★★ 丑皇', color: '#8B4513', lines: [
-                        'HP 250 | 区域控制型',
-                        '',
-                        '— 攻击方式 —',
-                        '混沌弹幕：8发/波，4伤害/发',
-                        '扭曲光环：半径80px持续伤害场',
-                        '机雷(一阶段)：引爆15伤害',
-                        '燃烧瓶(二阶段)：产生燃烧区域',
-                        '',
-                        '— 特殊机制 —',
-                        '一阶段：免疫导弹伤害',
-                        '二阶段(≤100HP)：仅受导弹伤害，伤害×2',
-                        '混沌传送：每8秒传送到玩家附近',
-                        '',
-                        '— 建议 —',
-                        '一阶段用步枪/激光/近战，近防炮清机雷',
-                        '二阶段全力导弹输出（伤害翻倍）',
-                        '两阶段需完全不同的武器策略',
-                    ]},
-                ]
-            },
-            {
-                id: 'status', name: '状态效果', color: '#AAAAAA',
-                content: [
-                    '【僵直】 短暂无法移动和行动',
-                    '【燃烧】 持续5秒，每0.1秒受2伤害，移速-20%',
-                    '【失明】 噬星者专属，屏幕全黑，无法切换锁定',
-                    '',
-                    '— 玩家属性 —',
-                    '生命值：150',
-                    '移动速度：20',
-                    '维修包：3个，每个恢复60HP',
-                    '闪避：0.15秒，冷却0.35秒',
-                ]
-            },
-        ];
+        return getLocalizedGuideData();
     }
 
     drawGuide() {
@@ -2173,7 +1988,7 @@ class Game {
             ctx.fillStyle = 'white';
             ctx.font = 'bold 32px Arial';
             ctx.textAlign = 'center';
-            ctx.fillText('游戏简介', W / 2, 55);
+            ctx.fillText(t('menu.guide'), W / 2, 55);
             
             const categories = this.getGuideData();
             const btnW = 360;
@@ -2200,7 +2015,7 @@ class Game {
             });
             
             // 返回按钮
-            this._drawGuideBackButton('返回主菜单');
+            this._drawGuideBackButton(t('menu.backToMenu'));
             
         } else if (gameState.guideSubItem === null) {
             const categories = this.getGuideData();
@@ -2261,7 +2076,7 @@ class Game {
                 });
             }
             
-            this._drawGuideBackButton('返回目录');
+            this._drawGuideBackButton(t('menu.backToCatalog'));
             
         } else {
             // 子项目详情
@@ -2296,7 +2111,7 @@ class Game {
                 ctx.fillText(line, textX, y);
             });
             
-            this._drawGuideBackButton('返回' + cat.name);
+            this._drawGuideBackButton(t('menu.backTo', cat.name));
         }
     }
     
@@ -2339,7 +2154,7 @@ class Game {
         this.ctx.fillStyle = 'black';
         this.ctx.font = 'bold 16px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('← 返回', buttonX + buttonWidth / 2, buttonY + buttonHeight / 2 + 6);
+        this.ctx.fillText(t('menu.backArrow'), buttonX + buttonWidth / 2, buttonY + buttonHeight / 2 + 6);
         
         // 存储按钮位置供点击检测使用
         this.backButton = { x: buttonX, y: buttonY, width: buttonWidth, height: buttonHeight };
@@ -2364,7 +2179,7 @@ class Game {
         this.ctx.fillStyle = 'white';
         this.ctx.font = 'bold 16px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('主菜单', buttonX + buttonWidth / 2, buttonY + buttonHeight / 2 + 6);
+        this.ctx.fillText(t('menu.mainMenu'), buttonX + buttonWidth / 2, buttonY + buttonHeight / 2 + 6);
         
         // 存储按钮位置供点击检测使用
         this.mainMenuButton = { x: buttonX, y: buttonY, width: buttonWidth, height: buttonHeight };
@@ -2453,6 +2268,13 @@ class Game {
         
         // 检查模式选择按钮点击
         if (gameState.showModeSelection) {
+            if (this.langButton && this.isButtonClicked(this.langButton, mouseX, mouseY)) {
+                gameState.language = gameState.language === 'zh' ? 'en' : 'zh';
+                document.title = t('ui.gameTitle');
+                document.documentElement.lang = gameState.language === 'zh' ? 'zh-CN' : 'en';
+                return true;
+            }
+            
             if (this.bossButton && this.isButtonClicked(this.bossButton, mouseX, mouseY)) {
                 this.selectGameMode('BOSS_BATTLE');
                 return true;
@@ -2605,10 +2427,10 @@ class Game {
         this.ctx.fillStyle = 'white';
         this.ctx.font = '48px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('游戏暂停', GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 - 60);
+        this.ctx.fillText(t('ui.paused'), GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 - 60);
 
         this.ctx.font = '18px Arial';
-        this.ctx.fillText('按 P 继续游戏', GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 - 20);
+        this.ctx.fillText(t('ui.pauseHint'), GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 - 20);
         
         // 返回主菜单按钮
         const buttonWidth = 150;
@@ -2626,7 +2448,7 @@ class Game {
         this.ctx.fillStyle = 'white';
         this.ctx.font = 'bold 18px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('返回主菜单', buttonX + buttonWidth / 2, buttonY + buttonHeight / 2 + 6);
+        this.ctx.fillText(t('menu.backToMenu'), buttonX + buttonWidth / 2, buttonY + buttonHeight / 2 + 6);
         
         this.mainMenuButton = { x: buttonX, y: buttonY, width: buttonWidth, height: buttonHeight };
     }
@@ -2643,14 +2465,14 @@ class Game {
         this.ctx.fillStyle = 'white';
         this.ctx.font = '48px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('游戏结束', GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 - 80);
+        this.ctx.fillText(t('ui.gameOver'), GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 - 80);
 
         this.ctx.font = '24px Arial';
-        this.ctx.fillText(`造成总伤害: ${Math.floor(gameState.totalDamage)}`, GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 - 30);
+        this.ctx.fillText(t('ui.totalDamage', Math.floor(gameState.totalDamage)), GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 - 30);
 
         this.ctx.font = '20px Arial';
         this.ctx.fillStyle = '#888888';
-        this.ctx.fillText('按空格键返回主菜单', GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 + 30);
+        this.ctx.fillText(t('ui.spaceReturn'), GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 + 30);
     }
     
     drawBlindnessEffect() {
@@ -2664,7 +2486,7 @@ class Game {
         this.ctx.fillStyle = '#ff4444';
         this.ctx.font = 'bold 32px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('失明状态', GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2);
+        this.ctx.fillText(t('ui.blindStatus'), GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2);
         
         // 绘制剩余时间提示（如果有Boss的话）
         if (this.boss && this.boss.blindnessSkill && this.boss.blindnessSkill.isActive) {
@@ -2674,7 +2496,7 @@ class Game {
             
             this.ctx.fillStyle = '#ffffff';
             this.ctx.font = '18px Arial';
-            this.ctx.fillText(`剩余时间: ${remainingSeconds}秒`, GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 + 40);
+            this.ctx.fillText(t('ui.blindRemaining', remainingSeconds), GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 + 40);
         }
         
         // 重置文字对齐方式
@@ -2691,22 +2513,23 @@ class Game {
         this.ctx.fillStyle = '#FFD700'; // 金色
         this.ctx.font = 'bold 72px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('🎉 胜利！🎉', GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 - 120);
+        this.ctx.fillText(t('ui.victory'), GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 - 120);
         
         // 绘制击败的Boss名称
         this.ctx.fillStyle = '#FFFFFF';
         this.ctx.font = 'bold 36px Arial';
-        this.ctx.fillText(`击败了 ${gameState.victoryBossName}！`, GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 - 40);
+        const victoryBossDisplay = t('boss.' + gameState.victoryBossLevel) || gameState.victoryBossName;
+        this.ctx.fillText(t('ui.defeated', victoryBossDisplay), GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 - 40);
         
         // 绘制分数
         this.ctx.font = '28px Arial';
         this.ctx.fillStyle = '#CCCCCC';
-        this.ctx.fillText(`最终分数: ${gameState.score}`, GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 + 20);
+        this.ctx.fillText(t('ui.finalScore', gameState.score), GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 + 20);
         
         // 绘制返回提示
         this.ctx.font = '20px Arial';
         this.ctx.fillStyle = '#888888';
-        this.ctx.fillText('按空格键返回主菜单', GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 + 80);
+        this.ctx.fillText(t('ui.spaceReturn'), GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 + 80);
         
         this.ctx.restore();
     }

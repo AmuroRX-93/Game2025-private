@@ -37,6 +37,8 @@ const gameState = {
     maxRepairKits: 3, // 最大维修包数量
     // 无敌模式
     invincibleMode: true,
+    // 语言设置
+    language: 'zh',
     // 游戏简介系统
     showGuide: false,
     guideCategory: null,

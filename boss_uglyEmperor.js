@@ -695,7 +695,7 @@ class UglyEmperor extends GameObject {
                 ctx.fillStyle = '#FFFF00'; // 黄色
                 ctx.font = 'bold 10px Arial';
                 ctx.textAlign = 'center';
-                ctx.fillText('免疫', indicator.x, indicator.y - (elapsed / 10));
+                ctx.fillText(t('boss.immune'), indicator.x, indicator.y - (elapsed / 10));
             } else {
                 // 正常伤害提示
                 ctx.fillStyle = '#FF0000';
@@ -769,7 +769,7 @@ class UglyEmperor extends GameObject {
         ctx.fillStyle = '#FF6B35';
         ctx.font = '10px Arial'; // 减小字体大小
         ctx.textAlign = 'center';
-        ctx.fillText('丑皇', this.x + this.width/2, this.y - 12); // 调整标识位置
+        ctx.fillText(t('boss.UGLY_EMPEROR'), this.x + this.width/2, this.y - 12); // 调整标识位置
         
         // 绘制受击提示
         this.drawHitIndicators(ctx);
@@ -787,7 +787,7 @@ class UglyEmperor extends GameObject {
             ctx.fillStyle = '#FFFFFF';
             ctx.font = '10px Arial'; // 减小字体大小
             ctx.textAlign = 'center';
-            ctx.fillText('扎穿!', this.x + this.width/2, this.y - 18); // 调整文字位置
+            ctx.fillText(t('boss.pierce'), this.x + this.width/2, this.y - 18); // 调整文字位置
             
             ctx.setLineDash([]);
             ctx.restore();

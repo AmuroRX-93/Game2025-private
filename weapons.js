@@ -284,21 +284,21 @@ class Sword extends Weapon {
     }
     
     getStatus() {
-        if (this.isAttacking) return { text: '攻击中...', color: 'white' };
+        if (this.isAttacking) return { text: t('ws.attacking'), color: 'white' };
         
         const recoveryRemaining = Math.max(0, this.attackEndTime - Date.now());
         if (recoveryRemaining > 0) {
-            return { text: `僵直: ${(recoveryRemaining / 1000).toFixed(1)}秒`, color: '#CC6666' };
+            return { text: t('ws.stagger', (recoveryRemaining / 1000).toFixed(1)), color: '#CC6666' };
         }
         
-        if (this.isDashing) return { text: '刀推中...', color: 'white' };
+        if (this.isDashing) return { text: t('ws.dashPush'), color: 'white' };
         
         const cooldownRemaining = this.getCooldownRemaining();
         if (cooldownRemaining > 0) {
-            return { text: `冷却: ${(cooldownRemaining / 1000).toFixed(1)}秒`, color: '#CC6666' };
+            return { text: t('ws.cooldown', (cooldownRemaining / 1000).toFixed(1)), color: '#CC6666' };
         }
         
-        return { text: '准备就绪', color: 'white' };
+        return { text: t('ws.ready'), color: 'white' };
     }
 }
 
@@ -436,13 +436,13 @@ class Gun extends Weapon {
     }
     
     getStatus() {
-        if (this.reloading) return { text: '重装中...', color: '#CC6666' };
-        if (this.currentAmmo === 0) return { text: '弹药耗尽！自动重装', color: '#CC6666' };
+        if (this.reloading) return { text: t('ws.reloading'), color: '#CC6666' };
+        if (this.currentAmmo === 0) return { text: t('ws.ammoEmpty'), color: '#CC6666' };
         
         // 始终显示弹药数量，如果不满弹则提示可以重装
-        let statusText = `弹药: ${this.currentAmmo}/${this.magazineSize}`;
+        let statusText = t('ws.ammo', this.currentAmmo, this.magazineSize);
         if (this.currentAmmo < this.magazineSize) {
-            statusText += ' | 按R重装';
+            statusText += t('ws.pressR');
         }
         return { text: statusText, color: 'white' };
     }
@@ -809,17 +809,17 @@ class LaserRifle extends Weapon {
     getStatus() {
         if (this.overheated) {
             const remaining = this.overheatDuration - (Date.now() - this.overheatStartTime);
-            return { text: `过热! ${(remaining / 1000).toFixed(1)}s`, color: '#FF0000' };
+            return { text: t('ws.overheat', (remaining / 1000).toFixed(1)), color: '#FF0000' };
         }
         if (this.isCharging) {
             const progress = Math.min(1, (Date.now() - this.chargeStartTime) / this.chargeTime);
-            return { text: `蓄力中 ${Math.round(progress * 100)}%`, color: '#FF6666' };
+            return { text: t('ws.charging', Math.round(progress * 100)), color: '#FF6666' };
         }
         const now = Date.now();
         if (now - this.lastFireTime < this.fireInterval) {
-            return { text: '冷却中...', color: '#CC6666' };
+            return { text: t('ws.coolingDown'), color: '#CC6666' };
         }
-        return { text: `热量: ${Math.round(this.heat)}/${this.maxHeatBar}`, color: '#FFAA00' };
+        return { text: t('ws.heat', Math.round(this.heat), this.maxHeatBar), color: '#FFAA00' };
     }
 }
 
@@ -1119,17 +1119,17 @@ class LaserSpear extends Weapon {
         let color = 'white';
         
         if (this.isCharging) {
-            statusText = '冲锋中！';
+            statusText = t('ws.rushing');
             color = '#00CCFF';
         } else if (Date.now() < this.attackEndTime) {
-            statusText = '恢复中';
+            statusText = t('ws.recovering');
             color = '#CC6666';
         } else if (!this.canUse()) {
             const cooldownRemaining = this.getCooldownRemaining();
-            statusText = `冷却: ${(cooldownRemaining / 1000).toFixed(1)}秒`;
+            statusText = t('ws.cooldown', (cooldownRemaining / 1000).toFixed(1));
             color = '#CC6666';
         } else {
-            statusText = '就绪';
+            statusText = t('ws.readyShort');
             color = 'white';
         }
         
@@ -1821,15 +1821,15 @@ class MissileLauncher extends Weapon {
     getStatus() {
         if (this.isLaunching) {
             const remaining = this.missilesPerSalvo - this.missilesFired;
-            return { text: `发射中... (${remaining}枚)`, color: '#FFD700' };
+            return { text: t('ws.launching', remaining), color: '#FFD700' };
         }
-        
+
         const cooldownRemaining = this.getCooldownRemaining();
         if (cooldownRemaining > 0) {
-            return { text: `冷却: ${(cooldownRemaining / 1000).toFixed(1)}秒`, color: '#CC6666' };
+            return { text: t('ws.cooldown', (cooldownRemaining / 1000).toFixed(1)), color: '#CC6666' };
         }
-        
-        return { text: '准备就绪', color: 'white' };
+
+        return { text: t('ws.ready'), color: 'white' };
     }
 }
 
@@ -1970,15 +1970,15 @@ class PulseShield extends Weapon {
     getStatus() {
         if (this.isActive) {
             const remaining = this.duration - (Date.now() - this.activationTime);
-            return { text: `护盾中: ${(remaining / 1000).toFixed(1)}秒`, color: '#00FFFF' };
+            return { text: t('ws.shielding', (remaining / 1000).toFixed(1)), color: '#00FFFF' };
         }
-        
+
         const cooldownRemaining = this.getCooldownRemaining();
         if (cooldownRemaining > 0) {
-            return { text: `冷却: ${(cooldownRemaining / 1000).toFixed(1)}秒`, color: '#CC6666' };
+            return { text: t('ws.cooldown', (cooldownRemaining / 1000).toFixed(1)), color: '#CC6666' };
         }
-        
-        return { text: '准备就绪', color: '#00FFFF' };
+
+        return { text: t('ws.ready'), color: '#00FFFF' };
     }
 }
 
@@ -2109,9 +2109,9 @@ class EMP extends Weapon {
     getStatus() {
         const cooldownRemaining = this.getCooldownRemaining();
         if (cooldownRemaining > 0) {
-            return { text: `冷却: ${(cooldownRemaining / 1000).toFixed(1)}秒`, color: '#CC6666' };
+            return { text: t('ws.cooldown', (cooldownRemaining / 1000).toFixed(1)), color: '#CC6666' };
         }
-        return { text: '准备就绪', color: '#66CCFF' };
+        return { text: t('ws.ready'), color: '#66CCFF' };
     }
 }
 
@@ -2301,11 +2301,11 @@ class CounterMech extends Weapon {
     getStatus() {
         if (this.isActive) {
             const remaining = Math.max(0, this.duration - (Date.now() - this.activationTime));
-            return { text: `反制中: ${(remaining / 1000).toFixed(1)}s`, color: '#FF8C00' };
+            return { text: t('ws.countering', (remaining / 1000).toFixed(1)), color: '#FF8C00' };
         }
         const remaining = Math.max(0, this.cooldown - (Date.now() - this.lastUseTime));
-        if (remaining > 0) return { text: `冷却: ${(remaining / 1000).toFixed(1)}s`, color: '#888888' };
-        return { text: '就绪', color: '#FF8C00' };
+        if (remaining > 0) return { text: t('ws.cooldownS', (remaining / 1000).toFixed(1)), color: '#888888' };
+        return { text: t('ws.readyShort'), color: '#FF8C00' };
     }
 }
 
@@ -2544,11 +2544,11 @@ class DecoyClone extends Weapon {
     getStatus() {
         if (this.isStealthActive) {
             const remaining = Math.max(0, this.stealthDuration - (Date.now() - this.stealthStartTime));
-            return { text: `隐身中: ${(remaining / 1000).toFixed(1)}s`, color: '#4488FF' };
+            return { text: t('ws.stealth', (remaining / 1000).toFixed(1)), color: '#4488FF' };
         }
         const remaining = Math.max(0, this.cooldown - (Date.now() - this.lastUseTime));
-        if (remaining > 0) return { text: `冷却: ${(remaining / 1000).toFixed(1)}s`, color: '#888888' };
-        return { text: '就绪', color: '#4488FF' };
+        if (remaining > 0) return { text: t('ws.cooldownS', (remaining / 1000).toFixed(1)), color: '#888888' };
+        return { text: t('ws.readyShort'), color: '#4488FF' };
     }
 }
 
@@ -2607,9 +2607,9 @@ class MoonlightGreatsword extends Weapon {
     }
 
     getStatus() {
-        if (this.isAttacking) return { text: '斩击中...', color: '#88CCFF' };
-        if (this.isUsed) return { text: '已使用', color: '#555555' };
-        return { text: '就绪', color: '#88CCFF' };
+        if (this.isAttacking) return { text: t('ws.slashing'), color: '#88CCFF' };
+        if (this.isUsed) return { text: t('ws.used'), color: '#555555' };
+        return { text: t('ws.readyShort'), color: '#88CCFF' };
     }
 }
 
@@ -2756,14 +2756,14 @@ class SuperWeapon extends Weapon {
     
     getStatus() {
         if (this.isUsed) {
-            return { text: '已使用', color: '#FF6666' };
+            return { text: t('ws.used'), color: '#FF6666' };
         } else if (this.isLaunching) {
-            return { text: '发射中...', color: '#FFD700' };
+            return { text: t('ws.launchingSimple'), color: '#FFD700' };
         } else if (this.canUse()) {
-            return { text: '准备就绪', color: '#FFD700' };
+            return { text: t('ws.ready'), color: '#FFD700' };
         } else {
             const cooldown = this.getCooldownRemaining();
-            return { text: `冷却中 ${(cooldown / 1000).toFixed(1)}s`, color: '#FF6666' };
+            return { text: t('ws.cooldownRemaining', (cooldown / 1000).toFixed(1)), color: '#FF6666' };
         }
     }
 }
@@ -2908,8 +2908,8 @@ class CIWS extends Weapon {
     }
     
     getStatus() {
-        if (this.reloading) return { text: '重装中...', color: '#CC6666' };
-        return { text: `弹药: ${this.currentAmmo}/${this.magazineSize}`, color: '#00FF88' };
+        if (this.reloading) return { text: t('ws.reloading'), color: '#CC6666' };
+        return { text: t('ws.ammo', this.currentAmmo, this.magazineSize), color: '#00FF88' };
     }
     
     draw(ctx, player) {
@@ -3478,10 +3478,10 @@ class PlasmaMissileLauncher extends Weapon {
     }
     
     getStatus() {
-        if (this.isLaunching) return { text: '发射中...', color: '#00FFCC' };
+        if (this.isLaunching) return { text: t('ws.launchingSimple'), color: '#00FFCC' };
         const remaining = Math.max(0, this.cooldown - (Date.now() - this.lastUseTime));
-        if (remaining > 0) return { text: `冷却: ${(remaining / 1000).toFixed(1)}s`, color: '#888888' };
-        return { text: '就绪', color: '#00FFCC' };
+        if (remaining > 0) return { text: t('ws.cooldownS', (remaining / 1000).toFixed(1)), color: '#888888' };
+        return { text: t('ws.readyShort'), color: '#00FFCC' };
     }
 }
 
@@ -3822,8 +3822,8 @@ class ClusterMissileLauncher extends Weapon {
     
     getStatus() {
         const remaining = Math.max(0, this.cooldown - (Date.now() - this.lastUseTime));
-        if (remaining > 0) return { text: `冷却: ${(remaining / 1000).toFixed(1)}s`, color: '#888888' };
-        return { text: '就绪', color: '#FFD700' };
+        if (remaining > 0) return { text: t('ws.cooldownS', (remaining / 1000).toFixed(1)), color: '#888888' };
+        return { text: t('ws.readyShort'), color: '#FFD700' };
     }
 }
 

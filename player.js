@@ -795,7 +795,7 @@ class Player extends GameObject {
             ctx.font = 'bold 10px Arial';
             ctx.textAlign = 'center';
             ctx.globalAlpha = 1;
-            ctx.fillText('燃烧', bCenterX, this.y - 8);
+            ctx.fillText(t('boss.burn'), bCenterX, this.y - 8);
             ctx.restore();
         }
 
@@ -804,7 +804,7 @@ class Player extends GameObject {
         ctx.fillStyle = 'white';
         ctx.font = '12px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText(this.mech.name, labelCenterX, this.y - 5);
+        ctx.fillText(t('mech.' + this.mechType), labelCenterX, this.y - 5);
         
         // 绘制受击提示
         this.drawHitIndicators(ctx);
@@ -1028,15 +1028,15 @@ class Player extends GameObject {
     // 获取闪避状态
     getDodgeStatus() {
         if (this.isDodging) {
-            return { text: '闪避中...', color: 'white' };
+            return { text: t('player.dodging'), color: 'white' };
         }
         
         const cooldownRemaining = Math.max(0, this.dodgeCooldown - (Date.now() - this.lastDodgeTime));
         if (cooldownRemaining > 0) {
-            return { text: `闪避冷却: ${(cooldownRemaining / 1000).toFixed(1)}秒`, color: '#CC6666' };
+            return { text: t('player.dodgeCooldown', (cooldownRemaining / 1000).toFixed(1)), color: '#CC6666' };
         }
         
-        return { text: '闪避就绪', color: 'white' };
+        return { text: t('player.dodgeReady'), color: 'white' };
     }
     
     // 冲刺相关方法已删除
@@ -1087,13 +1087,13 @@ class Player extends GameObject {
     getLockModeText() {
         switch (gameState.lockMode) {
             case 'soft':
-                return '软锁';
+                return t('player.softLock');
             case 'hard':
-                return '硬锁';
+                return t('player.hardLock');
             case 'manual':
-                return '手动锁';
+                return t('player.manualLock');
             default:
-                return '软锁';
+                return t('player.softLock');
         }
     }
 } 

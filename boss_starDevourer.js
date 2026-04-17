@@ -237,7 +237,7 @@ class FloatingDrone extends Enemy {
             ctx.fillStyle = '#FFFFFF';
             ctx.font = '10px Arial';
             ctx.textAlign = 'center';
-            ctx.fillText('扎穿!', this.x + this.width/2, this.y - 15);
+            ctx.fillText(t('boss.pierce'), this.x + this.width/2, this.y - 15);
             
             ctx.setLineDash([]);
             ctx.restore();
@@ -1752,7 +1752,7 @@ class StarDevourer extends GameObject {
             ctx.fillStyle = '#FFFFFF';
             ctx.font = '12px Arial';
             ctx.textAlign = 'center';
-            ctx.fillText('噬星者', this.x + this.width/2, this.y - 16);
+            ctx.fillText(t('boss.STAR_DEVOURER'), this.x + this.width/2, this.y - 16);
         }
         
         // 绘制受击提示
@@ -1773,7 +1773,7 @@ class StarDevourer extends GameObject {
             ctx.fillStyle = '#FFFFFF';
             ctx.font = '14px Arial';
             ctx.textAlign = 'center';
-            ctx.fillText('扎穿!', this.x + this.width/2, this.y - 25);
+            ctx.fillText(t('boss.pierce'), this.x + this.width/2, this.y - 25);
             
             ctx.setLineDash([]);
             ctx.restore();
@@ -1825,7 +1825,7 @@ class StarDevourer extends GameObject {
             ctx.fillStyle = '#8B00FF';
             ctx.font = 'bold 12px Arial';
             ctx.textAlign = 'center';
-            ctx.fillText('失明', this.x + this.width/2, this.y - 35);
+            ctx.fillText(t('boss.blind'), this.x + this.width/2, this.y - 35);
             
             ctx.restore();
         }

@@ -430,7 +430,7 @@ class Enemy extends GameObject {
             ctx.fillStyle = '#FFFFFF';
             ctx.font = '10px Arial';
             ctx.textAlign = 'center';
-            ctx.fillText('扎穿!', this.x + this.width/2, this.y - 15);
+            ctx.fillText(t('boss.pierce'), this.x + this.width/2, this.y - 15);
             
             ctx.setLineDash([]);
             ctx.restore();
@@ -690,7 +690,7 @@ class EliteEnemy extends Enemy {
         ctx.fillStyle = 'gold';
         ctx.font = '10px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText('精英', this.x + this.width/2, this.y - 12);
+        ctx.fillText(t('enemy.elite'), this.x + this.width/2, this.y - 12);
         
         // 锁定标识：红色跳动倒三角（继承自父类）
         if (game.player && (gameState.lockMode === 'soft' || gameState.lockMode === 'hard')) {

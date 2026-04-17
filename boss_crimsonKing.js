@@ -745,7 +745,7 @@ class Boss extends GameObject {
         ctx.fillStyle = '#FF0000';
         ctx.font = '12px Arial';
         ctx.textAlign = 'center';
-                ctx.fillText('血红之王', this.x + this.width/2, this.y - 16);
+                ctx.fillText(t('boss.CRIMSON_KING'), this.x + this.width/2, this.y - 16);
         
         // 绘制受击提示
         this.drawHitIndicators(ctx);
@@ -765,7 +765,7 @@ class Boss extends GameObject {
             ctx.fillStyle = '#FFFFFF';
             ctx.font = '14px Arial';
             ctx.textAlign = 'center';
-            ctx.fillText('扎穿!', this.x + this.width/2, this.y - 25);
+            ctx.fillText(t('boss.pierce'), this.x + this.width/2, this.y - 25);
             
             ctx.setLineDash([]);
             ctx.restore();
