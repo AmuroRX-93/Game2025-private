@@ -167,8 +167,8 @@ class Player extends GameObject {
     }
 
     findNearestEnemy() {
-        const allEnemies = [...game.enemies];
-        if (game.boss) {
+        const allEnemies = game.enemies.filter(e => !e.notTargetable);
+        if (game.boss && !game.boss.notTargetable) {
             let bossTargetable = true;
             if (game.boss instanceof StarDevourer) {
                 // 失明技能激活时不可锁定
@@ -229,12 +229,17 @@ class Player extends GameObject {
                     let targetValid = false;
                     
                     // 检查目标是否为普通敌人
-                    if (game.enemies.includes(gameState.hardLockTarget)) {
+                    if (game.enemies.includes(gameState.hardLockTarget) &&
+                        !gameState.hardLockTarget.notTargetable) {
                         targetValid = true;
                     }
                     else if (game.boss && gameState.hardLockTarget === game.boss) {
+                        // Boss-level untargetable flag (e.g. HiveMind ghost mode)
+                        if (game.boss.notTargetable) {
+                            targetValid = false;
+                        }
                         // 噬星者失明技能激活时不可锁定
-                        if (game.boss instanceof StarDevourer &&
+                        else if (game.boss instanceof StarDevourer &&
                             game.boss.blindnessSkill && game.boss.blindnessSkill.isActive) {
                             targetValid = false;
                         } else if (!game.boss.phaseTwo || !game.boss.phaseTwo.activated) {

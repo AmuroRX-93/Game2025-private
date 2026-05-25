@@ -15,7 +15,9 @@ class Game {
             { type: 'sword', name: t('weapon.sword'), color: '#ff6b6b', desc: t('weaponDesc.sword') },
             { type: 'laser_spear', name: t('weapon.laser_spear'), color: '#00FFFF', desc: t('weaponDesc.laser_spear') },
             { type: 'cluster_missile', name: t('weapon.cluster_missile'), color: '#FFD700', desc: t('weaponDesc.cluster_missile') },
-            { type: 'laser_rifle', name: t('weapon.laser_rifle'), color: '#FF4444', desc: t('weaponDesc.laser_rifle') }
+            { type: 'laser_rifle', name: t('weapon.laser_rifle'), color: '#FF4444', desc: t('weaponDesc.laser_rifle') },
+            { type: 'shotgun', name: t('weapon.shotgun'), color: '#ff9040', desc: t('weaponDesc.shotgun') },
+            { type: 'rocket_launcher', name: t('weapon.rocket_launcher'), color: '#ff7030', desc: t('weaponDesc.rocket_launcher') }
         ];
         const shoulderWeaponOptions = [
             { type: 'missile_launcher', name: t('weapon.missile_launcher'), color: '#FFD700', desc: t('weaponDesc.missile_launcher') },
@@ -108,6 +110,9 @@ class Game {
         this.starDevourerBullets = [];
         this.magnusBullets = [];
         this.magnusShells = [];
+        this.hivePlasmaBullets = [];
+        this.hiveSplinters = [];
+        this.hiveDrones = [];
         this.ciwsBullets = [];
         this.plasmaMissiles = [];
         this.plasmaFields = [];
@@ -170,6 +175,9 @@ class Game {
                         break;
                     case 'Magnus':
                         this.boss = new Magnus(randomPos.x, randomPos.y);
+                        break;
+                    case 'HiveMind':
+                        this.boss = new HiveMind(randomPos.x, randomPos.y);
                         break;
                     default:
                         console.warn(`未知的Boss类型: ${level.bossClass}`);
@@ -350,6 +358,14 @@ class Game {
         // 游戏结束时只更新UI，不更新游戏对象
         if (gameState.gameOver) {
             this.clearAllGameObjects();
+            // Hard-reset the FX pool so nothing lingers visually if anything
+            // else references it (and so a fresh game starts clean).
+            if (typeof bossFX !== 'undefined') {
+                bossFX.particles = [];
+                bossFX.flashes = [];
+                bossFX.shockwaves = [];
+                bossFX.shake = { x: 0, y: 0, until: 0, magnitude: 0, totalMs: 0 };
+            }
             updateUI();
             return;
         }
@@ -460,7 +476,7 @@ class Game {
         }
 
         // 子弹与Boss碰撞
-        if (this.boss && this.bullets.length > 0) {
+        if (this.boss && !this.boss.notTargetable && this.bullets.length > 0) {
             for (let bulletIndex = this.bullets.length - 1; bulletIndex >= 0; bulletIndex--) {
                 const bullet = this.bullets[bulletIndex];
                 if (bullet.collidesWith(this.boss)) {
@@ -577,6 +593,27 @@ class Game {
                 const s = this.magnusShells[i];
                 s.update();
                 if (s.shouldDestroy) this.magnusShells.splice(i, 1);
+            }
+        }
+        // HiveMind plasma bullets
+        if (this.hivePlasmaBullets) {
+            for (let i = this.hivePlasmaBullets.length - 1; i >= 0; i--) {
+                const b = this.hivePlasmaBullets[i];
+                b.update();
+                if (b.shouldDestroy) this.hivePlasmaBullets.splice(i, 1);
+            }
+        }
+        // HiveMind splinters: prune dead from auxiliary list
+        // (they live in game.enemies which handles update/draw)
+        if (this.hiveSplinters) {
+            for (let i = this.hiveSplinters.length - 1; i >= 0; i--) {
+                if (this.hiveSplinters[i].shouldDestroy) this.hiveSplinters.splice(i, 1);
+            }
+        }
+        // HiveMind drones: prune dead from auxiliary list (they are in game.enemies)
+        if (this.hiveDrones) {
+            for (let i = this.hiveDrones.length - 1; i >= 0; i--) {
+                if (this.hiveDrones[i].shouldDestroy) this.hiveDrones.splice(i, 1);
             }
         }
         
@@ -701,6 +738,15 @@ class Game {
         }
 
         // 绘制游戏世界（try-catch 防止单个错误导致整个UI消失）
+        // When the game is over we skip the entire world render — any
+        // lingering FX (sword slashes, telegraphs, particle bursts that
+        // were mid-flight when the player died) would otherwise freeze
+        // on top of the GAME OVER screen because their owners stop
+        // updating the moment gameOver flips on.
+        if (gameState.gameOver) {
+            this.drawGameOver();
+            return;
+        }
         try {
         // Apply screen shake (offset world transform). Will be popped by postDraw.
         if (typeof bossFX !== 'undefined') bossFX.preDraw(this.ctx);
@@ -729,10 +775,13 @@ class Game {
             this.starDevourerBullets.forEach(bullet => bullet.draw(this.ctx));
         }
 
-        // Magnus particle bullets + lobbed shells + detached shoulder pods
+        // Magnus particle bullets + lobbed shells (detached pods are now in
+        // game.enemies and rendered by the enemy loop)
         if (this.magnusBullets) this.magnusBullets.forEach(b => b.draw(this.ctx));
         if (this.magnusShells) this.magnusShells.forEach(s => s.draw(this.ctx));
-        if (this.boss && this.boss instanceof Magnus) this.boss.drawShoulderPods(this.ctx);
+
+        // HiveMind plasma bullets
+        if (this.hivePlasmaBullets) this.hivePlasmaBullets.forEach(b => b.draw(this.ctx));
         
         // 绘制近防炮子弹
         if (this.ciwsBullets) {
@@ -1008,16 +1057,6 @@ class Game {
                 ctx.textAlign = 'left';
                 ctx.textBaseline = 'top';
                 ctx.fillText(t('bossDesc.' + level.id), buttonX + 26, buttonY + 70);
-                ctx.restore();
-
-                // Difficulty badge (right side)
-                const diffText = t('menu.difficulty') + '★'.repeat(level.difficulty);
-                ctx.save();
-                ctx.fillStyle = UI_THEME.color.warning;
-                ctx.font = `13px ${UI_THEME.font.mono}`;
-                ctx.textAlign = 'right';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(diffText, buttonX + buttonWidth - 24, buttonY + buttonHeight - 22);
                 ctx.restore();
 
                 // Engage indicator (right edge)
@@ -2162,6 +2201,7 @@ class Game {
         else if (this.boss instanceof StarDevourer) bossName = t('boss.STAR_DEVOURER');
         else if (this.boss instanceof UglyEmperor) bossName = t('boss.UGLY_EMPEROR');
         else if (this.boss instanceof Magnus) bossName = t('boss.MAGNUS_EXEC');
+        else if (this.boss instanceof HiveMind) bossName = t('boss.HIVE_MIND');
 
         ctx.save();
         ctx.fillStyle = UI_THEME.color.danger;

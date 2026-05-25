@@ -163,7 +163,7 @@ class Sword extends Weapon {
         
         // 检查目标是否还存在（包括Boss和普通敌人）
         const targetExists = game.enemies.includes(this.dashTarget) || 
-                            (game.boss && this.dashTarget === game.boss);
+                            (game.boss && !game.boss.notTargetable && this.dashTarget === game.boss);
         if (!targetExists) {
             this.isDashing = false;
             this.dashTarget = null;
@@ -599,7 +599,7 @@ class LaserRifle extends Weapon {
             }
         };
         
-        if (game.boss) checkHit(game.boss);
+        if (game.boss && !game.boss.notTargetable) checkHit(game.boss);
         if (game.enemies) game.enemies.forEach(e => checkHit(e));
         
         if (hitTarget) {
@@ -672,88 +672,207 @@ class LaserRifle extends Weapon {
         if (this.isCharging) {
             const now = Date.now();
             const progress = Math.min(1, (now - this.chargeStartTime) / this.chargeTime);
-            
-            ctx.save();
-            
-            // 外圈蓄力光环（脉动）
-            const pulse = Math.sin(now * 0.015) * 3;
-            const outerRadius = 30 + pulse + progress * 8;
-            ctx.strokeStyle = `rgba(255, 80, 80, ${0.3 + progress * 0.4})`;
-            ctx.lineWidth = 3;
-            ctx.shadowColor = '#FF3333';
-            ctx.shadowBlur = 8 + progress * 15;
-            ctx.beginPath();
-            ctx.arc(px, py, outerRadius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
-            ctx.stroke();
-            
-            // 内圈进度环
-            ctx.shadowBlur = 0;
-            ctx.strokeStyle = `rgba(255, 200, 150, ${0.6 + progress * 0.4})`;
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(px, py, 20, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
-            ctx.stroke();
-            
-            // 蓄力粒子（旋转光点）
-            for (let i = 0; i < 4; i++) {
-                const angle = now * 0.006 + (Math.PI * 2 / 4) * i;
-                const r = 22 + progress * 10;
-                const ptX = px + Math.cos(angle) * r;
-                const ptY = py + Math.sin(angle) * r;
-                ctx.fillStyle = `rgba(255, 150, 100, ${progress * 0.8})`;
-                ctx.beginPath();
-                ctx.arc(ptX, ptY, 2 + progress * 2, 0, Math.PI * 2);
-                ctx.fill();
+            const eased = progress * progress; // accelerating curve
+
+            // Aim direction (towards target if available, else mech facing).
+            const aimTarget = this.findTarget(player);
+            let aimAng;
+            if (aimTarget) {
+                aimAng = Math.atan2(
+                    (aimTarget.y + aimTarget.height / 2) - py,
+                    (aimTarget.x + aimTarget.width / 2) - px
+                );
+            } else {
+                aimAng = (player.direction || 0) * Math.PI / 180;
             }
-            
-            // 蓄力中心光点
-            if (progress > 0.5) {
-                const glow = (progress - 0.5) * 2;
-                ctx.fillStyle = `rgba(255, 220, 200, ${glow * 0.6})`;
-                ctx.shadowColor = '#FF6644';
-                ctx.shadowBlur = 15 * glow;
+
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+
+            // ---- Layer 1: incoming energy shards converging to the muzzle ----
+            // Particles spawn far out and snap inward, pulled by an unseen lens.
+            const shardSeed = Math.floor(now / 90);
+            const shardCount = 7;
+            for (let i = 0; i < shardCount; i++) {
+                // Stable per-shard pseudo random based on seed+i.
+                const seed = (shardSeed * 13 + i * 31) % 360;
+                const ang = (seed / 360) * Math.PI * 2;
+                // Local phase: each shard runs through 0..1 in 220ms.
+                const phase = ((now + i * 60) % 220) / 220;
+                const startR = 70 + (seed % 30);
+                const r = startR * (1 - phase) + 6 * phase;
+                const sx = px + Math.cos(ang) * r;
+                const sy = py + Math.sin(ang) * r;
+                // Each shard streaks tangentially as it falls in.
+                const tail = 16 + 14 * (1 - phase);
+                const tailAng = ang + Math.PI; // point back outward
+                const ex = sx + Math.cos(tailAng) * tail;
+                const ey = sy + Math.sin(tailAng) * tail;
+                const shardA = (0.25 + 0.75 * (1 - phase)) * (0.4 + 0.6 * progress);
+                const grad = ctx.createLinearGradient(sx, sy, ex, ey);
+                grad.addColorStop(0, `rgba(255,230,180,${shardA})`);
+                grad.addColorStop(0.5, `rgba(255,90,60,${shardA * 0.8})`);
+                grad.addColorStop(1, 'rgba(180,20,10,0)');
+                ctx.strokeStyle = grad;
+                ctx.lineWidth = 1.6 + progress * 1.4;
                 ctx.beginPath();
-                ctx.arc(px, py, 4 + glow * 3, 0, Math.PI * 2);
-                ctx.fill();
+                ctx.moveTo(sx, sy);
+                ctx.lineTo(ex, ey);
+                ctx.stroke();
+            }
+
+            // ---- Layer 2: capacitor arcs around the muzzle (jagged short bolts) ----
+            const arcCount = 3 + Math.floor(progress * 3);
+            for (let i = 0; i < arcCount; i++) {
+                const baseAng = (now * 0.004 + i * (Math.PI * 2 / arcCount)) % (Math.PI * 2);
+                const r0 = 10 + progress * 6;
+                const segs = 4;
+                let prevX = px + Math.cos(baseAng) * r0;
+                let prevY = py + Math.sin(baseAng) * r0;
+                ctx.strokeStyle = `rgba(255,120,90,${0.55 * (0.4 + progress * 0.6)})`;
+                ctx.lineWidth = 1.4;
+                ctx.shadowColor = '#ff5040';
+                ctx.shadowBlur = 8 + progress * 10;
+                ctx.beginPath();
+                ctx.moveTo(prevX, prevY);
+                for (let s = 1; s <= segs; s++) {
+                    const ang = baseAng + (s / segs) * 0.9 + (Math.random() - 0.5) * 0.35;
+                    const r = r0 + s * (3 + progress * 4);
+                    const xN = px + Math.cos(ang) * r;
+                    const yN = py + Math.sin(ang) * r;
+                    ctx.lineTo(xN, yN);
+                }
+                ctx.stroke();
+            }
+            ctx.shadowBlur = 0;
+
+            // ---- Layer 3: charging beam pre-aim (fan of compressing rays) ----
+            // A flickering forward rays bundle showing where the shot will go.
+            if (progress > 0.05) {
+                const rayLen = 90 + progress * 110;
+                const fanA = 0.18 * (1 - eased) + 0.02; // closes inward as it charges
+                const rays = 5;
+                for (let i = 0; i < rays; i++) {
+                    const t = rays === 1 ? 0 : (i / (rays - 1)) - 0.5;
+                    const ang = aimAng + t * fanA;
+                    const ex = px + Math.cos(ang) * rayLen;
+                    const ey = py + Math.sin(ang) * rayLen;
+                    const a = (0.18 + eased * 0.5) * (1 - Math.abs(t) * 1.4);
+                    const g = ctx.createLinearGradient(px, py, ex, ey);
+                    g.addColorStop(0, `rgba(255,255,220,${a})`);
+                    g.addColorStop(0.4, `rgba(255,80,60,${a * 0.85})`);
+                    g.addColorStop(1, 'rgba(120,10,0,0)');
+                    ctx.strokeStyle = g;
+                    ctx.lineWidth = 1.2 + eased * 1.6;
+                    ctx.beginPath();
+                    ctx.moveTo(px, py);
+                    ctx.lineTo(ex, ey);
+                    ctx.stroke();
+                }
+                // Center prebeam (the thickest one once charge is high)
+                if (eased > 0.3) {
+                    const ex = px + Math.cos(aimAng) * (rayLen * 1.1);
+                    const ey = py + Math.sin(aimAng) * (rayLen * 1.1);
+                    const a = (eased - 0.3) * 1.2;
+                    const g2 = ctx.createLinearGradient(px, py, ex, ey);
+                    g2.addColorStop(0, `rgba(255,255,255,${Math.min(1, a)})`);
+                    g2.addColorStop(0.3, `rgba(255,140,90,${a * 0.85})`);
+                    g2.addColorStop(1, 'rgba(255,40,20,0)');
+                    ctx.strokeStyle = g2;
+                    ctx.lineWidth = 2 + eased * 3;
+                    ctx.beginPath();
+                    ctx.moveTo(px, py);
+                    ctx.lineTo(ex, ey);
+                    ctx.stroke();
+                }
+            }
+
+            // ---- Layer 4: pulsing core orb (the actual energy ball forming) ----
+            const corePulse = 0.85 + 0.15 * Math.sin(now * 0.02);
+            const coreR = (4 + progress * 9) * corePulse;
+            const coreGrad = ctx.createRadialGradient(px, py, 0, px, py, coreR * 3.2);
+            coreGrad.addColorStop(0, `rgba(255,255,255,${0.8 * (0.3 + progress * 0.7)})`);
+            coreGrad.addColorStop(0.35, `rgba(255,180,140,${0.7 * progress})`);
+            coreGrad.addColorStop(0.7, `rgba(255,60,40,${0.45 * progress})`);
+            coreGrad.addColorStop(1, 'rgba(120,0,0,0)');
+            ctx.fillStyle = coreGrad;
+            ctx.beginPath();
+            ctx.arc(px, py, coreR * 3.2, 0, Math.PI * 2);
+            ctx.fill();
+            // Hot white pinpoint
+            ctx.fillStyle = `rgba(255,255,255,${0.6 + 0.4 * eased})`;
+            ctx.beginPath();
+            ctx.arc(px, py, 1.6 + eased * 2.2, 0, Math.PI * 2);
+            ctx.fill();
+
+            // ---- Layer 5: full-charge ready ring (only when nearly maxed) ----
+            if (progress > 0.92) {
+                const readyT = (progress - 0.92) / 0.08;
+                const ringR = 18 + Math.sin(now * 0.03) * 3;
+                ctx.strokeStyle = `rgba(255,240,210,${0.85 * readyT})`;
+                ctx.lineWidth = 2;
+                ctx.shadowColor = '#fff0a0';
+                ctx.shadowBlur = 18;
+                ctx.beginPath();
+                ctx.arc(px, py, ringR, 0, Math.PI * 2);
+                ctx.stroke();
                 ctx.shadowBlur = 0;
             }
-            
-            // 瞄准线
-            const target = this.findTarget(player);
-            if (target) {
-                const tx = target.x + target.width / 2;
-                const ty = target.y + target.height / 2;
-                
-                // 粗瞄准线
-                ctx.strokeStyle = `rgba(255, 60, 60, ${0.15 + progress * 0.35})`;
-                ctx.lineWidth = 2 + progress * 2;
-                ctx.setLineDash([8, 6]);
+
+            ctx.restore();
+
+            // ---- Layer 6: refined target reticle (drawn separately, no additive) ----
+            if (aimTarget) {
+                const tx = aimTarget.x + aimTarget.width / 2;
+                const ty = aimTarget.y + aimTarget.height / 2;
+                ctx.save();
+
+                // Subtle dashed lead line, fades with charge.
+                ctx.strokeStyle = `rgba(255,90,70,${0.12 + progress * 0.28})`;
+                ctx.lineWidth = 1.2;
+                ctx.setLineDash([6, 8]);
+                ctx.lineDashOffset = -now * 0.03;
                 ctx.beginPath();
                 ctx.moveTo(px, py);
                 ctx.lineTo(tx, ty);
                 ctx.stroke();
                 ctx.setLineDash([]);
-                
-                // 目标锁定框
-                if (progress > 0.3) {
-                    const lockAlpha = (progress - 0.3) / 0.7;
-                    const lockSize = 12 + Math.sin(now * 0.01) * 2;
-                    ctx.strokeStyle = `rgba(255, 80, 80, ${lockAlpha * 0.8})`;
-                    ctx.lineWidth = 2;
-                    // 四角标记
-                    const corners = [[-1,-1],[1,-1],[1,1],[-1,1]];
+
+                if (progress > 0.25) {
+                    const lockAlpha = (progress - 0.25) / 0.75;
+                    // Inner rotating diamond (reads as a tracking lock).
+                    const rot = now * 0.0035;
+                    const inner = 7 + Math.sin(now * 0.012) * 1.2;
+                    ctx.save();
+                    ctx.translate(tx, ty);
+                    ctx.rotate(rot);
+                    ctx.strokeStyle = `rgba(255,200,170,${lockAlpha})`;
+                    ctx.lineWidth = 1.4;
+                    ctx.beginPath();
+                    ctx.moveTo(0, -inner);
+                    ctx.lineTo(inner, 0);
+                    ctx.lineTo(0, inner);
+                    ctx.lineTo(-inner, 0);
+                    ctx.closePath();
+                    ctx.stroke();
+                    ctx.restore();
+
+                    // Outer L-bracket corners.
+                    const lockSize = 14;
+                    const arm = 5;
+                    ctx.strokeStyle = `rgba(255,90,70,${lockAlpha * 0.95})`;
+                    ctx.lineWidth = 1.6;
+                    const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
                     for (const [cx, cy] of corners) {
                         ctx.beginPath();
-                        ctx.moveTo(tx + cx * lockSize, ty + cy * lockSize);
-                        ctx.lineTo(tx + cx * lockSize * 0.5, ty + cy * lockSize);
-                        ctx.moveTo(tx + cx * lockSize, ty + cy * lockSize);
-                        ctx.lineTo(tx + cx * lockSize, ty + cy * lockSize * 0.5);
+                        ctx.moveTo(tx + cx * lockSize, ty + cy * lockSize - cy * arm);
+                        ctx.lineTo(tx + cx * lockSize, ty + cy * lockSize);
+                        ctx.lineTo(tx + cx * lockSize - cx * arm, ty + cy * lockSize);
                         ctx.stroke();
                     }
                 }
+                ctx.restore();
             }
-            
-            ctx.restore();
         }
         
         // Beam visual: multi-layer additive beam via shared drawBeam helper.
@@ -934,7 +1053,7 @@ class LaserSpear extends Weapon {
     checkChargeCollision(player) {
         // 获取所有敌人
         const allEnemies = [...game.enemies];
-        if (game.boss) {
+        if (game.boss && !game.boss.notTargetable) {
             allEnemies.push(game.boss);
         }
         
@@ -974,7 +1093,7 @@ class LaserSpear extends Weapon {
                     enemy.vx = chargeVx;
                     enemy.vy = chargeVy;
                 } else {
-                    if (enemy instanceof Boss || enemy instanceof SublimeMoon || enemy instanceof UglyEmperor || enemy instanceof Magnus) {
+                    if (enemy instanceof Boss || enemy instanceof SublimeMoon || enemy instanceof UglyEmperor || enemy instanceof Magnus || enemy instanceof HiveMind) {
                         handleBossKill();
                     } else {
                         gameState.score += 10;
@@ -1327,8 +1446,8 @@ class Missile {
             }
         } else {
             // 玩家导弹追踪敌人和Boss
-            const allEnemies = [...game.enemies];
-            if (game.boss) {
+            const allEnemies = game.enemies.filter(e => !e.notTargetable);
+            if (game.boss && !game.boss.notTargetable) {
                 let bossTargetable = true;
                 if (game.boss instanceof StarDevourer) {
                     // 隐身状态：二阶段且不在检测范围内
@@ -1521,7 +1640,7 @@ class Missile {
         
         const allEnemies = [...game.enemies];
         
-        if (!this.isBossMissile && game.boss) {
+        if (!this.isBossMissile && game.boss && !game.boss.notTargetable) {
             allEnemies.push(game.boss);
         }
         
@@ -1545,7 +1664,7 @@ class Missile {
         
         // 如果是Boss导弹，不要伤害Boss自己；如果是玩家导弹，可以伤害Boss
         // 被拦截的导弹不对丑皇造成伤害
-        if (!this.isBossMissile && game.boss) {
+        if (!this.isBossMissile && game.boss && !game.boss.notTargetable) {
             if (this.intercepted && game.boss instanceof UglyEmperor) {
                 // 被丑皇子弹/燃烧瓶拦截的导弹，不伤害丑皇
             } else {
@@ -1576,7 +1695,7 @@ class Missile {
                     gameState.totalDamage += actualDamage;
                 
                 if (isDead) {
-                    if (enemy instanceof Boss || enemy instanceof SublimeMoon || enemy instanceof UglyEmperor || enemy instanceof Magnus) {
+                    if (enemy instanceof Boss || enemy instanceof SublimeMoon || enemy instanceof UglyEmperor || enemy instanceof Magnus || enemy instanceof HiveMind) {
                         handleBossKill();
                     } else {
                         const enemyIndex = game.enemies.indexOf(enemy);
@@ -2058,11 +2177,11 @@ class EMP extends Weapon {
             type: 'emp',
             name: 'EMP电磁脉冲',
             damage: 100,
-            cooldown: 30000
+            cooldown: 18000
         });
         
         this.radius = 490;
-        this.stunDuration = 500;
+        this.stunDuration = 2000;
         this.empEffect = null;
     }
     
@@ -2076,7 +2195,7 @@ class EMP extends Weapon {
         
         // 对范围内所有敌人造成伤害和僵直
         const targets = [];
-        if (game.boss && game.boss.health > 0) targets.push(game.boss);
+        if (game.boss && game.boss.health > 0 && !game.boss.notTargetable) targets.push(game.boss);
         if (game.enemies) {
             for (const e of game.enemies) {
                 if (e.health > 0) targets.push(e);
@@ -2258,7 +2377,7 @@ class CounterMech extends Weapon {
         const reflectedDmg = Math.max(1, Math.round(actualDamage * this.reflectRatio));
         
         const targets = [];
-        if (game.boss && game.boss.health > 0) targets.push(game.boss);
+        if (game.boss && game.boss.health > 0 && !game.boss.notTargetable) targets.push(game.boss);
         if (game.enemies) {
             for (const e of game.enemies) {
                 if (e.health > 0) targets.push(e);
@@ -2986,7 +3105,7 @@ class CIWS extends Weapon {
         
         // 优先级5：敌人本体（boss + 普通敌人）
         const enemies = [];
-        if (game.boss && game.boss.health > 0) {
+        if (game.boss && game.boss.health > 0 && !game.boss.notTargetable) {
             let bossTargetable = true;
             if (game.boss instanceof StarDevourer) {
                 if (game.boss.phaseTwo.activated && game.boss.phaseTwo.isInvisible &&
@@ -3001,7 +3120,7 @@ class CIWS extends Weapon {
         }
         if (game.enemies) {
             for (const e of game.enemies) {
-                if (e.health > 0) enemies.push(e);
+                if (e.health > 0 && !e.notTargetable) enemies.push(e);
             }
         }
         return findNearest(enemies, false);
@@ -3161,7 +3280,7 @@ class CIWSBullet extends GameObject {
         }
         
         // 对敌人本体造成伤害（40%概率造成1点伤害）
-        if (game.boss && game.boss.health > 0 && this.collidesWith(game.boss)) {
+        if (game.boss && game.boss.health > 0 && !game.boss.notTargetable && this.collidesWith(game.boss)) {
             if (Math.random() < 0.4) game.boss.takeDamage(this.damage);
             this.shouldDestroy = true;
             return;
@@ -3211,31 +3330,125 @@ class PlasmaField {
         this.damage = 3;
         this.lastDamageTime = Date.now();
         this.shouldDestroy = false;
+
+        // Persistent visual state
+        this._seed = Math.random() * 1000;
+        this._rotA = Math.random() * Math.PI * 2;   // outer ring rotation
+        this._rotB = Math.random() * Math.PI * 2;   // inner ring rotation (opposite)
+        this._rotASpeed = 0.02 + Math.random() * 0.012;
+        this._rotBSpeed = -(0.028 + Math.random() * 0.014);
+
+        // Spawn-time impact: shockwave + particle burst (one-shot)
+        if (typeof bossFX !== 'undefined') {
+            bossFX.addShockwave(x, y, 6, this.radius * 1.15,
+                'rgba(140,235,255,0.9)', 280, 4, 0.85);
+            bossFX.addShockwave(x, y, 14, this.radius * 0.7,
+                'rgba(255,255,255,0.95)', 220, 2, 0.75);
+            bossFX.addFlash(x, y, this.radius * 0.55, '#d6ffff', 180, 0.95);
+            bossFX.spawnBurst(x, y, 14, {
+                color: '#88e6ff',
+                speedMin: 1.6, speedMax: 5.5,
+                sizeMin: 1.2, sizeMax: 2.6,
+                lifeMs: 480, drag: 0.9
+            });
+        }
+
+        // Persistent dribble particles (orbiting embers)
+        this._embers = [];
+        for (let i = 0; i < 14; i++) {
+            this._embers.push({
+                a: Math.random() * Math.PI * 2,
+                r: this.radius * (0.45 + Math.random() * 0.5),
+                aSpeed: (Math.random() - 0.5) * 0.05,
+                rDrift: (Math.random() - 0.5) * 0.4,
+                size: 0.9 + Math.random() * 1.6,
+                hueT: Math.random()
+            });
+        }
+
+        // Lightning arcs are regenerated every ~70ms instead of every frame
+        // so flicker is rhythmic, not noisy.
+        this._arcs = [];
+        this._lastArcRefresh = 0;
+        this._refreshArcs(Date.now());
     }
-    
+
+    _refreshArcs(now) {
+        this._lastArcRefresh = now;
+        this._arcs.length = 0;
+        const arcCount = 7 + Math.floor(Math.random() * 4);
+        for (let i = 0; i < arcCount; i++) {
+            const baseAngle = Math.random() * Math.PI * 2;
+            const len = this.radius * (0.5 + Math.random() * 0.55);
+            const segs = 5 + Math.floor(Math.random() * 4);
+            const path = [];
+            const fork = Math.random() < 0.45;
+            for (let s = 1; s <= segs; s++) {
+                const t = s / segs;
+                const jitter = this.radius * 0.09 * (1 - t * 0.4);
+                path.push([
+                    Math.cos(baseAngle) * len * t + (Math.random() - 0.5) * jitter,
+                    Math.sin(baseAngle) * len * t + (Math.random() - 0.5) * jitter
+                ]);
+            }
+            // Optional fork
+            let forkPath = null;
+            if (fork && segs >= 4) {
+                const branchAt = Math.floor(segs * 0.55);
+                const start = path[branchAt];
+                const branchAngle = baseAngle + (Math.random() - 0.5) * 1.4;
+                const branchLen = this.radius * 0.35 * (0.6 + Math.random() * 0.6);
+                const branchSegs = 3 + Math.floor(Math.random() * 2);
+                forkPath = [];
+                for (let s = 1; s <= branchSegs; s++) {
+                    const t = s / branchSegs;
+                    forkPath.push([
+                        start[0] + Math.cos(branchAngle) * branchLen * t + (Math.random() - 0.5) * 8,
+                        start[1] + Math.sin(branchAngle) * branchLen * t + (Math.random() - 0.5) * 8
+                    ]);
+                }
+            }
+            this._arcs.push({ path, forkPath, born: now, life: 90 + Math.random() * 80 });
+        }
+    }
+
     update() {
-        if (Date.now() - this.startTime >= this.duration) {
+        const now = Date.now();
+        if (now - this.startTime >= this.duration) {
             this.shouldDestroy = true;
             return;
         }
-        
-        if (Date.now() - this.lastDamageTime >= this.damageInterval) {
-            this.lastDamageTime = Date.now();
+
+        if (now - this.lastDamageTime >= this.damageInterval) {
+            this.lastDamageTime = now;
             this.damageEnemies();
         }
+
+        // Refresh lightning at a controlled rate
+        if (now - this._lastArcRefresh > 75) this._refreshArcs(now);
+
+        // Update embers
+        for (const e of this._embers) {
+            e.a += e.aSpeed;
+            e.r += e.rDrift;
+            if (e.r < this.radius * 0.2) e.rDrift = Math.abs(e.rDrift);
+            if (e.r > this.radius * 0.95) e.rDrift = -Math.abs(e.rDrift);
+        }
+        this._rotA += this._rotASpeed;
+        this._rotB += this._rotBSpeed;
     }
-    
+
     damageEnemies() {
         const allEnemies = [...game.enemies];
-        if (game.boss && game.boss.health > 0) {
+        if (game.boss && game.boss.health > 0 && !game.boss.notTargetable) {
             allEnemies.push(game.boss);
         }
-        
+
         for (const enemy of allEnemies) {
             const dx = enemy.x + enemy.width / 2 - this.x;
             const dy = enemy.y + enemy.height / 2 - this.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
-            
+
             if (distance <= this.radius) {
                 enemy.takeDamage(this.damage, 'plasma');
                 gameState.score += this.damage;
@@ -3243,61 +3456,152 @@ class PlasmaField {
             }
         }
     }
-    
+
     draw(ctx) {
-        const elapsed = Date.now() - this.startTime;
-        const progress = elapsed / this.duration;
-        const fade = Math.max(0, 1 - progress * 0.7);
+        const now = Date.now();
+        const elapsed = now - this.startTime;
+        const progress = Math.min(1, elapsed / this.duration);
+        // Spawn ramp-up (first 15%) + linear fade
+        const ramp = Math.min(1, elapsed / 150);
+        const fade = ramp * Math.max(0, 1 - progress * 0.85);
+        if (fade <= 0.01) return;
 
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
 
-        // Volumetric plasma orb (multi-stop radial gradient)
+        // === Layer 1: scorched ground halo (low alpha, soft) ===
+        const groundGrad = ctx.createRadialGradient(
+            this.x, this.y, this.radius * 0.2,
+            this.x, this.y, this.radius * 1.25);
+        groundGrad.addColorStop(0, `rgba(80,200,255,${fade * 0.35})`);
+        groundGrad.addColorStop(0.6, `rgba(40,120,220,${fade * 0.18})`);
+        groundGrad.addColorStop(1, 'rgba(0,30,120,0)');
+        ctx.fillStyle = groundGrad;
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius * 1.25, 0, Math.PI * 2); ctx.fill();
+
+        // === Layer 2: volumetric plasma orb ===
         const orbR = this.radius;
         const orb = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, orbR);
-        orb.addColorStop(0, `rgba(255,255,255,${fade * 0.85})`);
-        orb.addColorStop(0.25, `rgba(140,255,220,${fade * 0.7})`);
-        orb.addColorStop(0.55, `rgba(60,200,255,${fade * 0.45})`);
-        orb.addColorStop(0.85, `rgba(40,80,220,${fade * 0.25})`);
-        orb.addColorStop(1, 'rgba(0,40,160,0)');
+        orb.addColorStop(0, `rgba(255,255,255,${fade * 0.95})`);
+        orb.addColorStop(0.18, `rgba(180,255,240,${fade * 0.8})`);
+        orb.addColorStop(0.45, `rgba(80,220,255,${fade * 0.55})`);
+        orb.addColorStop(0.78, `rgba(60,120,240,${fade * 0.3})`);
+        orb.addColorStop(1, 'rgba(20,50,180,0)');
         ctx.fillStyle = orb;
         ctx.beginPath(); ctx.arc(this.x, this.y, orbR, 0, Math.PI * 2); ctx.fill();
 
-        // Crackling lightning arcs (more strokes, brighter)
-        const arcCount = 6 + Math.floor(Math.random() * 4);
-        for (let i = 0; i < arcCount; i++) {
-            const angle = Math.random() * Math.PI * 2;
-            const len = this.radius * (0.4 + Math.random() * 0.55);
-            // Halo stroke
-            ctx.strokeStyle = `rgba(120,220,255,${fade * 0.45})`;
-            ctx.lineWidth = 4;
-            ctx.beginPath(); ctx.moveTo(this.x, this.y);
-            const segs = 4 + Math.floor(Math.random() * 3);
-            const path = [];
-            for (let s = 1; s <= segs; s++) {
-                const t = s / segs;
-                const ax = this.x + Math.cos(angle) * len * t + (Math.random() - 0.5) * 14;
-                const ay = this.y + Math.sin(angle) * len * t + (Math.random() - 0.5) * 14;
-                path.push([ax, ay]);
-                ctx.lineTo(ax, ay);
-            }
-            ctx.stroke();
-            // Bright core stroke
-            ctx.strokeStyle = `rgba(255,255,255,${fade})`;
+        // === Layer 3: rotating energy disc (outer + inner counter-rotating) ===
+        const drawDisc = (rot, count, rOuter, rInner, alpha, color) => {
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            ctx.rotate(rot);
+            ctx.strokeStyle = color.replace('ALPHA', (fade * alpha).toFixed(3));
             ctx.lineWidth = 1.4;
-            ctx.beginPath(); ctx.moveTo(this.x, this.y);
-            path.forEach(([x, y]) => ctx.lineTo(x, y));
+            for (let i = 0; i < count; i++) {
+                const a = (i / count) * Math.PI * 2;
+                ctx.beginPath();
+                ctx.moveTo(Math.cos(a) * rInner, Math.sin(a) * rInner);
+                ctx.lineTo(Math.cos(a) * rOuter, Math.sin(a) * rOuter);
+                ctx.stroke();
+            }
+            ctx.restore();
+        };
+        drawDisc(this._rotA, 12, this.radius * 0.95, this.radius * 0.7, 0.55,
+            'rgba(170,240,255,ALPHA)');
+        drawDisc(this._rotB, 8, this.radius * 0.62, this.radius * 0.4, 0.7,
+            'rgba(255,255,255,ALPHA)');
+
+        // === Layer 4: lightning arcs (with optional forks) ===
+        for (const arc of this._arcs) {
+            const arcAge = (now - arc.born) / arc.life;
+            const arcAlpha = Math.max(0, 1 - arcAge);
+            // Outer halo
+            ctx.strokeStyle = `rgba(140,230,255,${fade * 0.55 * arcAlpha})`;
+            ctx.lineWidth = 5;
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y);
+            for (const [px, py] of arc.path) ctx.lineTo(this.x + px, this.y + py);
             ctx.stroke();
+            // Bright core
+            ctx.strokeStyle = `rgba(255,255,255,${fade * arcAlpha})`;
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y);
+            for (const [px, py] of arc.path) ctx.lineTo(this.x + px, this.y + py);
+            ctx.stroke();
+            // Fork
+            if (arc.forkPath) {
+                const last = arc.path[Math.floor(arc.path.length * 0.55)];
+                ctx.strokeStyle = `rgba(180,240,255,${fade * 0.5 * arcAlpha})`;
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(this.x + last[0], this.y + last[1]);
+                for (const [px, py] of arc.forkPath) ctx.lineTo(this.x + px, this.y + py);
+                ctx.stroke();
+                ctx.strokeStyle = `rgba(255,255,255,${fade * 0.85 * arcAlpha})`;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(this.x + last[0], this.y + last[1]);
+                for (const [px, py] of arc.forkPath) ctx.lineTo(this.x + px, this.y + py);
+                ctx.stroke();
+            }
+            // Tip flash
+            const tip = arc.path[arc.path.length - 1];
+            const tipR = 6 + Math.random() * 3;
+            const tipGrad = ctx.createRadialGradient(
+                this.x + tip[0], this.y + tip[1], 0,
+                this.x + tip[0], this.y + tip[1], tipR);
+            tipGrad.addColorStop(0, `rgba(255,255,255,${fade * arcAlpha})`);
+            tipGrad.addColorStop(1, 'rgba(120,220,255,0)');
+            ctx.fillStyle = tipGrad;
+            ctx.beginPath();
+            ctx.arc(this.x + tip[0], this.y + tip[1], tipR, 0, Math.PI * 2);
+            ctx.fill();
         }
 
-        // Pulsing edge rings
-        const pulse = 0.85 + 0.15 * Math.sin(elapsed * 0.012);
-        ctx.strokeStyle = `rgba(120,220,255,${fade * 0.55})`;
-        ctx.lineWidth = 4;
-        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius * pulse, 0, Math.PI * 2); ctx.stroke();
-        ctx.strokeStyle = `rgba(255,255,255,${fade * 0.85})`;
+        // === Layer 5: pulsing edge ring (containment field) ===
+        const pulse = 0.92 + 0.08 * Math.sin(elapsed * 0.018);
+        // Outer halo ring
+        ctx.strokeStyle = `rgba(120,220,255,${fade * 0.45})`;
+        ctx.lineWidth = 6;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius * pulse, 0, Math.PI * 2);
+        ctx.stroke();
+        // Bright thin ring
+        ctx.strokeStyle = `rgba(255,255,255,${fade * 0.9})`;
+        ctx.lineWidth = 1.3;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius * pulse, 0, Math.PI * 2);
+        ctx.stroke();
+        // Dashed inner ring (electric containment)
+        ctx.save();
+        ctx.setLineDash([6, 8]);
+        ctx.lineDashOffset = -elapsed * 0.06;
+        ctx.strokeStyle = `rgba(200,250,255,${fade * 0.7})`;
         ctx.lineWidth = 1.2;
-        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius * pulse, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius * 0.78 * pulse, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+
+        // === Layer 6: orbiting embers ===
+        for (const e of this._embers) {
+            const ex = this.x + Math.cos(e.a) * e.r;
+            const ey = this.y + Math.sin(e.a) * e.r;
+            const eg = ctx.createRadialGradient(ex, ey, 0, ex, ey, e.size * 4);
+            eg.addColorStop(0, `rgba(255,255,255,${fade * 0.95})`);
+            eg.addColorStop(0.5, `rgba(140,230,255,${fade * 0.6})`);
+            eg.addColorStop(1, 'rgba(60,120,220,0)');
+            ctx.fillStyle = eg;
+            ctx.beginPath();
+            ctx.arc(ex, ey, e.size * 4, 0, Math.PI * 2);
+            ctx.fill();
+            // Bright core
+            ctx.fillStyle = `rgba(255,255,255,${fade})`;
+            ctx.beginPath();
+            ctx.arc(ex, ey, e.size, 0, Math.PI * 2);
+            ctx.fill();
+        }
 
         ctx.restore();
     }
@@ -3392,7 +3696,7 @@ class PlasmaMissile {
         let closestDistance = trackingRadius;
         
         const allEnemies = [...game.enemies];
-        if (game.boss && game.boss.health > 0) {
+        if (game.boss && game.boss.health > 0 && !game.boss.notTargetable) {
             let bossTargetable = true;
             if (game.boss instanceof StarDevourer) {
                 if (game.boss.phaseTwo.activated && game.boss.phaseTwo.isInvisible &&
@@ -3457,7 +3761,7 @@ class PlasmaMissile {
     
     checkProximity() {
         const allEnemies = [...game.enemies];
-        if (game.boss && game.boss.health > 0) {
+        if (game.boss && game.boss.health > 0 && !game.boss.notTargetable) {
             allEnemies.push(game.boss);
         }
         
@@ -3774,8 +4078,8 @@ class ClusterMissile {
         let closestTarget = null;
         let closestDistance = this.trackingRadius;
         
-        const allEnemies = [...game.enemies];
-        if (game.boss && game.boss.health > 0) {
+        const allEnemies = game.enemies.filter(e => !e.notTargetable);
+        if (game.boss && game.boss.health > 0 && !game.boss.notTargetable) {
             let bossTargetable = true;
             if (game.boss instanceof StarDevourer) {
                 if (game.boss.phaseTwo.activated && game.boss.phaseTwo.isInvisible &&
@@ -3827,8 +4131,8 @@ class ClusterMissile {
     }
     
     checkProximityAndSplit() {
-        const allEnemies = [...game.enemies];
-        if (game.boss && game.boss.health > 0) {
+        const allEnemies = game.enemies.filter(e => !e.notTargetable);
+        if (game.boss && game.boss.health > 0 && !game.boss.notTargetable) {
             allEnemies.push(game.boss);
         }
         
@@ -4045,6 +4349,600 @@ class ClusterMissileLauncher extends Weapon {
     }
 }
 
+// ============================================================
+// ShotgunPellet: Bullet variant whose damage decays linearly with distance.
+// At point blank it deals full base damage; at max range it drops to 20%.
+// Visual tracer also shortens/fades as the pellet loses energy.
+// ============================================================
+class ShotgunPellet extends Bullet {
+    constructor(x, y, direction, speed, baseDamage, range) {
+        super(x, y, direction, speed, baseDamage, range);
+        this.color = '#ff9040';
+        this._fxScheme = 'orange';
+        this.baseDamage = baseDamage;
+        // Minimum damage retained at max range (fraction of base).
+        this.minDamageFactor = 0.2;
+    }
+
+    update() {
+        super.update();
+        // Recompute damage from current travel distance every frame so the
+        // value read by collision code reflects falloff at impact moment.
+        const progress = Math.min(1, this.distanceTraveled / this.maxRange);
+        const factor = 1 - (1 - this.minDamageFactor) * progress;
+        this.damage = Math.max(1, Math.round(this.baseDamage * factor));
+    }
+
+    draw(ctx) {
+        if (typeof drawTracer !== 'function') {
+            super.draw(ctx);
+            return;
+        }
+        // Pellet visual fades with distance to telegraph the damage falloff.
+        const progress = Math.min(1, this.distanceTraveled / this.maxRange);
+        const length = 18 - progress * 9;   // shorter tracer late in flight
+        const width = 3.6 - progress * 1.6; // thinner tail
+        const alpha = 1 - progress * 0.55;  // fades but never invisible
+        drawTracer(ctx, {
+            x: this.x + this.width / 2,
+            y: this.y + this.height / 2,
+            vx: this.vx,
+            vy: this.vy,
+            length,
+            width,
+            scheme: 'orange',
+            alpha
+        });
+    }
+}
+
+// ============================================================
+// Shotgun: cone-spread pellet weapon, damage falls off with distance.
+// ============================================================
+class Shotgun extends Weapon {
+    constructor() {
+        super({
+            type: 'shotgun',
+            name: '霰弹枪',
+            damage: 8,
+            cooldown: 700
+        });
+
+        this.pelletsPerShot = 12;
+        this.spreadAngle = 22;
+        this.range = 14 * 50;
+        this.bulletSpeed = 30;
+        this.magazineSize = 6;
+        this.currentAmmo = this.magazineSize;
+        this.reloading = false;
+        this.reloadStartTime = 0;
+        this.reloadDuration = 1600;
+
+        this.lastMuzzleFlashTime = 0;
+        this.lastMuzzleAngle = 0;
+        this.recoilEnd = 0;
+    }
+
+    canUse() {
+        return super.canUse() && !this.reloading;
+    }
+
+    use(player) {
+        if (!this.canUse()) return false;
+
+        if (this.currentAmmo <= 0) {
+            if (!this.reloading) this.reload();
+            return false;
+        }
+
+        this.lastUseTime = Date.now();
+        this.currentAmmo--;
+        if (this.currentAmmo <= 0) this.reload();
+
+        const muzzleX = player.x + player.width / 2;
+        const muzzleY = player.y + player.height / 2;
+        const aimAngleDeg = this._calcAimAngle(player, muzzleX, muzzleY);
+        const aimRad = aimAngleDeg * Math.PI / 180;
+
+        const spreadRad = this.spreadAngle * Math.PI / 180;
+        for (let i = 0; i < this.pelletsPerShot; i++) {
+            // Distribute pellets across the cone with slight randomness.
+            const t = this.pelletsPerShot === 1 ? 0 : (i / (this.pelletsPerShot - 1)) - 0.5;
+            const jitter = (Math.random() - 0.5) * spreadRad * 0.25;
+            const pelletAngle = (aimAngleDeg + (t * this.spreadAngle) + jitter * 180 / Math.PI);
+            const speedJitter = this.bulletSpeed * (0.85 + Math.random() * 0.25);
+            const rangeJitter = this.range * (0.8 + Math.random() * 0.3);
+
+            const pellet = new ShotgunPellet(muzzleX, muzzleY, pelletAngle, speedJitter, this.damage, rangeJitter);
+            game.bullets.push(pellet);
+        }
+
+        this.lastMuzzleFlashTime = Date.now();
+        this.lastMuzzleAngle = aimRad;
+        this.recoilEnd = Date.now() + 140;
+
+        // Screen feedback for the heavy boom.
+        if (typeof bossFX !== 'undefined' && bossFX.addShake) {
+            bossFX.addShake(2.4, 90);
+        }
+        return true;
+    }
+
+    _calcAimAngle(player, ox, oy) {
+        if (gameState.lockMode === 'manual') {
+            const tx = gameState.manualLockX || mouse.x;
+            const ty = gameState.manualLockY || mouse.y;
+            return Math.atan2(ty - oy, tx - ox) * 180 / Math.PI;
+        }
+        const tgt = player.getCurrentTarget();
+        if (!tgt) return player.direction;
+        const ex = tgt.x + tgt.width / 2;
+        const ey = tgt.y + tgt.height / 2;
+        return Math.atan2(ey - oy, ex - ox) * 180 / Math.PI;
+    }
+
+    reload() {
+        this.reloading = true;
+        this.reloadStartTime = Date.now();
+    }
+
+    canReload() {
+        return !this.reloading && this.currentAmmo < this.magazineSize;
+    }
+
+    update(player) {
+        if (this.reloading && Date.now() - this.reloadStartTime >= this.reloadDuration) {
+            this.reloading = false;
+            this.currentAmmo = this.magazineSize;
+        }
+    }
+
+    draw(ctx, player) {
+        if (!this.lastMuzzleFlashTime) return;
+        const dt = Date.now() - this.lastMuzzleFlashTime;
+        if (dt > 110) return;
+        const fade = 1 - dt / 110;
+        const px = player.x + player.width / 2;
+        const py = player.y + player.height / 2;
+        const offset = player.width / 2 + 8;
+        const fx = px + Math.cos(this.lastMuzzleAngle) * offset;
+        const fy = py + Math.sin(this.lastMuzzleAngle) * offset;
+        if (typeof drawMuzzleFlash === 'function') {
+            drawMuzzleFlash(ctx, {
+                x: fx, y: fy,
+                angle: this.lastMuzzleAngle,
+                size: 26,
+                scheme: 'orange',
+                alpha: fade
+            });
+        }
+    }
+
+    getStatus() {
+        if (this.reloading) return { text: t('ws.reloading'), color: '#CC6666' };
+        if (this.currentAmmo === 0) return { text: t('ws.ammoEmpty'), color: '#CC6666' };
+        let txt = t('ws.ammo', this.currentAmmo, this.magazineSize);
+        if (this.currentAmmo < this.magazineSize) txt += t('ws.pressR');
+        return { text: txt, color: 'white' };
+    }
+}
+
+// ============================================================
+// RocketLauncher: single heavy projectile, AOE explosion on impact.
+// Slow speed, long cooldown, small magazine, knockback shake.
+// ============================================================
+class RocketLauncher extends Weapon {
+    constructor() {
+        super({
+            type: 'rocket_launcher',
+            name: '火箭筒',
+            damage: 30,
+            cooldown: 0
+        });
+
+        this.fireInterval = 1100;
+        this.range = 18 * 50;
+        this.rocketSpeed = 13;
+        this.explosionRadius = 180;
+        // Single-shot tube: every fire forces a reload cycle.
+        this.magazineSize = 1;
+        this.currentAmmo = this.magazineSize;
+        this.reloading = false;
+        this.reloadStartTime = 0;
+        this.reloadDuration = 2600;
+
+        this.lastFireTime = 0;
+        this.lastMuzzleFlashTime = 0;
+        this.lastMuzzleAngle = 0;
+    }
+
+    canUse() {
+        const now = Date.now();
+        return (now - this.lastFireTime >= this.fireInterval) && !this.reloading;
+    }
+
+    use(player) {
+        if (!this.canUse()) return false;
+        if (this.currentAmmo <= 0) {
+            if (!this.reloading) this.reload();
+            return false;
+        }
+
+        this.lastFireTime = Date.now();
+        this.lastUseTime = this.lastFireTime;
+        this.currentAmmo--;
+        if (this.currentAmmo <= 0) this.reload();
+
+        const launchX = player.x + player.width / 2;
+        const launchY = player.y + player.height / 2;
+
+        let targetX, targetY;
+        if (gameState.lockMode === 'manual') {
+            targetX = gameState.manualLockX || mouse.x;
+            targetY = gameState.manualLockY || mouse.y;
+        } else {
+            const tgt = player.getCurrentTarget();
+            if (tgt) {
+                targetX = tgt.x + tgt.width / 2;
+                targetY = tgt.y + tgt.height / 2;
+            } else {
+                const ang = player.direction * Math.PI / 180;
+                targetX = launchX + Math.cos(ang) * 400;
+                targetY = launchY + Math.sin(ang) * 400;
+            }
+        }
+
+        const rocket = new Rocket(launchX, launchY, targetX, targetY, this.damage, this.rocketSpeed, this.explosionRadius, this.range);
+        if (!game.bossMissiles) game.bossMissiles = [];
+        // Reuse the missiles array as the engine already updates it; rockets are player-owned.
+        if (!game.missiles) game.missiles = [];
+        game.missiles.push(rocket);
+
+        this.lastMuzzleFlashTime = Date.now();
+        this.lastMuzzleAngle = Math.atan2(targetY - launchY, targetX - launchX);
+
+        if (typeof bossFX !== 'undefined' && bossFX.addShake) {
+            bossFX.addShake(3.5, 130);
+        }
+        return true;
+    }
+
+    reload() {
+        this.reloading = true;
+        this.reloadStartTime = Date.now();
+    }
+
+    canReload() {
+        return !this.reloading && this.currentAmmo < this.magazineSize;
+    }
+
+    update(player) {
+        if (this.reloading && Date.now() - this.reloadStartTime >= this.reloadDuration) {
+            this.reloading = false;
+            this.currentAmmo = this.magazineSize;
+        }
+    }
+
+    draw(ctx, player) {
+        if (!this.lastMuzzleFlashTime) return;
+        const dt = Date.now() - this.lastMuzzleFlashTime;
+        if (dt > 160) return;
+        const fade = 1 - dt / 160;
+        const px = player.x + player.width / 2;
+        const py = player.y + player.height / 2;
+        const offset = player.width / 2 + 10;
+        const fx = px + Math.cos(this.lastMuzzleAngle) * offset;
+        const fy = py + Math.sin(this.lastMuzzleAngle) * offset;
+        if (typeof drawMuzzleFlash === 'function') {
+            drawMuzzleFlash(ctx, {
+                x: fx, y: fy,
+                angle: this.lastMuzzleAngle,
+                size: 34,
+                scheme: 'orange',
+                alpha: fade
+            });
+        }
+    }
+
+    getStatus() {
+        if (this.reloading) return { text: t('ws.reloading'), color: '#CC6666' };
+        if (this.currentAmmo === 0) return { text: t('ws.ammoEmpty'), color: '#CC6666' };
+        let txt = t('ws.ammo', this.currentAmmo, this.magazineSize);
+        if (this.currentAmmo < this.magazineSize) txt += t('ws.pressR');
+        return { text: txt, color: 'white' };
+    }
+}
+
+// ============================================================
+// Rocket projectile: straight-flying heavy round with AOE on impact.
+// Lives in game.missiles so the existing pipeline updates/draws/prunes it.
+// ============================================================
+class Rocket extends GameObject {
+    constructor(x, y, targetX, targetY, damage, speed, explosionRadius, maxRange) {
+        super(x, y, 14, 14, '#ff8030');
+        this.damage = damage;
+        this.speed = speed;
+        this.explosionRadius = explosionRadius;
+        this.maxRange = maxRange || 1200;
+        this.startX = x;
+        this.startY = y;
+
+        const dx = targetX - x;
+        const dy = targetY - y;
+        const len = Math.max(0.001, Math.sqrt(dx * dx + dy * dy));
+        this.angle = Math.atan2(dy, dx);
+        this.vx = (dx / len) * speed;
+        this.vy = (dy / len) * speed;
+
+        this.exploded = false;
+        this.spawnTime = Date.now();
+        this._trail = [];
+        // Tag so external code can recognize player rockets if needed.
+        this.isPlayerRocket = true;
+        // Compatibility fields with Missile pipeline.
+        this.isBossMissile = false;
+    }
+
+    update() {
+        if (this.exploded) return;
+        super.update();
+
+        // Track travel distance for max-range explode.
+        const dx = this.x - this.startX;
+        const dy = this.y - this.startY;
+        const traveled = Math.sqrt(dx * dx + dy * dy);
+
+        // Trail samples.
+        this._trail.push({ x: this.x + this.width / 2, y: this.y + this.height / 2, t: Date.now() });
+        if (this._trail.length > 14) this._trail.shift();
+
+        // Out-of-bounds or out-of-range -> detonate.
+        if (traveled > this.maxRange ||
+            this.x < -40 || this.x > GAME_CONFIG.WIDTH + 40 ||
+            this.y < -40 || this.y > GAME_CONFIG.HEIGHT + 40) {
+            this._detonate();
+            return;
+        }
+
+        // Direct hit: any enemy or boss.
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const targets = [...game.enemies];
+        if (game.boss && !game.boss.notTargetable) targets.push(game.boss);
+        for (const t of targets) {
+            if (!t || t.shouldDestroy) continue;
+            const ex = t.x + t.width / 2;
+            const ey = t.y + t.height / 2;
+            const r = (t.width + t.height) / 4 + 10;
+            const ddx = ex - cx;
+            const ddy = ey - cy;
+            if (ddx * ddx + ddy * ddy <= r * r) {
+                this._detonate();
+                return;
+            }
+        }
+    }
+
+    _detonate() {
+        if (this.exploded) return;
+        this.exploded = true;
+        this.shouldDestroy = true;
+
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const radius = this.explosionRadius;
+
+        // Build target list (player rocket damages enemies + boss).
+        const targets = [...game.enemies];
+        if (game.boss && !game.boss.notTargetable) targets.push(game.boss);
+
+        targets.forEach(enemy => {
+            if (!enemy || enemy.shouldDestroy) return;
+            const ex = enemy.x + enemy.width / 2;
+            const ey = enemy.y + enemy.height / 2;
+            const dx = ex - cx;
+            const dy = ey - cy;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist > radius) return;
+
+            // Falloff: full damage at center, fades to ~5% at the edge.
+            // Quadratic curve gives a strong center punch and a softer rim.
+            const norm = dist / radius;            // 0 at center .. 1 at edge
+            const falloff = Math.max(0.05, 1 - norm * norm);
+            const dmg = Math.max(1, Math.round(this.damage * falloff));
+            // SublimeMoon halves bullet-class damage; rockets count as missile/explosive.
+            const isDead = enemy.takeDamage(dmg, 'missile');
+            gameState.score += dmg;
+            gameState.totalDamage += dmg;
+
+            if (isDead) {
+                if (enemy instanceof Boss || enemy instanceof SublimeMoon || enemy instanceof UglyEmperor || enemy instanceof Magnus || enemy instanceof HiveMind) {
+                    handleBossKill();
+                } else {
+                    const idx = game.enemies.indexOf(enemy);
+                    if (idx > -1) {
+                        game.enemies.splice(idx, 1);
+                        gameState.score += 10;
+                    }
+                }
+            }
+        });
+
+        // Spawn explosion VFX entry consumed by drawExplosions().
+        if (!game.explosions) game.explosions = [];
+        game.explosions.push({
+            x: cx,
+            y: cy,
+            startTime: Date.now(),
+            duration: 600,
+            isBossMissile: false,
+            isSuperMissile: false,
+            explosionRadius: radius
+        });
+
+        if (typeof bossFX !== 'undefined') {
+            if (bossFX.addShake) bossFX.addShake(5, 220);
+            if (bossFX.addShockwave) bossFX.addShockwave(cx, cy, radius, 'orange');
+        }
+
+        updateUI();
+    }
+
+    draw(ctx) {
+        if (this.exploded) return;
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const now = Date.now();
+
+        // Smoke trail (additive faded).
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        for (let i = 0; i < this._trail.length; i++) {
+            const p = this._trail[i];
+            const age = (now - p.t) / 320;
+            if (age >= 1) continue;
+            const a = (1 - age) * 0.55;
+            const r = 6 + age * 14;
+            const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
+            grad.addColorStop(0, `rgba(255,200,120,${a})`);
+            grad.addColorStop(0.5, `rgba(255,110,40,${a * 0.6})`);
+            grad.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.restore();
+
+        // Rocket body: chunky finned silhouette.
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(this.angle);
+
+        // ---- Dynamic exhaust flame: multi-layer animated jet ----
+        // Combines a long outer plume, a hot inner core, sputtering side embers,
+        // and a forward shock heat haze. Phase noise keeps it twitching.
+        ctx.globalCompositeOperation = 'lighter';
+        const phase = now * 0.025;
+        // Dual sine for non-uniform pulsing (avoids robotic single-frequency).
+        const flick = 0.78
+            + 0.14 * Math.sin(phase)
+            + 0.08 * Math.sin(phase * 2.7 + 1.3);
+        const baseLen = 30;
+
+        // Layer A: long outer plume (broad, faded orange).
+        const outerLen = baseLen * flick * 1.6;
+        const outerW = 6.5 + Math.sin(phase * 1.9) * 1.2;
+        const outerGrad = ctx.createLinearGradient(-9, 0, -9 - outerLen, 0);
+        outerGrad.addColorStop(0, 'rgba(255,200,120,0.55)');
+        outerGrad.addColorStop(0.4, 'rgba(255,120,50,0.45)');
+        outerGrad.addColorStop(1, 'rgba(80,10,0,0)');
+        ctx.fillStyle = outerGrad;
+        ctx.beginPath();
+        ctx.moveTo(-9, -outerW);
+        // Wavy edge for a turbulent silhouette (top edge).
+        const segs = 6;
+        for (let i = 1; i <= segs; i++) {
+            const tx = -9 - (outerLen * i / segs);
+            const ripple = Math.sin(phase * 3 + i * 1.7) * 1.4;
+            const w = outerW * (1 - i / segs) + ripple;
+            ctx.lineTo(tx, -w);
+        }
+        ctx.lineTo(-9 - outerLen, 0);
+        for (let i = segs; i >= 1; i--) {
+            const tx = -9 - (outerLen * i / segs);
+            const ripple = Math.sin(phase * 3 + i * 1.7 + 0.9) * 1.4;
+            const w = outerW * (1 - i / segs) + ripple;
+            ctx.lineTo(tx, w);
+        }
+        ctx.lineTo(-9, outerW);
+        ctx.closePath();
+        ctx.fill();
+
+        // Layer B: hot inner core (white-hot, sharper).
+        const coreLen = outerLen * 0.55;
+        const coreW = 3 + Math.sin(phase * 2.3 + 0.4) * 0.8;
+        const coreGrad = ctx.createLinearGradient(-9, 0, -9 - coreLen, 0);
+        coreGrad.addColorStop(0, 'rgba(255,255,255,0.95)');
+        coreGrad.addColorStop(0.45, 'rgba(255,220,150,0.85)');
+        coreGrad.addColorStop(1, 'rgba(255,80,30,0)');
+        ctx.fillStyle = coreGrad;
+        ctx.beginPath();
+        ctx.moveTo(-9, -coreW);
+        ctx.quadraticCurveTo(-9 - coreLen * 0.4, -coreW * 0.6, -9 - coreLen, 0);
+        ctx.quadraticCurveTo(-9 - coreLen * 0.4, coreW * 0.6, -9, coreW);
+        ctx.closePath();
+        ctx.fill();
+
+        // Layer C: side spit-flames (small darting tongues that flicker each frame).
+        const sideCount = 3;
+        for (let i = 0; i < sideCount; i++) {
+            const sPhase = phase * 1.6 + i * 2.1;
+            const len = 6 + (Math.sin(sPhase) * 0.5 + 0.5) * 8;
+            const offY = (i - 1) * 2.8 + Math.sin(sPhase * 1.3) * 1.3;
+            const a = 0.45 + 0.35 * Math.sin(sPhase * 0.9);
+            ctx.fillStyle = `rgba(255,160,70,${Math.max(0, a)})`;
+            ctx.beginPath();
+            ctx.moveTo(-9, offY - 1.2);
+            ctx.lineTo(-9 - len, offY);
+            ctx.lineTo(-9, offY + 1.2);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        // Layer D: trailing ember sparks behind the flame.
+        const emberSeed = Math.floor(now / 50);
+        for (let i = 0; i < 4; i++) {
+            const seed = (emberSeed * 7 + i * 13) % 200;
+            const t01 = ((now + i * 80) % 240) / 240;
+            const ex = -9 - outerLen * 0.4 - t01 * outerLen * 0.9;
+            const ey = ((seed % 7) - 3) * 0.9 + Math.sin(phase * 2 + i) * 1.6;
+            const a = (1 - t01) * 0.85;
+            ctx.fillStyle = `rgba(255,${180 + (seed % 50)},${60 + (seed % 30)},${a})`;
+            ctx.beginPath();
+            ctx.arc(ex, ey, 1.1 + (1 - t01) * 0.9, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Layer E: forward heat-haze halo around the nose (subtle).
+        const haloA = 0.18 + 0.08 * Math.sin(phase * 1.4);
+        const haloGrad = ctx.createRadialGradient(11, 0, 0, 11, 0, 14);
+        haloGrad.addColorStop(0, `rgba(255,200,140,${haloA})`);
+        haloGrad.addColorStop(1, 'rgba(255,80,30,0)');
+        ctx.fillStyle = haloGrad;
+        ctx.beginPath();
+        ctx.arc(11, 0, 14, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.globalCompositeOperation = 'source-over';
+
+        // Body
+        ctx.fillStyle = '#3a3a40';
+        ctx.fillRect(-9, -4, 18, 8);
+        // Nose cone
+        ctx.fillStyle = '#ff7030';
+        ctx.beginPath();
+        ctx.moveTo(9, -4);
+        ctx.lineTo(15, 0);
+        ctx.lineTo(9, 4);
+        ctx.closePath();
+        ctx.fill();
+        // Stripe
+        ctx.fillStyle = '#ffd060';
+        ctx.fillRect(-2, -4, 3, 8);
+        // Fins
+        ctx.fillStyle = '#5a5a60';
+        ctx.beginPath();
+        ctx.moveTo(-9, -4); ctx.lineTo(-13, -7); ctx.lineTo(-7, -4); ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(-9, 4); ctx.lineTo(-13, 7); ctx.lineTo(-7, 4); ctx.closePath();
+        ctx.fill();
+
+        ctx.restore();
+    }
+}
+
 // 填充武器类型映射
 WEAPON_TYPES.sword = Sword;
 WEAPON_TYPES.gun = Gun; 
@@ -4060,3 +4958,5 @@ WEAPON_TYPES.cluster_missile = ClusterMissileLauncher;
 WEAPON_TYPES.counter_mech = CounterMech;
 WEAPON_TYPES.decoy_clone = DecoyClone;
 WEAPON_TYPES.moonlight_greatsword = MoonlightGreatsword;
+WEAPON_TYPES.shotgun = Shotgun;
+WEAPON_TYPES.rocket_launcher = RocketLauncher;

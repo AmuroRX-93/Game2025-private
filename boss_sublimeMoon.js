@@ -2135,12 +2135,31 @@ class SublimeMoon extends GameObject {
         this.vy = 0;
     }
 
-    takeDamage(damage) {
-        this.health -= damage;
-        
-        // 添加受击提示
-        this.addHitIndicator(damage);
-        
+    takeDamage(damage, source) {
+        // SublimeMoon's cryo-armor heavily resists sustained beam weapons.
+        // Laser rifle's continuous photon column gets diffused by the ice sheath.
+        let actual = damage;
+        if (source === 'laser_rifle') {
+            actual = Math.max(1, Math.floor(damage * 0.2)); // 80% reduction
+            // Visual feedback: cryo diffusion sparkle on the boss center.
+            if (typeof bossFX !== 'undefined') {
+                const cx = this.x + this.width / 2;
+                const cy = this.y + this.height / 2;
+                if (bossFX.addFlash) bossFX.addFlash(cx, cy, 26, '#cdeeff', 200, 0.7);
+                if (bossFX.spawnBurst) {
+                    bossFX.spawnBurst(cx, cy, 10, {
+                        color: '#a8e0ff',
+                        speedMin: 1.5, speedMax: 4,
+                        sizeMin: 1.2, sizeMax: 2.4,
+                        lifeMs: 380, drag: 0.92
+                    });
+                }
+            }
+        }
+        this.health -= actual;
+
+        this.addHitIndicator(actual);
+
         return this.health <= 0; // 返回是否死亡
     }
     

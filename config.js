@@ -61,6 +61,15 @@ const BOSS_LEVELS = {
         difficulty: 5,
         color: '#ffb030', // 金属橙黄
         unlocked: true
+    },
+    HIVE_MIND: {
+        id: 'HIVE_MIND',
+        name: '蜂巢意识',
+        description: '由无人机蜂群守护的女王意识体，本体脆弱却难以触及，死亡后分裂为四道残识',
+        bossClass: 'HiveMind',
+        difficulty: 6,
+        color: '#9a6cff',
+        unlocked: true
     }
     // 未来可以添加更多关卡
     // SHADOW_LORD: {

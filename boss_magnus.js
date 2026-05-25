@@ -70,13 +70,20 @@ class Magnus extends GameObject {
         this.turretAimAngles = [-Math.PI / 2, -Math.PI / 2];
         this.turretChargeUntil = [0, 0];
 
-        // Shield state - new model: a separate HP pool that absorbs incoming
-        // damage with heavy reduction. When the shield HP hits 0 it explodes
-        // for AOE damage. See `activateShield()` / `_breakShield()`.
+        // Shield state - new threshold-based model:
+        // - Hits dealing <= 40 dmg are FULLY absorbed (0 hull damage). Shield
+        //   loses HP equal to the incoming damage.
+        // - Hits dealing 40 < dmg <= 200 are partially absorbed. The
+        //   reduction ratio falls off smoothly: heavy hits leak more.
+        // - Hits dealing > 200 dmg break the shield catastrophically: the
+        //   hull eats 100% of the damage AND the shield loses 2x the damage
+        //   value, almost guaranteeing a shatter.
         this.shieldActive = false;
         this.shieldHp = 0;
-        this.shieldMaxHp = Math.round(this.maxHealth * 0.35);
-        this.shieldDamageReduction = 0.75; // 75% of incoming damage is absorbed by shield
+        this.shieldMaxHp = Math.round(this.maxHealth * 0.5);
+        this.shieldFullAbsorbThreshold = 40;
+        this.shieldPartialAbsorbCap = 200;
+        this.shieldOverloadThreshold = 200;
         this.shieldBreakDamage = 35;       // AOE on break
         this.shieldBreakRadius = 130;
         this.shieldBornAt = 0;             // for ramp-up VFX
@@ -104,29 +111,69 @@ class Magnus extends GameObject {
         let actualDamage = Math.max(1, Math.round(damage * (1 - reductionFactor)));
         this.damageWindow.accumulated += damage;
 
-        // Active shield absorbs most of the damage into its own HP pool. The
-        // shield breaks (and explodes) the moment its pool drops to 0.
+        // Shield processing — threshold-based absorption model.
         if (this.shieldActive && this.shieldHp > 0) {
-            const absorbed = Math.round(actualDamage * this.shieldDamageReduction);
-            const leak = actualDamage - absorbed;
-            // Apply absorbed damage to shield HP
-            this.shieldHp -= absorbed;
-            // Shield impact spark
             const cx = this.x + this.width / 2;
             const cy = this.y + this.height / 2;
-            bossFX.addFlash(cx, cy, this.width * 0.9, '#ffb030', 220, 0.55);
-            bossFX.addShockwave(cx, cy, this.width * 0.6, this.width * 1.0,
-                '#ffd070', 220, 1.6, 0.5);
-            // Hit indicator on shield (cyan style so it's distinguishable)
-            this.hitIndicators.push({
-                damage: absorbed, isShield: true,
-                startTime: now,
-                x: cx + (Math.random() - 0.5) * 50,
-                y: this.y - 8 + Math.random() * 6
-            });
-            actualDamage = leak; // only leak damage hits the hull
-            if (this.shieldHp <= 0) {
-                this._breakShield();
+            const fullThr = this.shieldFullAbsorbThreshold;   // 40
+            const cap = this.shieldPartialAbsorbCap;          // 200
+            const overload = this.shieldOverloadThreshold;    // 200
+
+            if (actualDamage > overload) {
+                // ---- Overload: shield is shattered by a single huge hit. ----
+                // Hull eats the full damage, AND the shield loses 2x as a
+                // penalty: a clear "don't tank big bursts with this barrier".
+                const shieldLoss = Math.round(actualDamage * 2);
+                this.shieldHp -= shieldLoss;
+                bossFX.addFlash(cx, cy, this.width * 1.4, '#ff4040', 320, 0.9);
+                bossFX.addShockwave(cx, cy, this.width * 0.7, this.width * 1.6,
+                    '#ff6060', 360, 4, 0.85);
+                if (typeof bossFX.addShake === 'function') bossFX.addShake(5, 240);
+                this.hitIndicators.push({
+                    damage: actualDamage, isShield: false,
+                    startTime: now,
+                    x: cx + (Math.random() - 0.5) * 50,
+                    y: this.y - 8 + Math.random() * 6
+                });
+                // actualDamage is unchanged: 100% leaks to hull.
+                if (this.shieldHp <= 0) this._breakShield();
+            } else if (actualDamage <= fullThr) {
+                // ---- Full absorption: small hits cost shield = damage. ----
+                this.shieldHp -= actualDamage;
+                bossFX.addFlash(cx, cy, this.width * 0.7, '#ffd060', 200, 0.55);
+                bossFX.addShockwave(cx, cy, this.width * 0.4, this.width * 0.9,
+                    '#ffd070', 200, 1.4, 0.45);
+                this.hitIndicators.push({
+                    damage: actualDamage, isShield: true,
+                    startTime: now,
+                    x: cx + (Math.random() - 0.5) * 50,
+                    y: this.y - 8 + Math.random() * 6
+                });
+                actualDamage = 0;
+                if (this.shieldHp <= 0) this._breakShield();
+            } else {
+                // ---- Partial absorption between 40 and 200. ----
+                // Reduction ratio: 1.0 at threshold (full absorb), falling
+                // smoothly to a small floor near the cap. A power < 1 keeps
+                // protection high in the lower part of the band, then drops
+                // off sharply as damage approaches 200.
+                const span = cap - fullThr;
+                const t = Math.min(1, (actualDamage - fullThr) / span); // 0..1
+                const reductionRatio = Math.max(0.05, 1 - Math.pow(t, 0.7));
+                const absorbed = Math.round(actualDamage * reductionRatio);
+                const leak = actualDamage - absorbed;
+                this.shieldHp -= absorbed;
+                bossFX.addFlash(cx, cy, this.width * 0.95, '#ffb040', 230, 0.65);
+                bossFX.addShockwave(cx, cy, this.width * 0.55, this.width * 1.05,
+                    '#ffc060', 240, 1.8, 0.55);
+                this.hitIndicators.push({
+                    damage: absorbed, isShield: true,
+                    startTime: now,
+                    x: cx + (Math.random() - 0.5) * 50,
+                    y: this.y - 8 + Math.random() * 6
+                });
+                actualDamage = leak;
+                if (this.shieldHp <= 0) this._breakShield();
             }
         }
 
@@ -394,6 +441,9 @@ class Magnus extends GameObject {
             const side = i === 0 ? -1 : 1;
             const pod = new MagnusShoulderPod(cx + side * 50, cy - 30, side);
             this.shoulderPods.push(pod);
+            // Register pod into the global enemy list so player weapons / lock-on
+            // can target it as a normal enemy.
+            if (typeof game !== 'undefined' && game.enemies) game.enemies.push(pod);
         }
     }
 
@@ -1101,10 +1151,11 @@ class Magnus extends GameObject {
 
     _updateShoulderPods() {
         if (!this.podsDetached) return;
+        // Pods are now registered in game.enemies which handles update() and
+        // draw(). Here we only prune dead refs from our auxiliary list so
+        // drawShoulderPods() / _shoulderTurretCenters() stay consistent.
         for (let i = this.shoulderPods.length - 1; i >= 0; i--) {
-            const pod = this.shoulderPods[i];
-            pod.update();
-            if (pod.shouldDestroy) this.shoulderPods.splice(i, 1);
+            if (this.shoulderPods[i].shouldDestroy) this.shoulderPods.splice(i, 1);
         }
     }
 
@@ -1582,7 +1633,8 @@ class MagnusShoulderPod extends GameObject {
         this.lastFireAt = Date.now();
         this.fireInterval = 1100 + Math.random() * 400;
         this.driftPhase = Math.random() * Math.PI * 2;
-        this.health = 30;
+        this.maxHealth = 80;
+        this.health = this.maxHealth;
         // Pods are floating drones; not lockable as boss target.
     }
 
@@ -1661,7 +1713,12 @@ class MagnusShoulderPod extends GameObject {
 
     takeDamage(damage) {
         this.health -= damage;
-        return this.health <= 0;
+        if (this.health <= 0 && !this.shouldDestroy) {
+            this._destroyVFX();
+            this.shouldDestroy = true;
+            return true;
+        }
+        return false;
     }
 
     _destroyVFX() {
@@ -1711,7 +1768,7 @@ class MagnusShoulderPod extends GameObject {
         const barW = this.width;
         ctx.fillStyle = 'rgba(60,60,60,0.8)';
         ctx.fillRect(this.x, this.y - 6, barW, 3);
-        const ratio = Math.max(0, this.health / 30);
+        const ratio = Math.max(0, this.health / this.maxHealth);
         ctx.fillStyle = '#ffaa30';
         ctx.fillRect(this.x, this.y - 6, barW * ratio, 3);
     }

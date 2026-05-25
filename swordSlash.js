@@ -79,7 +79,7 @@ class SwordSlash {
         });
         
         // 检查Boss是否与刀光线段相交
-        if (game.boss && !this.hitEnemies.has(game.boss)) {
+        if (game.boss && !game.boss.notTargetable && !this.hitEnemies.has(game.boss)) {
             const bossCenterX = game.boss.x + game.boss.width / 2;
             const bossCenterY = game.boss.y + game.boss.height / 2;
             
@@ -278,7 +278,7 @@ class MoonlightSlash {
             }
         });
 
-        if (game.boss && !this.hitEnemies.has(game.boss)) {
+        if (game.boss && !game.boss.notTargetable && !this.hitEnemies.has(game.boss)) {
             const bcx = game.boss.x + game.boss.width / 2;
             const bcy = game.boss.y + game.boss.height / 2;
             const distance = distanceToLineSegment(bcx, bcy, playerCenterX, playerCenterY, endX, endY);
