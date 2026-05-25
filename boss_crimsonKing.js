@@ -442,10 +442,12 @@ class Boss extends GameObject {
                     };
                 }
             },
-            // ---- Move 2: Cross Barrage ----
-            // Telegraphs 4 horizontal/vertical beams, then fires fast bullets along them.
+            // ---- Move 2: Grid Barrage ----
+            // Telegraphs a wide grid of horizontal/vertical beams, then fires
+            // fast bullets along each lane. Massive area-denial that forces
+            // the player into the few open cells between the lanes.
             {
-                id: 'crossBarrage',
+                id: 'gridBarrage',
                 cooldown: 7000,
                 canUse: (ctx) => true,
                 score: (ctx) => {
@@ -455,18 +457,35 @@ class Boss extends GameObject {
                     return s;
                 },
                 start: (b, ctx) => {
-                    const telegraphMs = 700;
-                    const fireMs = 600;
+                    const telegraphMs = 850;
+                    const fireMs = 700;
                     const startedAt = Date.now();
-                    const cx = b.x + b.width / 2;
-                    const cy = b.y + b.height / 2;
                     const W = GAME_CONFIG.WIDTH;
                     const H = GAME_CONFIG.HEIGHT;
-                    // 4 beams: up, down, left, right
-                    b.telegraphs.push(createTelegraphBeam(cx, cy, cx, 0, 16, telegraphMs, '#ff5555'));
-                    b.telegraphs.push(createTelegraphBeam(cx, cy, cx, H, 16, telegraphMs, '#ff5555'));
-                    b.telegraphs.push(createTelegraphBeam(cx, cy, 0, cy, 16, telegraphMs, '#ff5555'));
-                    b.telegraphs.push(createTelegraphBeam(cx, cy, W, cy, 16, telegraphMs, '#ff5555'));
+                    // Build an evenly-spaced grid: 4 vertical + 3 horizontal
+                    // lanes (numbers tuned so the gaps are still dodgeable).
+                    const vLaneCount = 4;
+                    const hLaneCount = 3;
+                    const vLanesX = [];
+                    const hLanesY = [];
+                    // Margin keeps lanes off the very edges where the player
+                    // can't reach.
+                    const marginX = W * 0.12;
+                    const marginY = H * 0.15;
+                    for (let i = 0; i < vLaneCount; i++) {
+                        const t = (i + 1) / (vLaneCount + 1);
+                        vLanesX.push(marginX + (W - marginX * 2) * t);
+                    }
+                    for (let i = 0; i < hLaneCount; i++) {
+                        const t = (i + 1) / (hLaneCount + 1);
+                        hLanesY.push(marginY + (H - marginY * 2) * t);
+                    }
+                    for (const lx of vLanesX) {
+                        b.telegraphs.push(createTelegraphBeam(lx, 0, lx, H, 14, telegraphMs, '#ff5555'));
+                    }
+                    for (const ly of hLanesY) {
+                        b.telegraphs.push(createTelegraphBeam(0, ly, W, ly, 14, telegraphMs, '#ff5555'));
+                    }
                     return {
                         startedAt,
                         telegraphMs,
@@ -474,10 +493,12 @@ class Boss extends GameObject {
                         totalMs: telegraphMs + fireMs,
                         recoveryMs: 500,
                         fired: false,
+                        vLanesX,
+                        hLanesY,
                         tick: (b2, now) => {
                             const st = b2.activeMove;
                             if (!st.fired && now >= st.startedAt + st.telegraphMs) {
-                                boss._fireCrossBarrage();
+                                boss._fireGridBarrage(st.vLanesX, st.hLanesY);
                                 st.fired = true;
                             }
                         },
@@ -789,43 +810,68 @@ class Boss extends GameObject {
         }
     }
     
-    _fireCrossBarrage() {
-        const cx = this.x + this.width / 2;
-        const cy = this.y + this.height / 2;
-        const dirs = [
-            { x: 0, y: -1 }, { x: 0, y: 1 }, { x: -1, y: 0 }, { x: 1, y: 0 }
-        ];
+    _fireGridBarrage(vLanesX, hLanesY) {
+        const W = GAME_CONFIG.WIDTH;
+        const H = GAME_CONFIG.HEIGHT;
         const speed = 22;
-        for (const d of dirs) {
-            const launchX = cx + d.x * (this.width / 2 + 6);
-            const launchY = cy + d.y * (this.height / 2 + 6);
-            const targetX = launchX + d.x * 800;
-            const targetY = launchY + d.y * 800;
-            const m = new Missile(launchX, launchY, targetX, targetY, this.missileDamage, speed);
+        const gridDamage = this.missileDamage + 4;
+        // Each lane spawns one beam-bullet that travels its full length.
+        // Vertical lanes alternate up/down so pairs of adjacent lanes can't
+        // be safely sandwiched.
+        for (let i = 0; i < vLanesX.length; i++) {
+            const lx = vLanesX[i];
+            const goingDown = i % 2 === 0;
+            const startY = goingDown ? -20 : H + 20;
+            const endY = goingDown ? H + 20 : -20;
+            const m = new Missile(lx, startY, lx, endY, gridDamage, speed);
             m.isBossMissile = true;
             m.isBossMissileDelayed = false;
-            m.bossMissileType = 'cross';
+            m.bossMissileType = 'grid';
             m.guideRange = 0;
+            m.size = 2.2; // oversized plasma warhead
             if (!game.bossMissiles) game.bossMissiles = [];
             game.bossMissiles.push(m);
-
-            // Per-axis muzzle burst along the bullet's flight axis
-            const axisAngle = Math.atan2(d.y, d.x);
-            bossFX.spawnBurst(launchX, launchY, 14, {
+            const axisAngle = goingDown ? Math.PI / 2 : -Math.PI / 2;
+            bossFX.spawnBurst(lx, startY, 10, {
                 color: '#ff5050',
-                speedMin: 2.5, speedMax: 7,
-                sizeMin: 2, sizeMax: 4,
-                lifeMs: 500,
+                speedMin: 2.5, speedMax: 6,
+                sizeMin: 2, sizeMax: 3.5,
+                lifeMs: 420,
                 spreadAngle: Math.PI / 5,
                 baseAngle: axisAngle,
                 drag: 0.92
             });
         }
-        // Center mega-flash + shockwave + heavy shake
-        bossFX.addFlash(cx, cy, 140, '#ff4040', 400, 1.0);
-        bossFX.addShockwave(cx, cy, 30, 220, '#ff4040', 600, 6, 0.85);
-        bossFX.addShockwave(cx, cy, 30, 320, '#ff8060', 850, 3, 0.4);
-        bossFX.addShake(7, 320);
+        for (let i = 0; i < hLanesY.length; i++) {
+            const ly = hLanesY[i];
+            const goingRight = i % 2 === 0;
+            const startX = goingRight ? -20 : W + 20;
+            const endX = goingRight ? W + 20 : -20;
+            const m = new Missile(startX, ly, endX, ly, gridDamage, speed);
+            m.isBossMissile = true;
+            m.isBossMissileDelayed = false;
+            m.bossMissileType = 'grid';
+            m.guideRange = 0;
+            m.size = 2.2;
+            if (!game.bossMissiles) game.bossMissiles = [];
+            game.bossMissiles.push(m);
+            const axisAngle = goingRight ? 0 : Math.PI;
+            bossFX.spawnBurst(startX, ly, 10, {
+                color: '#ff5050',
+                speedMin: 2.5, speedMax: 6,
+                sizeMin: 2, sizeMax: 3.5,
+                lifeMs: 420,
+                spreadAngle: Math.PI / 5,
+                baseAngle: axisAngle,
+                drag: 0.92
+            });
+        }
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        bossFX.addFlash(cx, cy, 160, '#ff4040', 420, 1.0);
+        bossFX.addShockwave(cx, cy, 30, 280, '#ff4040', 700, 6, 0.85);
+        bossFX.addShockwave(cx, cy, 30, 380, '#ff8060', 950, 3, 0.45);
+        bossFX.addShake(8, 360);
     }
 
     updateAI() {

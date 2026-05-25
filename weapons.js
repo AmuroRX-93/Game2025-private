@@ -1410,6 +1410,20 @@ class Missile {
         
         // 检查碰撞
         this.checkCollisions();
+
+        // Crimson King grid plasma missiles use a proximity fuse so the
+        // warhead detonates near the player instead of skimming past them.
+        if (this.isBossMissile && this.bossMissileType === 'grid' &&
+            !this.shouldDestroy && game.player && !game.player.isUntargetable) {
+            const px = game.player.x + game.player.width / 2;
+            const py = game.player.y + game.player.height / 2;
+            const dx = px - this.x;
+            const dy = py - this.y;
+            const fuse = 70;
+            if (dx * dx + dy * dy < fuse * fuse) {
+                this.explode();
+            }
+        }
     }
     
     findTarget() {
@@ -1656,6 +1670,7 @@ class Missile {
     }
     
     explode() {
+        if (this.shouldDestroy) return;
         // 爆炸伤害范围
         const explosionRadius = this.isSuperMissile ? 400 : 80; // 超级导弹400像素范围
         
@@ -1711,7 +1726,30 @@ class Missile {
         
         // 创建爆炸效果
         this.createExplosion();
-        
+
+        // Crimson King grid barrage: leave a large hostile plasma field
+        // wherever the warhead detonates (collision with the player or
+        // proximity-fused). Persists much longer than the player's plasma
+        // fields and ticks heavy damage. We skip the detonation if the
+        // missile drifted off-screen so we don't litter the arena edges.
+        if (this.isBossMissile && this.bossMissileType === 'grid') {
+            const margin = 30;
+            const inArena = this.x > -margin && this.x < GAME_CONFIG.WIDTH + margin &&
+                            this.y > -margin && this.y < GAME_CONFIG.HEIGHT + margin;
+            if (inArena) {
+                const fx = Math.max(40, Math.min(GAME_CONFIG.WIDTH - 40, this.x));
+                const fy = Math.max(40, Math.min(GAME_CONFIG.HEIGHT - 40, this.y));
+                if (!game.plasmaFields) game.plasmaFields = [];
+                game.plasmaFields.push(new PlasmaField(fx, fy, 130, {
+                    duration: 4000,
+                    damageInterval: 200,
+                    damage: 4,
+                    hostile: true,
+                    palette: 'crimson'
+                }));
+            }
+        }
+
         // 标记销毁
         this.shouldDestroy = true;
         updateUI();
@@ -1743,7 +1781,7 @@ class Missile {
         else if (this.isBossMissile || this.bossType === 'crimson_king') {
             scheme = 'crimson';
             const bmType = this.bossMissileType;
-            trailCol = bmType === 'homing' ? '#ff8040' : (bmType === 'cross' ? '#ff5060' : '#ff4040');
+            trailCol = bmType === 'homing' ? '#ff8040' : (bmType === 'grid' || bmType === 'cross' ? '#ff5060' : '#ff4040');
         }
 
         const size = this.size || 1;
@@ -3580,16 +3618,21 @@ class CIWSBullet extends GameObject {
 
 // 电浆场类
 class PlasmaField {
-    constructor(x, y, radius) {
+    constructor(x, y, radius, options = {}) {
         this.x = x;
         this.y = y;
         this.radius = radius;
-        this.duration = 1000;
+        this.duration = options.duration != null ? options.duration : 1000;
         this.startTime = Date.now();
-        this.damageInterval = 250;
-        this.damage = 3;
+        this.damageInterval = options.damageInterval != null ? options.damageInterval : 250;
+        this.damage = options.damage != null ? options.damage : 3;
         this.lastDamageTime = Date.now();
         this.shouldDestroy = false;
+
+        // Hostile plasma fields (boss-spawned) damage the player instead of enemies.
+        this.hostile = !!options.hostile;
+        // Visual palette: 'cyan' (player default) or 'crimson' (boss).
+        this.palette = options.palette || 'cyan';
 
         // Persistent visual state
         this._seed = Math.random() * 1000;
@@ -3600,13 +3643,15 @@ class PlasmaField {
 
         // Spawn-time impact: shockwave + particle burst (one-shot)
         if (typeof bossFX !== 'undefined') {
-            bossFX.addShockwave(x, y, 6, this.radius * 1.15,
-                'rgba(140,235,255,0.9)', 280, 4, 0.85);
-            bossFX.addShockwave(x, y, 14, this.radius * 0.7,
-                'rgba(255,255,255,0.95)', 220, 2, 0.75);
-            bossFX.addFlash(x, y, this.radius * 0.55, '#d6ffff', 180, 0.95);
+            const shock1 = this.palette === 'crimson' ? 'rgba(255,90,90,0.92)' : 'rgba(140,235,255,0.9)';
+            const shock2 = this.palette === 'crimson' ? 'rgba(255,200,180,0.95)' : 'rgba(255,255,255,0.95)';
+            const flashCol = this.palette === 'crimson' ? '#ffd0b0' : '#d6ffff';
+            const burstCol = this.palette === 'crimson' ? '#ff7050' : '#88e6ff';
+            bossFX.addShockwave(x, y, 6, this.radius * 1.15, shock1, 280, 4, 0.85);
+            bossFX.addShockwave(x, y, 14, this.radius * 0.7, shock2, 220, 2, 0.75);
+            bossFX.addFlash(x, y, this.radius * 0.55, flashCol, 180, 0.95);
             bossFX.spawnBurst(x, y, 14, {
-                color: '#88e6ff',
+                color: burstCol,
                 speedMin: 1.6, speedMax: 5.5,
                 sizeMin: 1.2, sizeMax: 2.6,
                 lifeMs: 480, drag: 0.9
@@ -3699,6 +3744,21 @@ class PlasmaField {
     }
 
     damageEnemies() {
+        if (this.hostile) {
+            // Hostile (boss) plasma field: tick damage to the player instead.
+            if (game.player && !game.player.shouldDestroy) {
+                const px = game.player.x + game.player.width / 2;
+                const py = game.player.y + game.player.height / 2;
+                const dx = px - this.x;
+                const dy = py - this.y;
+                if (Math.sqrt(dx * dx + dy * dy) <= this.radius) {
+                    if (typeof game.player.takeDamage === 'function') {
+                        game.player.takeDamage(this.damage);
+                    }
+                }
+            }
+            return;
+        }
         const allEnemies = [...game.enemies];
         if (game.boss && game.boss.health > 0 && !game.boss.notTargetable) {
             allEnemies.push(game.boss);
@@ -3726,6 +3786,57 @@ class PlasmaField {
         const fade = ramp * Math.max(0, 1 - progress * 0.85);
         if (fade <= 0.01) return;
 
+        // Palette presets keep the cyan player look default while letting
+        // the boss spawn an angry red field with the same internal layout.
+        const isCrimson = this.palette === 'crimson';
+        const PAL = isCrimson ? {
+            ground0: (a) => `rgba(255,90,70,${a * 0.40})`,
+            ground1: (a) => `rgba(180,40,40,${a * 0.20})`,
+            ground2: 'rgba(80,0,0,0)',
+            orb0:    (a) => `rgba(255,255,230,${a * 0.95})`,
+            orb1:    (a) => `rgba(255,180,140,${a * 0.82})`,
+            orb2:    (a) => `rgba(255,90,60,${a * 0.55})`,
+            orb3:    (a) => `rgba(200,40,40,${a * 0.32})`,
+            orb4:    'rgba(80,10,10,0)',
+            disc1:   'rgba(255,170,150,ALPHA)',
+            disc2:   'rgba(255,255,230,ALPHA)',
+            arcHalo: (a) => `rgba(255,140,90,${a})`,
+            arcCore: (a) => `rgba(255,255,240,${a})`,
+            arcFork: (a) => `rgba(255,180,150,${a})`,
+            arcForkCore: (a) => `rgba(255,255,250,${a})`,
+            tip0:    (a) => `rgba(255,255,240,${a})`,
+            tip1:    'rgba(255,120,80,0)',
+            ringHalo: (a) => `rgba(255,120,80,${a * 0.55})`,
+            ringCore: (a) => `rgba(255,255,240,${a * 0.95})`,
+            ringDash: (a) => `rgba(255,200,170,${a * 0.75})`,
+            ember0: (a) => `rgba(255,255,240,${a * 0.95})`,
+            ember1: (a) => `rgba(255,140,100,${a * 0.65})`,
+            ember2: 'rgba(140,30,20,0)'
+        } : {
+            ground0: (a) => `rgba(80,200,255,${a * 0.35})`,
+            ground1: (a) => `rgba(40,120,220,${a * 0.18})`,
+            ground2: 'rgba(0,30,120,0)',
+            orb0:    (a) => `rgba(255,255,255,${a * 0.95})`,
+            orb1:    (a) => `rgba(180,255,240,${a * 0.8})`,
+            orb2:    (a) => `rgba(80,220,255,${a * 0.55})`,
+            orb3:    (a) => `rgba(60,120,240,${a * 0.3})`,
+            orb4:    'rgba(20,50,180,0)',
+            disc1:   'rgba(170,240,255,ALPHA)',
+            disc2:   'rgba(255,255,255,ALPHA)',
+            arcHalo: (a) => `rgba(140,230,255,${a})`,
+            arcCore: (a) => `rgba(255,255,255,${a})`,
+            arcFork: (a) => `rgba(180,240,255,${a})`,
+            arcForkCore: (a) => `rgba(255,255,255,${a})`,
+            tip0:    (a) => `rgba(255,255,255,${a})`,
+            tip1:    'rgba(120,220,255,0)',
+            ringHalo: (a) => `rgba(120,220,255,${a * 0.45})`,
+            ringCore: (a) => `rgba(255,255,255,${a * 0.9})`,
+            ringDash: (a) => `rgba(200,250,255,${a * 0.7})`,
+            ember0: (a) => `rgba(255,255,255,${a * 0.95})`,
+            ember1: (a) => `rgba(140,230,255,${a * 0.6})`,
+            ember2: 'rgba(60,120,220,0)'
+        };
+
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
 
@@ -3733,20 +3844,20 @@ class PlasmaField {
         const groundGrad = ctx.createRadialGradient(
             this.x, this.y, this.radius * 0.2,
             this.x, this.y, this.radius * 1.25);
-        groundGrad.addColorStop(0, `rgba(80,200,255,${fade * 0.35})`);
-        groundGrad.addColorStop(0.6, `rgba(40,120,220,${fade * 0.18})`);
-        groundGrad.addColorStop(1, 'rgba(0,30,120,0)');
+        groundGrad.addColorStop(0, PAL.ground0(fade));
+        groundGrad.addColorStop(0.6, PAL.ground1(fade));
+        groundGrad.addColorStop(1, PAL.ground2);
         ctx.fillStyle = groundGrad;
         ctx.beginPath(); ctx.arc(this.x, this.y, this.radius * 1.25, 0, Math.PI * 2); ctx.fill();
 
         // === Layer 2: volumetric plasma orb ===
         const orbR = this.radius;
         const orb = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, orbR);
-        orb.addColorStop(0, `rgba(255,255,255,${fade * 0.95})`);
-        orb.addColorStop(0.18, `rgba(180,255,240,${fade * 0.8})`);
-        orb.addColorStop(0.45, `rgba(80,220,255,${fade * 0.55})`);
-        orb.addColorStop(0.78, `rgba(60,120,240,${fade * 0.3})`);
-        orb.addColorStop(1, 'rgba(20,50,180,0)');
+        orb.addColorStop(0, PAL.orb0(fade));
+        orb.addColorStop(0.18, PAL.orb1(fade));
+        orb.addColorStop(0.45, PAL.orb2(fade));
+        orb.addColorStop(0.78, PAL.orb3(fade));
+        orb.addColorStop(1, PAL.orb4);
         ctx.fillStyle = orb;
         ctx.beginPath(); ctx.arc(this.x, this.y, orbR, 0, Math.PI * 2); ctx.fill();
 
@@ -3766,24 +3877,22 @@ class PlasmaField {
             }
             ctx.restore();
         };
-        drawDisc(this._rotA, 12, this.radius * 0.95, this.radius * 0.7, 0.55,
-            'rgba(170,240,255,ALPHA)');
-        drawDisc(this._rotB, 8, this.radius * 0.62, this.radius * 0.4, 0.7,
-            'rgba(255,255,255,ALPHA)');
+        drawDisc(this._rotA, 12, this.radius * 0.95, this.radius * 0.7, 0.55, PAL.disc1);
+        drawDisc(this._rotB, 8, this.radius * 0.62, this.radius * 0.4, 0.7, PAL.disc2);
 
         // === Layer 4: lightning arcs (with optional forks) ===
         for (const arc of this._arcs) {
             const arcAge = (now - arc.born) / arc.life;
             const arcAlpha = Math.max(0, 1 - arcAge);
             // Outer halo
-            ctx.strokeStyle = `rgba(140,230,255,${fade * 0.55 * arcAlpha})`;
+            ctx.strokeStyle = PAL.arcHalo(fade * 0.55 * arcAlpha);
             ctx.lineWidth = 5;
             ctx.beginPath();
             ctx.moveTo(this.x, this.y);
             for (const [px, py] of arc.path) ctx.lineTo(this.x + px, this.y + py);
             ctx.stroke();
             // Bright core
-            ctx.strokeStyle = `rgba(255,255,255,${fade * arcAlpha})`;
+            ctx.strokeStyle = PAL.arcCore(fade * arcAlpha);
             ctx.lineWidth = 1.5;
             ctx.beginPath();
             ctx.moveTo(this.x, this.y);
@@ -3792,13 +3901,13 @@ class PlasmaField {
             // Fork
             if (arc.forkPath) {
                 const last = arc.path[Math.floor(arc.path.length * 0.55)];
-                ctx.strokeStyle = `rgba(180,240,255,${fade * 0.5 * arcAlpha})`;
+                ctx.strokeStyle = PAL.arcFork(fade * 0.5 * arcAlpha);
                 ctx.lineWidth = 3;
                 ctx.beginPath();
                 ctx.moveTo(this.x + last[0], this.y + last[1]);
                 for (const [px, py] of arc.forkPath) ctx.lineTo(this.x + px, this.y + py);
                 ctx.stroke();
-                ctx.strokeStyle = `rgba(255,255,255,${fade * 0.85 * arcAlpha})`;
+                ctx.strokeStyle = PAL.arcForkCore(fade * 0.85 * arcAlpha);
                 ctx.lineWidth = 1;
                 ctx.beginPath();
                 ctx.moveTo(this.x + last[0], this.y + last[1]);
@@ -3811,8 +3920,8 @@ class PlasmaField {
             const tipGrad = ctx.createRadialGradient(
                 this.x + tip[0], this.y + tip[1], 0,
                 this.x + tip[0], this.y + tip[1], tipR);
-            tipGrad.addColorStop(0, `rgba(255,255,255,${fade * arcAlpha})`);
-            tipGrad.addColorStop(1, 'rgba(120,220,255,0)');
+            tipGrad.addColorStop(0, PAL.tip0(fade * arcAlpha));
+            tipGrad.addColorStop(1, PAL.tip1);
             ctx.fillStyle = tipGrad;
             ctx.beginPath();
             ctx.arc(this.x + tip[0], this.y + tip[1], tipR, 0, Math.PI * 2);
@@ -3822,13 +3931,13 @@ class PlasmaField {
         // === Layer 5: pulsing edge ring (containment field) ===
         const pulse = 0.92 + 0.08 * Math.sin(elapsed * 0.018);
         // Outer halo ring
-        ctx.strokeStyle = `rgba(120,220,255,${fade * 0.45})`;
+        ctx.strokeStyle = PAL.ringHalo(fade);
         ctx.lineWidth = 6;
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.radius * pulse, 0, Math.PI * 2);
         ctx.stroke();
         // Bright thin ring
-        ctx.strokeStyle = `rgba(255,255,255,${fade * 0.9})`;
+        ctx.strokeStyle = PAL.ringCore(fade);
         ctx.lineWidth = 1.3;
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.radius * pulse, 0, Math.PI * 2);
@@ -3837,7 +3946,7 @@ class PlasmaField {
         ctx.save();
         ctx.setLineDash([6, 8]);
         ctx.lineDashOffset = -elapsed * 0.06;
-        ctx.strokeStyle = `rgba(200,250,255,${fade * 0.7})`;
+        ctx.strokeStyle = PAL.ringDash(fade);
         ctx.lineWidth = 1.2;
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.radius * 0.78 * pulse, 0, Math.PI * 2);
@@ -3849,15 +3958,15 @@ class PlasmaField {
             const ex = this.x + Math.cos(e.a) * e.r;
             const ey = this.y + Math.sin(e.a) * e.r;
             const eg = ctx.createRadialGradient(ex, ey, 0, ex, ey, e.size * 4);
-            eg.addColorStop(0, `rgba(255,255,255,${fade * 0.95})`);
-            eg.addColorStop(0.5, `rgba(140,230,255,${fade * 0.6})`);
-            eg.addColorStop(1, 'rgba(60,120,220,0)');
+            eg.addColorStop(0, PAL.ember0(fade));
+            eg.addColorStop(0.5, PAL.ember1(fade));
+            eg.addColorStop(1, PAL.ember2);
             ctx.fillStyle = eg;
             ctx.beginPath();
             ctx.arc(ex, ey, e.size * 4, 0, Math.PI * 2);
             ctx.fill();
             // Bright core
-            ctx.fillStyle = `rgba(255,255,255,${fade})`;
+            ctx.fillStyle = PAL.ember0(fade);
             ctx.beginPath();
             ctx.arc(ex, ey, e.size, 0, Math.PI * 2);
             ctx.fill();

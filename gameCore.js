@@ -2055,6 +2055,18 @@ class Game {
         ctx.strokeStyle = hpColor;
         ctx.lineWidth = 1;
         ctx.strokeRect(hpBarX, hpBarY, hpBarW, hpBarH);
+
+        // Overflow HP overlay (Repair Protocol bank): green chevrons stacked
+        // on top of the HP bar, scaled to overflowHpMax (not maxHealth) so it
+        // visually reads as "extra shield".
+        if (this.player.overflowHp > 0 && this.player.overflowHpMax > 0) {
+            const ovFrac = Math.min(1, this.player.overflowHp / this.player.overflowHpMax);
+            const ovW = hpBarW * 0.45 * ovFrac;
+            ctx.fillStyle = 'rgba(80,255,140,0.85)';
+            ctx.fillRect(hpBarX, hpBarY, ovW, 4);
+            ctx.strokeStyle = 'rgba(120,255,170,0.9)';
+            ctx.strokeRect(hpBarX, hpBarY, ovW, 4);
+        }
         ctx.restore();
 
         // Invincible badge under HP bar

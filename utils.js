@@ -145,6 +145,29 @@ function handleBossKill() {
     game.boss = null;
     gameState.score += 100;
     gameState.bossKillCount++;
+
+    // Wipe every active enemy projectile / minion / dangerous floor effect on
+    // boss death so the player can't be hit after winning. Player-owned lists
+    // (game.bullets, game.missiles, game.explosions, game.decoys, ciws/cluster
+    // /plasma missiles, mines is shared but only spawned by enemies) are left
+    // alone to keep their visuals + damage numbers playing out.
+    const purge = (arr) => { if (Array.isArray(arr)) arr.length = 0; };
+    purge(game.enemies);              // drones / mines / shoulder pods / floating guns / splinters
+    purge(game.hiveDrones);
+    purge(game.hiveSplinters);
+    purge(game.bossMissiles);         // crimson king / sublime moon / magnus
+    purge(game.chaosBullets);         // ugly emperor
+    purge(game.starDevourerBullets);
+    purge(game.magnusBullets);
+    purge(game.magnusShells);
+    purge(game.hivePlasmaBullets);
+    purge(game.crescentBullets);      // sublime moon
+    purge(game.iceClones);
+    purge(game.spinSlashEffects);
+    purge(game.boomerangHitEffects);
+    purge(game.mines);                // ugly emperor / boss-spawned mines
+    purge(game.molotovs);
+
     if (gameState.selectedGameMode === 'BOSS_BATTLE') {
         gameState.bossSpawned = false;
         game.showVictoryAndReturnToMenu();

@@ -937,7 +937,6 @@ class StarDevourer extends GameObject {
                                     b2._fireAimedRifle(ang + k * 0.025);
                                 }
                                 bossFX.addFlash(cx, cy, 28, '#ff8030', 240, 0.9);
-                                bossFX.addShake(5, 220);
                                 st.fired = true;
                             }
                         },
@@ -1135,7 +1134,6 @@ class StarDevourer extends GameObject {
                             if (!st.balled && now >= st.ballAt) {
                                 b2.lastBallAttack = 0;
                                 if (typeof b2.startBallAttack === 'function') b2.startBallAttack();
-                                bossFX.addShake(4, 250);
                                 st.balled = true;
                             }
                         },

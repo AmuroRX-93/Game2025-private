@@ -10,7 +10,7 @@ class HiveDrone extends GameObject {
     constructor(queen, orbitAngle, orbitRadius, role = 'defender') {
         super(queen.x + queen.width / 2, queen.y + queen.height / 2, 16, 16, '#7a5dbf');
         this.queen = queen;
-        this.maxHealth = 5;
+        this.maxHealth = 10;
         this.health = this.maxHealth;
         this.orbitAngle = orbitAngle;
         this.orbitRadius = orbitRadius;
@@ -478,14 +478,14 @@ class HiveMind extends GameObject {
 
         // Drone perimeter — two squads, smart auto-rebalanced
         this.drones = [];
-        this.maxDrones = 30;
+        this.maxDrones = 50;
         this.targetDefenderRatio = 0.6;     // 60% defenders, 40% attackers
         this.defenderOrbitRadius = 78;      // inner ring
         this.attackerOrbitRadius = 150;     // outer ring
         this.droneOrbitRadius = this.defenderOrbitRadius; // legacy compat
-        this.droneSpawnInterval = 1500;     // ms between reinforcements
+        this.droneSpawnInterval = 500;      // ms between reinforcements (much faster)
         this.lastDroneSpawnAt = Date.now();
-        this.droneSpawnBatchMax = 2;        // up to 2 per tick
+        this.droneSpawnBatchMax = 4;        // up to 4 per tick
         this.lastRoleRebalance = Date.now();
         this.roleRebalanceInterval = 800;
         this._spawnInitialDrones();
@@ -1289,7 +1289,54 @@ class HiveSplinter extends GameObject {
         this.pulsePhase = Math.random() * Math.PI * 2;
         this.isHiveSplinter = true;
         this.shouldDestroy = false;
+
+        // Each splinter is a mini-queen: it spawns its own swarm of drones at
+        // 1/4 the parent queen's rate and cap. They orbit the splinter and
+        // share the HiveDrone behavior set.
+        this.maxDrones = 12;            // 50 / 4 (rounded up)
+        this.droneSpawnInterval = 2000; // 500 * 4
+        this.lastDroneSpawnAt = Date.now() + 500 + Math.random() * 800;
+        this.droneSpawnBatchMax = 1;
+        this.droneOrbitRadius = 64;
     }
+
+    _liveOwnDroneCount() {
+        if (!game.hiveDrones) return 0;
+        let n = 0;
+        for (const d of game.hiveDrones) {
+            if (!d.shouldDestroy && d.queen === this) n++;
+        }
+        return n;
+    }
+
+    _spawnOwnDrone(orbitAngle, role = 'defender') {
+        const drone = new HiveDrone(this, orbitAngle, this.droneOrbitRadius, role);
+        if (!game.hiveDrones) game.hiveDrones = [];
+        game.hiveDrones.push(drone);
+        if (game.enemies) game.enemies.push(drone);
+        return drone;
+    }
+
+    _tickReinforcement() {
+        const now = Date.now();
+        if (now - this.lastDroneSpawnAt < this.droneSpawnInterval) return;
+        const live = this._liveOwnDroneCount();
+        if (live >= this.maxDrones) {
+            this.lastDroneSpawnAt = now;
+            return;
+        }
+        const slots = Math.min(this.droneSpawnBatchMax, this.maxDrones - live);
+        for (let i = 0; i < slots; i++) {
+            const a = Math.random() * Math.PI * 2;
+            const role = Math.random() < 0.6 ? 'defender' : 'attacker';
+            this._spawnOwnDrone(a, role);
+        }
+        this.lastDroneSpawnAt = now;
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        if (typeof bossFX !== 'undefined' && bossFX.addFlash) {
+            bossFX.addFlash(cx, cy, 22, '#caa8ff', 200, 0.6);
+        }
 
     takeDamage(damage, source) {
         damage = (typeof applyOverdriveBoost === 'function') ? applyOverdriveBoost(damage, source) : damage;
@@ -1353,6 +1400,9 @@ class HiveSplinter extends GameObject {
             else { this.vx = 0; this.vy = 0; super.update(); this._clamp(); return; }
         }
         if (this.isImpaled) { super.update(); this._clamp(); return; }
+
+        // Mini-queen drone reinforcement (1/4 of parent queen's rate).
+        this._tickReinforcement();
 
         // ----- Phase-2 AI: scatter and kite -----
         // Splinters now actively keep distance from the player, repel each other

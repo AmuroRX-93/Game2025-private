@@ -185,6 +185,13 @@ const bossFX = {
 
     // ---- Spawners ----
     addShake(magnitude, durationMs) {
+        // StarDevourer fight uses a heavy signal-jam screen filter; layering
+        // camera shake on top of that makes the picture feel like it's drifting
+        // off-screen, so suppress all shakes during this boss specifically.
+        if (typeof game !== 'undefined' && game && game.boss &&
+            game.boss.constructor && game.boss.constructor.name === 'StarDevourer') {
+            return;
+        }
         const now = Date.now();
         if (now < this.shake.until && this.shake.magnitude > magnitude) return;
         this.shake.magnitude = magnitude;
