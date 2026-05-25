@@ -702,8 +702,12 @@ class Boss extends GameObject {
         if (!game.player) return;
         const cx = this.x + this.width / 2;
         const cy = this.y + this.height / 2;
-        const playerCX = game.player.x + game.player.width / 2;
-        const playerCY = game.player.y + game.player.height / 2;
+        // Aim the salvo cone at the current valid target (player or decoy)
+        const tc = (typeof getBossTargetCenter === 'function')
+            ? getBossTargetCenter(cx, cy) : null;
+        if (!tc) return;
+        const playerCX = tc.x;
+        const playerCY = tc.y;
         const baseAngle = Math.atan2(playerCY - cy, playerCX - cx);
         const coneRad = Math.PI * 140 / 180;
         const t = 24 > 1 ? index / (24 - 1) : 0.5;
@@ -746,8 +750,11 @@ class Boss extends GameObject {
         if (!game.player) return;
         const cx = this.x + this.width / 2;
         const cy = this.y + this.height / 2;
-        const playerCX = game.player.x + game.player.width / 2;
-        const playerCY = game.player.y + game.player.height / 2;
+        const tc = (typeof getBossTargetCenter === 'function')
+            ? getBossTargetCenter(cx, cy) : null;
+        if (!tc) return;
+        const playerCX = tc.x;
+        const playerCY = tc.y;
         const baseAngle = Math.atan2(playerCY - cy, playerCX - cx);
         const coneRad = Math.PI * 60 / 180;
         const t = 6 > 1 ? index / (6 - 1) : 0.5;
@@ -997,6 +1004,7 @@ class Boss extends GameObject {
     }
 
     takeDamage(damage) {
+        damage = (typeof applyOverdriveBoost === 'function') ? applyOverdriveBoost(damage) : damage;
         const now = Date.now();
         
         // 每秒重置累积伤害窗口

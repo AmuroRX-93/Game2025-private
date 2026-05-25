@@ -2027,7 +2027,7 @@ class PulseShield extends Weapon {
         
         this.isActive = false;
         this.activationTime = 0;
-        this.duration = 15000; // 15秒持续时间
+        this.duration = 18000; // 18秒持续时间
         this.damageReduction = 0.7; // 70%伤害减免
         this.shieldEffect = {
             pulsePhase: 0,
@@ -2344,7 +2344,7 @@ class CounterMech extends Weapon {
         this.activationTime = 0;
         this.duration = 3000;
         this.damageReduction = 0.4;
-        this.reflectRatio = 0.5;
+        this.reflectRatio = 2.5;
         this.effect = null;
     }
     
@@ -2671,6 +2671,266 @@ class Decoy {
                this.x + this.width > other.x &&
                this.y < other.y + other.height &&
                this.y + this.height > other.y;
+    }
+}
+
+// Emergency Repair Protocol (hidden ability): trade firepower for sustain.
+// Cannot attack while active, but moves faster and regenerates HP every second.
+// Once HP is full, surplus regen is stored as overflow HP that absorbs the next
+// hits (capped at +overflowHpMax). Each activation resets overflow before regen.
+class RepairProtocol extends Weapon {
+    constructor() {
+        super({
+            type: 'repair_protocol',
+            name: '应急修复',
+            damage: 0,
+            cooldown: 35000
+        });
+        this.duration = 5000;
+        this.regenPerSecond = 5;
+        this.speedMul = 1.5;
+        this.overflowCap = 50; // bonus HP beyond max
+        this.isActive = false;
+        this.activationTime = 0;
+        this.lastTick = 0;
+    }
+
+    canUse() {
+        if (this.isActive) return false;
+        return super.canUse();
+    }
+
+    use(player) {
+        if (!this.canUse()) return false;
+        this.lastUseTime = Date.now();
+        this.isActive = true;
+        this.activationTime = Date.now();
+        this.lastTick = this.activationTime;
+
+        player.repairProtocolActive = true;
+        player.repairProtocolEndTime = this.activationTime + this.duration;
+        // Reset banked overflow on each activation (per spec).
+        player.overflowHp = 0;
+        player.overflowHpMax = this.overflowCap;
+
+        const cx = player.x + player.width / 2;
+        const cy = player.y + player.height / 2;
+        if (typeof bossFX !== 'undefined') {
+            if (bossFX.addFlash) bossFX.addFlash(cx, cy, 70, '#40ff80', 320, 0.9);
+            if (bossFX.addShockwave) bossFX.addShockwave(cx, cy, 18, 180, '#60ff90', 420, 4, 0.7);
+            if (bossFX.spawnBurst) bossFX.spawnBurst(cx, cy, 18, {
+                color: '#80ffa0',
+                speedMin: 2, speedMax: 5,
+                sizeMin: 2, sizeMax: 3.5,
+                lifeMs: 520, drag: 0.92
+            });
+        }
+        return true;
+    }
+
+    update(player) {
+        if (!this.isActive) return;
+        const now = Date.now();
+
+        // Tick regen every 200ms for smooth healing.
+        const tickStep = 200;
+        while (now - this.lastTick >= tickStep) {
+            this.lastTick += tickStep;
+            const heal = this.regenPerSecond * (tickStep / 1000);
+            const missing = Math.max(0, player.maxHealth - player.health);
+            const toHull = Math.min(missing, heal);
+            const spill = heal - toHull;
+            if (toHull > 0) player.health += toHull;
+            if (spill > 0) {
+                player.overflowHp = Math.min(player.overflowHpMax,
+                    player.overflowHp + spill);
+            }
+        }
+
+        if (now - this.activationTime >= this.duration) {
+            this.isActive = false;
+            player.repairProtocolActive = false;
+        }
+    }
+
+    draw(ctx, player) {
+        if (!this.isActive) return;
+        const cx = player.x + player.width / 2;
+        const cy = player.y + player.height / 2;
+        const now = Date.now();
+        const remaining = 1 - (now - this.activationTime) / this.duration;
+
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        const pulse = 0.7 + 0.3 * Math.sin(now * 0.012);
+        const r = 34 * pulse;
+        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        grad.addColorStop(0, `rgba(80,255,140,${0.35 * remaining})`);
+        grad.addColorStop(0.6, `rgba(40,200,90,${0.22 * remaining})`);
+        grad.addColorStop(1, 'rgba(0,80,30,0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+
+        // Rotating cross "medic" insignia.
+        ctx.strokeStyle = `rgba(120,255,160,${0.85 * remaining})`;
+        ctx.lineWidth = 2;
+        const ang = now * 0.003;
+        ctx.beginPath();
+        ctx.moveTo(cx + Math.cos(ang) * r, cy + Math.sin(ang) * r);
+        ctx.lineTo(cx - Math.cos(ang) * r, cy - Math.sin(ang) * r);
+        ctx.moveTo(cx + Math.cos(ang + Math.PI / 2) * r, cy + Math.sin(ang + Math.PI / 2) * r);
+        ctx.lineTo(cx - Math.cos(ang + Math.PI / 2) * r, cy - Math.sin(ang + Math.PI / 2) * r);
+        ctx.stroke();
+
+        // Healing sparkles drifting upward.
+        if (Math.random() < 0.5) {
+            ctx.fillStyle = `rgba(180,255,200,${0.8 * remaining})`;
+            const sx = cx + (Math.random() - 0.5) * r * 1.4;
+            const sy = cy + (Math.random() - 0.5) * r * 1.4;
+            ctx.beginPath(); ctx.arc(sx, sy, 1.6, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.restore();
+    }
+
+    getCurrentStatusText() {
+        if (this.isActive) {
+            const remaining = Math.max(0,
+                (this.duration - (Date.now() - this.activationTime)) / 1000);
+            return { text: t('ws.repairActive', remaining.toFixed(1)), color: '#60ff90' };
+        }
+        const cdRemaining = Math.max(0, (this.cooldown - (Date.now() - this.lastUseTime)) / 1000);
+        if (cdRemaining > 0) {
+            return { text: t('ws.cooldownRemaining', cdRemaining.toFixed(1)), color: '#888888' };
+        }
+        return { text: t('ws.ready'), color: '#00FF88' };
+    }
+}
+
+// Overdrive Burst (hidden ability): pay HP for a short window of triple damage,
+// triple move speed, double incoming damage. Dangerous, high-reward "all-in" tool.
+class OverdriveBurst extends Weapon {
+    constructor() {
+        super({
+            type: 'overdrive_burst',
+            name: '超限爆发',
+            damage: 0,
+            cooldown: 30000
+        });
+        this.duration = 6000;
+        this.outgoingMul = 3;
+        this.incomingMul = 2;
+        this.speedMul = 3;
+        this.hpCostRatio = 0.30; // pay 30% of current HP up-front (HP drops to 70%)
+        this.isActive = false;
+        this.activationTime = 0;
+        this.effect = null;
+    }
+
+    canUse() {
+        // Block re-entry while already active.
+        if (this.isActive) return false;
+        // Don't let the player suicide on activation.
+        if (game && game.player && game.player.health <= 1) return false;
+        return super.canUse();
+    }
+
+    use(player) {
+        if (!this.canUse()) return false;
+        this.lastUseTime = Date.now();
+        this.isActive = true;
+        this.activationTime = Date.now();
+
+        // Drop HP to 70% of current; never kill the player on activation.
+        const before = player.health;
+        const after = Math.max(1, Math.floor(before * (1 - this.hpCostRatio)));
+        const cost = before - after;
+        player.health = after;
+        if (cost > 0 && typeof player.addHitIndicator === 'function') {
+            player.addHitIndicator(cost);
+        }
+
+        // Wire up player-side flags.
+        player.outgoingDamageMultiplier = this.outgoingMul;
+        player.incomingDamageMultiplier = this.incomingMul;
+        player.overdriveActive = true;
+        player.overdriveEndTime = this.activationTime + this.duration;
+        player.afterimages = player.afterimages || [];
+
+        // Activation FX
+        const cx = player.x + player.width / 2;
+        const cy = player.y + player.height / 2;
+        if (typeof bossFX !== 'undefined') {
+            if (bossFX.addFlash) bossFX.addFlash(cx, cy, 80, '#ff3030', 360, 1.0);
+            if (bossFX.addShockwave) bossFX.addShockwave(cx, cy, 20, 220, '#ff5040', 480, 5, 0.85);
+            if (bossFX.addShake) bossFX.addShake(5, 240);
+            if (bossFX.spawnBurst) bossFX.spawnBurst(cx, cy, 24, {
+                color: '#ff4030',
+                speedMin: 3, speedMax: 8,
+                sizeMin: 2, sizeMax: 4,
+                lifeMs: 480, drag: 0.92
+            });
+        }
+
+        this.effect = { startTime: this.activationTime };
+        return true;
+    }
+
+    update(player) {
+        if (!this.isActive) return;
+        const now = Date.now();
+        if (now - this.activationTime >= this.duration) {
+            this.isActive = false;
+            this.effect = null;
+            // Clear flags (player.updateOverdrive also does this defensively).
+            player.outgoingDamageMultiplier = 1;
+            player.incomingDamageMultiplier = 1;
+            player.overdriveActive = false;
+            // End-of-burst flash
+            const cx = player.x + player.width / 2;
+            const cy = player.y + player.height / 2;
+            if (typeof bossFX !== 'undefined' && bossFX.addFlash) {
+                bossFX.addFlash(cx, cy, 60, '#ff8050', 240, 0.7);
+            }
+        }
+    }
+
+    draw(ctx, player) {
+        if (!this.isActive) return;
+        const cx = player.x + player.width / 2;
+        const cy = player.y + player.height / 2;
+        const now = Date.now();
+        const remaining = 1 - (now - this.activationTime) / this.duration;
+
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        // Pulsing crimson aura around the mech.
+        const pulse = 0.7 + 0.3 * Math.sin(now * 0.02);
+        const auraR = 38 * pulse;
+        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, auraR);
+        grad.addColorStop(0, `rgba(255,80,40,${0.45 * remaining})`);
+        grad.addColorStop(0.6, `rgba(255,40,30,${0.25 * remaining})`);
+        grad.addColorStop(1, 'rgba(120,0,0,0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath(); ctx.arc(cx, cy, auraR, 0, Math.PI * 2); ctx.fill();
+
+        // Outline ring
+        ctx.strokeStyle = `rgba(255,90,60,${0.7 * remaining})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(cx, cy, auraR + 2, 0, Math.PI * 2); ctx.stroke();
+        ctx.restore();
+    }
+
+    getCurrentStatusText() {
+        if (this.isActive) {
+            const remaining = Math.max(0,
+                (this.duration - (Date.now() - this.activationTime)) / 1000);
+            return { text: t('ws.overdriveActive', remaining.toFixed(1)), color: '#ff4040' };
+        }
+        const cdRemaining = Math.max(0, (this.cooldown - (Date.now() - this.lastUseTime)) / 1000);
+        if (cdRemaining > 0) {
+            return { text: t('ws.cooldownRemaining', cdRemaining.toFixed(1)), color: '#888888' };
+        }
+        return { text: t('ws.ready'), color: '#00FF88' };
     }
 }
 
@@ -4960,3 +5220,5 @@ WEAPON_TYPES.decoy_clone = DecoyClone;
 WEAPON_TYPES.moonlight_greatsword = MoonlightGreatsword;
 WEAPON_TYPES.shotgun = Shotgun;
 WEAPON_TYPES.rocket_launcher = RocketLauncher;
+WEAPON_TYPES.overdrive_burst = OverdriveBurst;
+WEAPON_TYPES.repair_protocol = RepairProtocol;

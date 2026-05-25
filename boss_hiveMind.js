@@ -49,6 +49,7 @@ class HiveDrone extends GameObject {
     }
 
     takeDamage(damage) {
+        damage = (typeof applyOverdriveBoost === 'function') ? applyOverdriveBoost(damage) : damage;
         this.health -= damage;
         const cx = this.x + this.width / 2;
         const cy = this.y + this.height / 2;
@@ -234,8 +235,11 @@ class HiveDrone extends GameObject {
     _fireAtPlayer(now) {
         const cx = this.x + this.width / 2;
         const cy = this.y + this.height / 2;
-        const px = game.player.x + game.player.width / 2;
-        const py = game.player.y + game.player.height / 2;
+        const tc = (typeof getBossTargetCenter === 'function')
+            ? getBossTargetCenter(cx, cy) : null;
+        if (!tc) return;
+        const px = tc.x;
+        const py = tc.y;
         const dx = px - cx;
         const dy = py - cy;
         const len = Math.hypot(dx, dy) || 1;
@@ -283,9 +287,13 @@ class HiveDrone extends GameObject {
         ctx.save();
         ctx.translate(cx, cy);
         if (isAtk) {
-            // Attackers point toward player
+            // Attackers point toward current target (player or decoy)
             let aim = 0;
-            if (game.player) {
+            const tc = (typeof getBossTargetCenter === 'function')
+                ? getBossTargetCenter(cx, cy) : null;
+            if (tc) {
+                aim = Math.atan2(tc.y - cy, tc.x - cx);
+            } else if (game.player) {
                 aim = Math.atan2(
                     game.player.y + game.player.height / 2 - cy,
                     game.player.x + game.player.width / 2 - cx);
@@ -362,20 +370,24 @@ class HivePlasmaBullet extends GameObject {
             this.shouldDestroy = true;
             return;
         }
-        // Mild homing toward player center
-        if (this.tracking > 0 && game.player) {
-            const px = game.player.x + game.player.width / 2;
-            const py = game.player.y + game.player.height / 2;
+        // Mild homing toward current valid target (player or decoy)
+        if (this.tracking > 0) {
             const cx = this.x + this.width / 2;
             const cy = this.y + this.height / 2;
-            const dx = px - cx;
-            const dy = py - cy;
-            const d = Math.hypot(dx, dy) || 1;
-            const speed = Math.hypot(this.vx, this.vy) || 1;
-            const tvx = (dx / d) * speed;
-            const tvy = (dy / d) * speed;
-            this.vx = this.vx * (1 - this.tracking) + tvx * this.tracking;
-            this.vy = this.vy * (1 - this.tracking) + tvy * this.tracking;
+            const tc = (typeof getBossTargetCenter === 'function')
+                ? getBossTargetCenter(cx, cy) : null;
+            if (tc) {
+                const px = tc.x;
+                const py = tc.y;
+                const dx = px - cx;
+                const dy = py - cy;
+                const d = Math.hypot(dx, dy) || 1;
+                const speed = Math.hypot(this.vx, this.vy) || 1;
+                const tvx = (dx / d) * speed;
+                const tvy = (dy / d) * speed;
+                this.vx = this.vx * (1 - this.tracking) + tvx * this.tracking;
+                this.vy = this.vy * (1 - this.tracking) + tvy * this.tracking;
+            }
         }
         this.x += this.vx;
         this.y += this.vy;
@@ -398,6 +410,22 @@ class HivePlasmaBullet extends GameObject {
             }
             this.shouldDestroy = true;
             if (typeof updateUI === 'function') updateUI();
+            return;
+        }
+        // Decoys also intercept hostile plasma bullets
+        if (game.decoys) {
+            for (const decoy of game.decoys) {
+                if (this.collidesWith(decoy)) {
+                    decoy.takeDamage(this.damage);
+                    const cx = this.x + this.width / 2;
+                    const cy = this.y + this.height / 2;
+                    if (typeof bossFX !== 'undefined') {
+                        bossFX.addFlash(cx, cy, 22, '#e0c8ff', 220, 0.85);
+                    }
+                    this.shouldDestroy = true;
+                    break;
+                }
+            }
         }
     }
 
@@ -622,6 +650,7 @@ class HiveMind extends GameObject {
 
     // ---- Damage ------------------------------------------------------------
     takeDamage(damage, source) {
+        damage = (typeof applyOverdriveBoost === 'function') ? applyOverdriveBoost(damage, source) : damage;
         const now = Date.now();
         // Splinter phase: route damage to nearest splinter
         if (this.splinterPhase) {
@@ -640,7 +669,7 @@ class HiveMind extends GameObject {
                 const d = Math.hypot(sx - cx, sy - cy);
                 if (d < bestD) { bestD = d; nearest = s; }
             }
-            return nearest.takeDamage(damage);
+            return nearest.takeDamage(damage, '__boosted');
         }
 
         if (now - this.damageWindow.windowStart >= 1000) {
@@ -999,8 +1028,11 @@ class HiveMind extends GameObject {
                             if (now < st.startedAt + st.telegraphMs) return;
                             if (!st.fired) {
                                 if (!game.player) { st.fired = true; return; }
-                                const px = game.player.x + game.player.width / 2;
-                                const py = game.player.y + game.player.height / 2;
+                                const tc = (typeof getBossTargetCenter === 'function')
+                                    ? getBossTargetCenter(b2.x + b2.width / 2, b2.y + b2.height / 2) : null;
+                                if (!tc) { st.fired = true; return; }
+                                const px = tc.x;
+                                const py = tc.y;
                                 if (!game.hivePlasmaBullets) game.hivePlasmaBullets = [];
                                 for (const d of drones) {
                                     if (d.shouldDestroy) continue;
@@ -1259,7 +1291,8 @@ class HiveSplinter extends GameObject {
         this.shouldDestroy = false;
     }
 
-    takeDamage(damage) {
+    takeDamage(damage, source) {
+        damage = (typeof applyOverdriveBoost === 'function') ? applyOverdriveBoost(damage, source) : damage;
         const now = Date.now();
         if (now - this.damageWindow.windowStart >= 1000) {
             this.damageWindow.accumulated = 0;
@@ -1359,9 +1392,14 @@ class HiveSplinter extends GameObject {
                 sy += Math.sin(dAng) * 0.25;
             }
 
-            // 2) Snipe at player from range. Only fire if there's some standoff.
+            // 2) Snipe at current target from range. Only fire if there's some standoff.
             if (distP > 160 && now - this.lastFireAt > this.fireInterval) {
-                this._fire(toPlayer);
+                // Aim at the actual valid target (player or decoy) so decoys draw fire too.
+                let aimAng = toPlayer;
+                const tc = (typeof getBossTargetCenter === 'function')
+                    ? getBossTargetCenter(cx, cy) : null;
+                if (tc) aimAng = Math.atan2(tc.y - cy, tc.x - cx);
+                this._fire(aimAng);
                 this.lastFireAt = now;
                 this.fireInterval = 1100 + Math.random() * 700;
             }

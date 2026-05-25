@@ -102,6 +102,7 @@ class Magnus extends GameObject {
 
     // ============ Standard Boss damage / stun / hit feedback ============
     takeDamage(damage, source) {
+        damage = (typeof applyOverdriveBoost === 'function') ? applyOverdriveBoost(damage, source) : damage;
         const now = Date.now();
         if (now - this.damageWindow.windowStart >= 1000) {
             this.damageWindow.accumulated = 0;
@@ -938,11 +939,17 @@ class Magnus extends GameObject {
         const pods = this._getPodOrigins();
         // Alternate between left/right pod for the lob origin
         const origin = pods[idx % 2];
-        const px = game.player.x + game.player.width / 2;
-        const py = game.player.y + game.player.height / 2;
-        // Predict player landing position (slight lead)
-        const leadX = px + (game.player.vx || 0) * 24;
-        const leadY = py + (game.player.vy || 0) * 24;
+        // Aim at the current valid target (player or decoy)
+        const tc = (typeof getBossTargetCenter === 'function')
+            ? getBossTargetCenter(origin.x, origin.y) : null;
+        if (!tc) return;
+        const px = tc.x;
+        const py = tc.y;
+        // Predict landing position (slight lead, only meaningful for live player)
+        const tvx = (tc.entity && tc.entity.vx) || 0;
+        const tvy = (tc.entity && tc.entity.vy) || 0;
+        const leadX = px + tvx * 24;
+        const leadY = py + tvy * 24;
         // Spread shells around lead point
         const spread = 80;
         const offX = (Math.random() - 0.5) * spread * 2;
@@ -967,8 +974,11 @@ class Magnus extends GameObject {
         if (!game.player) return;
         const cx = this.x + this.width / 2;
         const cy = this.y + this.height / 2;
-        const px = game.player.x + game.player.width / 2;
-        const py = game.player.y + game.player.height / 2;
+        const tc = (typeof getBossTargetCenter === 'function')
+            ? getBossTargetCenter(cx, cy) : null;
+        if (!tc) return;
+        const px = tc.x;
+        const py = tc.y;
         const baseAngle = Math.atan2(py - cy, px - cx);
         const coneRad = Math.PI * 0.45;
         const t = total > 1 ? idx / (total - 1) : 0.5;
@@ -998,8 +1008,11 @@ class Magnus extends GameObject {
         const origin = pods[idx % 2];
         const cx = origin.x;
         const cy = origin.y;
-        const playerCX = game.player.x + game.player.width / 2;
-        const playerCY = game.player.y + game.player.height / 2;
+        const tc = (typeof getBossTargetCenter === 'function')
+            ? getBossTargetCenter(cx, cy) : null;
+        if (!tc) return;
+        const playerCX = tc.x;
+        const playerCY = tc.y;
         const baseAngle = Math.atan2(playerCY - cy, playerCX - cx);
         const coneRad = Math.PI * 0.7;
         const t = 8 > 1 ? idx / (8 - 1) : 0.5;
@@ -1457,6 +1470,21 @@ class MagnusBullet extends GameObject {
             this.shouldDestroy = true;
             return;
         }
+        // Decoys also intercept Magnus bullets
+        if (game.decoys) {
+            for (const decoy of game.decoys) {
+                if (this.collidesWith(decoy)) {
+                    decoy.takeDamage(this.damage);
+                    const cx = this.x + this.width / 2;
+                    const cy = this.y + this.height / 2;
+                    if (typeof bossFX !== 'undefined') {
+                        bossFX.addFlash(cx, cy, 22, '#ffd060', 200, 0.85);
+                    }
+                    this.shouldDestroy = true;
+                    return;
+                }
+            }
+        }
         super.update();
     }
 
@@ -1542,6 +1570,19 @@ class MagnusArtilleryShell extends GameObject {
                 const falloff = 1 - Math.min(1, d / this.aoeRadius);
                 const dmg = Math.max(4, Math.round(this.damage * falloff));
                 game.player.takeDamage(dmg);
+            }
+        }
+        // AOE check vs decoys
+        if (game.decoys) {
+            for (const decoy of game.decoys) {
+                const dcx = decoy.x + decoy.width / 2;
+                const dcy = decoy.y + decoy.height / 2;
+                const d = Math.hypot(dcx - ex, dcy - ey);
+                if (d < this.aoeRadius + decoy.width / 2) {
+                    const falloff = 1 - Math.min(1, d / this.aoeRadius);
+                    const dmg = Math.max(4, Math.round(this.damage * falloff));
+                    decoy.takeDamage(dmg);
+                }
             }
         }
         // FX
@@ -1687,14 +1728,19 @@ class MagnusShoulderPod extends GameObject {
     _fireShot() {
         const cx = this.x + this.width / 2;
         const cy = this.y + this.height / 2;
-        // Predictive aim: lead by player velocity
+        // Predictive aim: lead by target velocity (player or decoy)
         if (!game.player) return;
-        const px = game.player.x + game.player.width / 2;
-        const py = game.player.y + game.player.height / 2;
+        const tc = (typeof getBossTargetCenter === 'function')
+            ? getBossTargetCenter(cx, cy) : null;
+        if (!tc) return;
+        const px = tc.x;
+        const py = tc.y;
+        const tvx = (tc.entity && tc.entity.vx) || 0;
+        const tvy = (tc.entity && tc.entity.vy) || 0;
         const speed = 18;
         const lead = 8;
-        const tx = px + (game.player.vx || 0) * lead;
-        const ty = py + (game.player.vy || 0) * lead;
+        const tx = px + tvx * lead;
+        const ty = py + tvy * lead;
         const ang = Math.atan2(ty - cy, tx - cx);
         const launchX = cx + Math.cos(ang) * 16;
         const launchY = cy + Math.sin(ang) * 16;
@@ -1712,6 +1758,7 @@ class MagnusShoulderPod extends GameObject {
     }
 
     takeDamage(damage) {
+        damage = (typeof applyOverdriveBoost === 'function') ? applyOverdriveBoost(damage) : damage;
         this.health -= damage;
         if (this.health <= 0 && !this.shouldDestroy) {
             this._destroyVFX();

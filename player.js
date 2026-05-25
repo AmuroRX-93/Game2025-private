@@ -59,6 +59,22 @@ class Player extends GameObject {
         this.isUntargetable = false;
         this.untargetableEndTime = 0;
         
+        // Overdrive Burst (hidden ability): outgoing dmg ×3, move speed ×3,
+        // incoming dmg ×2. Color turns red and afterimages trail behind.
+        this.outgoingDamageMultiplier = 1;
+        this.incomingDamageMultiplier = 1;
+        this.overdriveActive = false;
+        this.overdriveEndTime = 0;
+        this.afterimages = []; // [{x, y, dir, life, maxLife}]
+        
+        // Repair Protocol (hidden ability): regen + speed buff at the cost of
+        // being unable to attack. Excess regen banks "overflow HP" used as a
+        // damage buffer beyond max health.
+        this.repairProtocolActive = false;
+        this.repairProtocolEndTime = 0;
+        this.overflowHp = 0;
+        this.overflowHpMax = 0;
+        
         // 受击提示系统
         this.hitIndicators = [];
     }
@@ -319,6 +335,9 @@ class Player extends GameObject {
         // 如果在闪避冷却中，不能攻击
         if (!this.canDodge()) return false;
         
+        // Repair Protocol locks out offensive actions in exchange for regen.
+        if (this.repairProtocolActive) return false;
+        
         return true;
     }
     
@@ -463,7 +482,9 @@ class Player extends GameObject {
                 this.slowMultiplier = 1;
             }
             const burnMul = this.burning ? this.burnSpeedMultiplier : 1;
-            const moveSpeed = this.speed * burnMul * this.slowMultiplier;
+            const overdriveMul = this.overdriveActive ? 3 : 1;
+            const repairMul = this.repairProtocolActive ? 1.5 : 1;
+            const moveSpeed = this.speed * burnMul * this.slowMultiplier * overdriveMul * repairMul;
             if (keys['ArrowLeft'] || keys['a'] || keys['A']) {
                 this.vx = -moveSpeed;
             }
@@ -518,6 +539,8 @@ class Player extends GameObject {
         super.update();
         this.checkBounds();
         
+        this.updateOverdrive();
+        
         // 更新受击提示
         this.updateHitIndicators();
     }
@@ -545,6 +568,7 @@ class Player extends GameObject {
     
     // 使用左肩武器
     useLeftShoulderWeapon() {
+        if (this.repairProtocolActive) return;
         if (this.leftShoulderWeapon) {
             this.leftShoulderWeapon.use(this);
         }
@@ -552,6 +576,7 @@ class Player extends GameObject {
     
     // 使用右肩武器
     useRightShoulderWeapon() {
+        if (this.repairProtocolActive) return;
         if (this.rightShoulderWeapon) {
             this.rightShoulderWeapon.use(this);
         }
@@ -559,6 +584,7 @@ class Player extends GameObject {
     
     // 使用超级武器（Q键或E键都可以触发）
     useSuperWeapon() {
+        if (this.repairProtocolActive) return;
         // 检查左肩或右肩是否有超级武器
         if (this.leftShoulderWeapon && this.leftShoulderWeapon.type === 'super_weapon') {
             this.leftShoulderWeapon.use(this);
@@ -597,6 +623,11 @@ class Player extends GameObject {
             return;
         }
         
+        // Overdrive Burst: incoming damage amplified
+        if (this.incomingDamageMultiplier && this.incomingDamageMultiplier !== 1) {
+            damage = Math.max(1, Math.round(damage * this.incomingDamageMultiplier));
+        }
+        
         // 检查护盾减伤
         let actualDamage = damage;
         if (this.hiddenAbilityWeapon && this.hiddenAbilityWeapon.isDamageReduced && this.hiddenAbilityWeapon.isDamageReduced()) {
@@ -613,6 +644,12 @@ class Player extends GameObject {
         }
         
         // 扣除生命值
+        // Overflow HP (Repair Protocol bank) eats damage first.
+        if (this.overflowHp > 0 && actualDamage > 0) {
+            const absorbed = Math.min(this.overflowHp, actualDamage);
+            this.overflowHp -= absorbed;
+            actualDamage -= absorbed;
+        }
         this.health -= actualDamage;
         
         // 添加受击提示
@@ -690,6 +727,37 @@ class Player extends GameObject {
         });
     }
     
+    // Overdrive Burst lifecycle: spawn afterimages while active, expire flags when window ends.
+    updateOverdrive() {
+        const now = Date.now();
+        // Tick afterimages regardless of active state so trails fade out cleanly.
+        if (this.afterimages.length > 0) {
+            for (const a of this.afterimages) a.life -= 16;
+            this.afterimages = this.afterimages.filter(a => a.life > 0);
+        }
+        if (!this.overdriveActive) return;
+        if (now >= this.overdriveEndTime) {
+            this.overdriveActive = false;
+            this.outgoingDamageMultiplier = 1;
+            this.incomingDamageMultiplier = 1;
+            return;
+        }
+        // Spawn an afterimage every ~50ms while moving.
+        if (!this._lastAfterimageAt || now - this._lastAfterimageAt > 50) {
+            this._lastAfterimageAt = now;
+            this.afterimages.push({
+                x: this.x,
+                y: this.y,
+                w: this.width,
+                h: this.height,
+                dir: this.direction,
+                life: 320,
+                maxLife: 320
+            });
+            if (this.afterimages.length > 18) this.afterimages.shift();
+        }
+    }
+
     // 更新受击提示
     updateHitIndicators() {
         const now = Date.now();
@@ -733,6 +801,23 @@ class Player extends GameObject {
     }
 
     draw(ctx) {
+        // Overdrive afterimages (drawn behind the body)
+        if (this.afterimages && this.afterimages.length > 0) {
+            for (const a of this.afterimages) {
+                const t = Math.max(0, a.life / a.maxLife);
+                ctx.save();
+                ctx.globalAlpha = 0.18 + 0.4 * t;
+                ctx.globalCompositeOperation = 'lighter';
+                ctx.translate(a.x + a.w / 2, a.y + a.h / 2);
+                ctx.rotate(a.dir * Math.PI / 180);
+                ctx.fillStyle = '#ff2030';
+                ctx.shadowColor = '#ff4040';
+                ctx.shadowBlur = 18;
+                ctx.fillRect(-a.w / 2, -a.h / 2, a.w, a.h);
+                ctx.restore();
+            }
+        }
+
         // 保存当前canvas状态
         ctx.save();
         
@@ -769,6 +854,13 @@ class Player extends GameObject {
         let bodyColor = this.color;
         if (this.isUntargetable) bodyColor = '#4488FF';
         else if (this.isInvincible) bodyColor = '#FFD700';
+        else if (this.overdriveActive) {
+            // Pulsing crimson while in Overdrive Burst.
+            const pulse = 0.7 + 0.3 * Math.sin(Date.now() * 0.02);
+            bodyColor = '#ff2030';
+            ctx.shadowColor = '#ff4040';
+            ctx.shadowBlur = 22 * pulse;
+        }
         ctx.fillStyle = bodyColor;
         ctx.fillRect(-this.width / 2, -this.height / 2, this.width, this.height);
         

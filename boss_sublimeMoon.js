@@ -2136,6 +2136,7 @@ class SublimeMoon extends GameObject {
     }
 
     takeDamage(damage, source) {
+        damage = (typeof applyOverdriveBoost === 'function') ? applyOverdriveBoost(damage, source) : damage;
         // SublimeMoon's cryo-armor heavily resists sustained beam weapons.
         // Laser rifle's continuous photon column gets diffused by the ice sheath.
         let actual = damage;

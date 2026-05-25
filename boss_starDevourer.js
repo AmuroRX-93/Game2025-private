@@ -161,6 +161,7 @@ class FloatingDrone extends Enemy {
     }
     
     takeDamage(damage) {
+        damage = (typeof applyOverdriveBoost === 'function') ? applyOverdriveBoost(damage) : damage;
         this.health -= damage;
         if (this.health <= 0) {
             this.health = 0;
@@ -2166,6 +2167,7 @@ class StarDevourer extends GameObject {
     
     // 受击方法
     takeDamage(damage) {
+        damage = (typeof applyOverdriveBoost === 'function') ? applyOverdriveBoost(damage) : damage;
         this.health -= damage;
         
         // 添加受击提示

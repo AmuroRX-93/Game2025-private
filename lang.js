@@ -143,6 +143,8 @@ const translations = {
         'weapon.emp': 'EMP电磁脉冲',
         'weapon.counter_mech': '反制重击',
         'weapon.decoy_clone': '诱饵分身',
+        'weapon.overdrive_burst': '超限爆发',
+        'weapon.repair_protocol': '应急修复',
 
         'weaponDesc.gun': '远程射击 | 高射速 | 预瞄功能',
         'weaponDesc.sword': '近战攻击 | 高伤害 | 刀推功能',
@@ -156,10 +158,11 @@ const translations = {
         'weaponDesc.plasma_missile': '近炸引信 | 电浆场持续伤害 | 可叠加',
         'weaponDesc.super_weapon': '100伤害 | 一次战斗只能用一次 | 占用双槽位',
         'weaponDesc.moonlight_greatsword': '200伤害 | 超大范围光刃 | 占用4槽位 | 一次性',
-        'weaponDesc.pulse_shield': '70%伤害减免 | 15秒持续 | 40秒冷却',
+        'weaponDesc.pulse_shield': '70%伤害减免 | 18秒持续 | 40秒冷却',
         'weaponDesc.emp': '范围伤害+僵直 | 距离越远伤害越低 | 18秒冷却',
-        'weaponDesc.counter_mech': '3秒减伤40% | 反射50%伤害 | 15秒冷却',
+        'weaponDesc.counter_mech': '3秒减伤40% | 反射250%伤害 | 15秒冷却',
         'weaponDesc.decoy_clone': '释放3诱饵 | 4秒隐身 | 35秒冷却',
+        'weaponDesc.overdrive_burst': '6秒爆发 | 伤害×3 移速×3 | 自损30%血 受伤×2 | 30秒冷却',
 
         'ws.attacking': '攻击中...',
         'ws.stagger': '僵直: {0}秒',
@@ -183,6 +186,7 @@ const translations = {
         'ws.shielding': '护盾中: {0}秒',
         'ws.countering': '反制中: {0}s',
         'ws.stealth': '隐身中: {0}s',
+        'ws.overdriveActive': '超限爆发: {0}s',
         'ws.slashing': '斩击中...',
         'ws.used': '已使用',
         'ws.cooldownRemaining': '冷却中 {0}s',
@@ -323,6 +327,7 @@ const translations = {
         'weapon.emp': 'EMP',
         'weapon.counter_mech': 'Counter Strike',
         'weapon.decoy_clone': 'Decoy Clone',
+        'weapon.overdrive_burst': 'Overdrive Burst',
 
         'weaponDesc.gun': 'Ranged | High ROF | Predictive Aim',
         'weaponDesc.sword': 'Melee | High DMG | Dash Attack',
@@ -336,10 +341,11 @@ const translations = {
         'weaponDesc.plasma_missile': 'Proximity Fuse | Plasma DoT | Stackable',
         'weaponDesc.super_weapon': '100 DMG | Single Use | Dual Slot',
         'weaponDesc.moonlight_greatsword': '200 DMG | Massive Beam | 4 Slots | Single Use',
-        'weaponDesc.pulse_shield': '70% Reduction | 15s Duration | 40s CD',
+        'weaponDesc.pulse_shield': '70% Reduction | 18s Duration | 40s CD',
         'weaponDesc.emp': 'AoE + Stun | Damage Falloff | 18s CD',
-        'weaponDesc.counter_mech': '3s -40% DMG | 50% Reflect | 15s CD',
+        'weaponDesc.counter_mech': '3s -40% DMG | 250% Reflect | 15s CD',
         'weaponDesc.decoy_clone': '3 Decoys | 4s Stealth | 35s CD',
+        'weaponDesc.overdrive_burst': '6s Burst | DMG×3 SPD×3 | -30% HP, Incoming×2 | 30s CD',
 
         'ws.attacking': 'Attacking...',
         'ws.stagger': 'Stagger: {0}s',
@@ -363,6 +369,7 @@ const translations = {
         'ws.shielding': 'Shield: {0}s',
         'ws.countering': 'Counter: {0}s',
         'ws.stealth': 'Stealth: {0}s',
+        'ws.overdriveActive': 'Overdrive: {0}s',
         'ws.slashing': 'Slashing...',
         'ws.used': 'Used',
         'ws.cooldownRemaining': 'Cooldown {0}s',
@@ -483,17 +490,17 @@ const guideData = {
             id: 'hidden', name: '隐藏机能', color: '#00FFFF',
             items: [
                 { name: '脉冲护盾', color: '#00FFFF', lines: [
-                    '70%伤害减免 | 持续 15秒',
+                    '70%伤害减免 | 持续 18秒',
                     '冷却 40秒',
                 ]},
                 { name: 'EMP电磁脉冲', color: '#66CCFF', lines: [
                     '范围 490px | 最大伤害 100',
-                    '距离越远伤害越低 | 附加0.5秒僵直',
-                    '冷却 30秒',
+                    '距离越远伤害越低 | 附加2秒僵直',
+                    '冷却 18秒',
                 ]},
                 { name: '反制重击', color: '#FF8C00', lines: [
                     '持续 3秒 | 受伤减少 40%',
-                    '将受到伤害的50%反射给最近敌人',
+                    '将受到伤害的250%反射给最近敌人',
                     '冷却 15秒',
                 ]},
                 { name: '诱饵分身', color: '#4488FF', lines: [
@@ -502,6 +509,13 @@ const guideData = {
                     '玩家进入 4秒不可锁定状态',
                     '敌方AI/导弹/子弹转向攻击诱饵',
                     '冷却 35秒',
+                ]},
+                { name: '超限爆发', color: '#FF2030', lines: [
+                    '激活时立即损失30%当前血量',
+                    '持续 6秒：伤害 ×3 | 移速 ×3',
+                    '机身变红 | 冲刺时留下残影',
+                    '代价：受到的伤害放大至 ×2',
+                    '冷却 30秒',
                 ]},
             ]
         },
@@ -744,17 +758,17 @@ const guideData = {
             id: 'hidden', name: 'Hidden Abilities', color: '#00FFFF',
             items: [
                 { name: 'Pulse Shield', color: '#00FFFF', lines: [
-                    '70% damage reduction | 15s duration',
+                    '70% damage reduction | 18s duration',
                     'Cooldown 40s',
                 ]},
                 { name: 'EMP', color: '#66CCFF', lines: [
                     'Range 490px | Max damage 100',
-                    'Damage falls off with distance | 0.5s stagger',
-                    'Cooldown 30s',
+                    'Damage falls off with distance | 2s stagger',
+                    'Cooldown 18s',
                 ]},
                 { name: 'Counter Strike', color: '#FF8C00', lines: [
                     '3s duration | 40% damage reduction',
-                    'Reflects 50% of damage taken to nearest enemy',
+                    'Reflects 250% of damage taken to nearest enemy',
                     'Cooldown 15s',
                 ]},
                 { name: 'Decoy Clone', color: '#4488FF', lines: [
@@ -763,6 +777,13 @@ const guideData = {
                     'Player becomes untargetable for 4s',
                     'Enemy AI/missiles/bullets redirect to decoys',
                     'Cooldown 35s',
+                ]},
+                { name: 'Overdrive Burst', color: '#FF2030', lines: [
+                    'On activation: lose 30% of current HP',
+                    'For 6s: outgoing damage x3 | move speed x3',
+                    'Mech turns crimson | leaves afterimage trail',
+                    'Drawback: incoming damage amplified to x2',
+                    'Cooldown 30s',
                 ]},
             ]
         },

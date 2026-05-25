@@ -1032,6 +1032,7 @@ class UglyEmperor extends GameObject {
     }
     
     takeDamage(damage, damageSource = 'unknown') {
+        damage = (typeof applyOverdriveBoost === 'function') ? applyOverdriveBoost(damage, damageSource) : damage;
         // 丑皇特殊伤害机制
         let shouldTakeDamage = false;
         let actualDamage = damage;
@@ -1584,6 +1585,7 @@ class Mine extends GameObject {
     }
     
     takeDamage(damage) {
+        damage = (typeof applyOverdriveBoost === 'function') ? applyOverdriveBoost(damage) : damage;
         if (this.isExploded) return;
         this.health -= damage;
         if (this.health <= 0) {

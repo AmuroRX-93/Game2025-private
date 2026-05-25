@@ -363,6 +363,7 @@ class Enemy extends GameObject {
     }
     
     takeDamage(damage) {
+        damage = (typeof applyOverdriveBoost === 'function') ? applyOverdriveBoost(damage) : damage;
         this.health -= damage;
         return this.health <= 0; // 返回是否死亡
     }

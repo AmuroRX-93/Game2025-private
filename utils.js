@@ -66,6 +66,18 @@ function getBossTargetCenter(fromX, fromY) {
     return { x: target.x + target.width / 2, y: target.y + target.height / 2, entity: target };
 }
 
+// Amplify player-dealt damage while Overdrive Burst is active.
+// Reflected damage (CounterMech) is excluded so it isn't double-boosted.
+// '__boosted' is an internal marker used when one entity routes already-boosted
+// damage to another (e.g. HiveMind queen → splinter), preventing 9x stacking.
+function applyOverdriveBoost(damage, source) {
+    if (source === 'reflect' || source === '__boosted') return damage;
+    if (!game || !game.player || !game.player.overdriveActive) return damage;
+    const mul = game.player.outgoingDamageMultiplier || 1;
+    if (mul === 1) return damage;
+    return Math.max(1, Math.round(damage * mul));
+}
+
 function drawBossLockIndicator(ctx, entity, fillColor, strokeColor, opts = {}) {
     const tipYOffset = opts.tipYOffset || -40;
     const halfWidth = opts.halfWidth || 10;

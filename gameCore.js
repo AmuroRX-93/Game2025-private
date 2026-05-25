@@ -31,6 +31,8 @@ class Game {
             { type: 'emp', name: t('weapon.emp'), color: '#66CCFF', desc: t('weaponDesc.emp') },
             { type: 'counter_mech', name: t('weapon.counter_mech'), color: '#FF8C00', desc: t('weaponDesc.counter_mech') },
             { type: 'decoy_clone', name: t('weapon.decoy_clone'), color: '#4488FF', desc: t('weaponDesc.decoy_clone') },
+            { type: 'overdrive_burst', name: t('weapon.overdrive_burst'), color: '#FF2030', desc: t('weaponDesc.overdrive_burst') },
+            { type: 'repair_protocol', name: t('weapon.repair_protocol'), color: '#60FF90', desc: t('weaponDesc.repair_protocol') },
             { type: 'moonlight_greatsword', name: t('weapon.moonlight_greatsword'), color: '#88CCFF', desc: t('weaponDesc.moonlight_greatsword') }
         ];
         return { weaponOptions, shoulderWeaponOptions, hiddenAbilityOptions };
