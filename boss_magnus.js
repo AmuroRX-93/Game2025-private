@@ -70,9 +70,16 @@ class Magnus extends GameObject {
         this.turretAimAngles = [-Math.PI / 2, -Math.PI / 2];
         this.turretChargeUntil = [0, 0];
 
-        // Shield state (used by guardSpinUp move, regen-on-shield)
-        this.shieldUntil = 0;
-        this.shieldHealRate = 0.6; // hp/sec while shielded
+        // Shield state - new model: a separate HP pool that absorbs incoming
+        // damage with heavy reduction. When the shield HP hits 0 it explodes
+        // for AOE damage. See `activateShield()` / `_breakShield()`.
+        this.shieldActive = false;
+        this.shieldHp = 0;
+        this.shieldMaxHp = Math.round(this.maxHealth * 0.35);
+        this.shieldDamageReduction = 0.75; // 75% of incoming damage is absorbed by shield
+        this.shieldBreakDamage = 35;       // AOE on break
+        this.shieldBreakRadius = 130;
+        this.shieldBornAt = 0;             // for ramp-up VFX
 
         // Heading angle (for hull rotation visual)
         this.facing = 0;
@@ -93,20 +100,95 @@ class Magnus extends GameObject {
             this.damageWindow.accumulated = 0;
             this.damageWindow.windowStart = now;
         }
-        // Active shield: reduce 70% damage, stops once shieldUntil expires
-        let shieldFactor = 1.0;
-        if (now < this.shieldUntil) {
-            shieldFactor = 0.3;
-            // Shield impact spark
-            bossFX.addFlash(this.x + this.width / 2, this.y + this.height / 2,
-                this.width * 0.9, '#ffb030', 220, 0.6);
-        }
         const reductionFactor = this.damageWindow.accumulated / (this.damageWindow.accumulated + 30);
-        const actualDamage = Math.max(1, Math.round(damage * shieldFactor * (1 - reductionFactor)));
+        let actualDamage = Math.max(1, Math.round(damage * (1 - reductionFactor)));
         this.damageWindow.accumulated += damage;
-        this.health -= actualDamage;
-        this.addHitIndicator(actualDamage);
+
+        // Active shield absorbs most of the damage into its own HP pool. The
+        // shield breaks (and explodes) the moment its pool drops to 0.
+        if (this.shieldActive && this.shieldHp > 0) {
+            const absorbed = Math.round(actualDamage * this.shieldDamageReduction);
+            const leak = actualDamage - absorbed;
+            // Apply absorbed damage to shield HP
+            this.shieldHp -= absorbed;
+            // Shield impact spark
+            const cx = this.x + this.width / 2;
+            const cy = this.y + this.height / 2;
+            bossFX.addFlash(cx, cy, this.width * 0.9, '#ffb030', 220, 0.55);
+            bossFX.addShockwave(cx, cy, this.width * 0.6, this.width * 1.0,
+                '#ffd070', 220, 1.6, 0.5);
+            // Hit indicator on shield (cyan style so it's distinguishable)
+            this.hitIndicators.push({
+                damage: absorbed, isShield: true,
+                startTime: now,
+                x: cx + (Math.random() - 0.5) * 50,
+                y: this.y - 8 + Math.random() * 6
+            });
+            actualDamage = leak; // only leak damage hits the hull
+            if (this.shieldHp <= 0) {
+                this._breakShield();
+            }
+        }
+
+        if (actualDamage > 0) {
+            this.health -= actualDamage;
+            this.addHitIndicator(actualDamage);
+        }
         return this.health <= 0;
+    }
+
+    // Activate the new barrier shield (called by the barrier move).
+    activateShield() {
+        this.shieldActive = true;
+        this.shieldHp = this.shieldMaxHp;
+        this.shieldBornAt = Date.now();
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        // Spin-up VFX
+        bossFX.addFlash(cx, cy, this.width * 1.3, '#ffd060', 460, 0.9);
+        bossFX.addShockwave(cx, cy, this.width * 0.5, this.width * 1.6,
+            '#ffb040', 520, 4, 0.7);
+    }
+
+    // Shield HP reached 0: explode for AOE, then drop the barrier.
+    _breakShield() {
+        this.shieldActive = false;
+        this.shieldHp = 0;
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        // Big break VFX
+        bossFX.addFlash(cx, cy, this.shieldBreakRadius * 0.9, '#fff0a0', 380, 1.0);
+        bossFX.addShockwave(cx, cy, this.width * 0.6, this.shieldBreakRadius * 1.4,
+            '#ffb040', 540, 6, 0.85);
+        bossFX.addShockwave(cx, cy, this.width * 0.4, this.shieldBreakRadius * 1.0,
+            '#fff0a0', 360, 3, 0.7);
+        bossFX.spawnBurst(cx, cy, 28, {
+            color: '#ffd060',
+            speedMin: 3, speedMax: 8,
+            sizeMin: 2, sizeMax: 4.5,
+            lifeMs: 520, drag: 0.92
+        });
+        if (typeof bossFX.addShake === 'function') bossFX.addShake(7, 280);
+        // AOE damage to player if in radius
+        if (game.player && !game.player.isUntargetable) {
+            const px = game.player.x + game.player.width / 2;
+            const py = game.player.y + game.player.height / 2;
+            const d = Math.hypot(px - cx, py - cy);
+            if (d <= this.shieldBreakRadius) {
+                // Falloff: full damage at 0, half at edge
+                const falloff = 1 - (d / this.shieldBreakRadius) * 0.5;
+                const dmg = Math.max(1, Math.round(this.shieldBreakDamage * falloff));
+                game.player.takeDamage(dmg);
+                // Knockback push
+                if (d > 0.0001) {
+                    const kx = (px - cx) / d;
+                    const ky = (py - cy) / d;
+                    game.player.vx += kx * 16;
+                    game.player.vy += ky * 16;
+                }
+                if (typeof updateUI === 'function') updateUI();
+            }
+        }
     }
 
     addHitIndicator(damage) {
@@ -131,13 +213,14 @@ class Magnus extends GameObject {
             ctx.save();
             ctx.globalAlpha = alpha;
             const isHeal = !!ind.isHeal;
-            ctx.fillStyle = isHeal ? '#00ff66' : '#ffaa30';
+            const isShield = !!ind.isShield;
+            ctx.fillStyle = isHeal ? '#00ff66' : (isShield ? '#7fdfff' : '#ffaa30');
             ctx.font = 'bold 22px Arial';
             ctx.textAlign = 'center';
             ctx.strokeStyle = '#FFFFFF';
             ctx.lineWidth = 3;
             const displayY = ind.y - offsetY;
-            const text = isHeal ? `+${ind.damage}` : `HIT ${ind.damage}`;
+            const text = isHeal ? `+${ind.damage}` : (isShield ? `■ ${ind.damage}` : `HIT ${ind.damage}`);
             ctx.strokeText(text, ind.x, displayY);
             ctx.fillText(text, ind.x, displayY);
             ctx.restore();
@@ -612,7 +695,7 @@ class Magnus extends GameObject {
                                 });
                             }
                             if (game.player && !game.player.isUntargetable && b2.collidesWith(game.player)) {
-                                game.player.takeDamage(20);
+                                game.player.takeDamage(20 * MAGNUS_DAMAGE_MULT);
                                 bossFX.addFlash(game.player.x + game.player.width / 2,
                                     game.player.y + game.player.height / 2, 60, '#ffd070', 240, 1.0);
                             }
@@ -627,48 +710,47 @@ class Magnus extends GameObject {
                     };
                 }
             },
-            // Move 6: Guard SpinUp - shield + slow heal during recovery
-            // Phase-2 friendly: only use when low HP.
+            // Move 6: Barrier - puts up a separate-HP shield. While it's up,
+            // most damage is absorbed into the shield pool. When the pool
+            // hits 0 the shield explodes for AOE. The boss does NOT regen
+            // while shielded; aggressive players can break it for a punish.
             {
-                id: 'guardSpinUp',
-                cooldown: 18000,
-                canUse: (ctx) => ctx.hpPct < 0.5,
+                id: 'barrierUp',
+                cooldown: 14000,
+                canUse: (ctx) => {
+                    // Only when not already shielded, and HP under 80%
+                    if (ctx.boss.shieldActive) return false;
+                    return ctx.hpPct < 0.8;
+                },
                 score: (ctx) => {
-                    if (ctx.hpPct > 0.45) return -10;
-                    let s = 1.0 + (0.5 - ctx.hpPct) * 2.0;
+                    if (ctx.boss.shieldActive) return -10;
+                    let s = 0.9 + (1 - ctx.hpPct) * 1.4; // hungrier for it as HP drops
+                    if (ctx.hpPct < 0.4) s += 0.6;
                     return s;
                 },
                 start: (b) => {
-                    const telegraphMs = 350;
-                    const shieldMs = 3500;
+                    const telegraphMs = 420;
                     const startedAt = Date.now();
-                    b.shieldUntil = startedAt + telegraphMs + shieldMs;
-                    bossFX.addFlash(b.x + b.width / 2, b.y + b.height / 2, 100, '#ffb030', 480, 0.85);
+                    bossFX.addFlash(b.x + b.width / 2, b.y + b.height / 2, 100, '#ffd060', 460, 0.85);
                     return {
                         startedAt,
                         telegraphMs,
-                        shieldMs,
-                        totalMs: telegraphMs + shieldMs,
-                        recoveryMs: 350,
-                        lastHealAt: startedAt,
+                        totalMs: telegraphMs,
+                        recoveryMs: 280,
+                        activated: false,
                         tick: (b2, now) => {
                             const st = b2.activeMove;
-                            // Slow drift + heal over time
-                            if (now - st.lastHealAt >= 200) {
-                                st.lastHealAt = now;
-                                const heal = Math.round(b2.maxHealth * 0.012); // ~1.2%/200ms = 6%/s
-                                if (heal > 0 && b2.health < b2.maxHealth) {
-                                    b2.health = Math.min(b2.maxHealth, b2.health + heal);
-                                    b2.hitIndicators.push({
-                                        damage: heal, isHeal: true,
-                                        startTime: now,
-                                        x: b2.x + b2.width / 2 + (Math.random() - 0.5) * 30,
-                                        y: b2.y - 10
-                                    });
-                                }
+                            if (now < st.startedAt + st.telegraphMs) {
+                                // Slow drift during windup
+                                b2.vx *= 0.85; b2.vy *= 0.85;
+                                return;
+                            }
+                            if (!st.activated) {
+                                st.activated = true;
+                                b2.activateShield();
                             }
                         },
-                        isDone: (b2, now) => now - b2.activeMove.startedAt >= b2.activeMove.totalMs
+                        isDone: (b2, now) => b2.activeMove.activated
                     };
                 }
             },
@@ -778,6 +860,7 @@ class Magnus extends GameObject {
 
     _damageAlongBeam(beam, damage) {
         if (!game.player || game.player.isUntargetable) return;
+        damage = Math.round(damage * MAGNUS_DAMAGE_MULT);
         const px = game.player.x + game.player.width / 2;
         const py = game.player.y + game.player.height / 2;
         const dx = beam.x2 - beam.x1;
@@ -1033,35 +1116,59 @@ class Magnus extends GameObject {
         const cx = this.x + this.width / 2;
         const cy = this.y + this.height / 2;
 
-        // Shield aura (when active)
+        // Shield aura (when active) - shows current shield HP as ring fill
         const now = Date.now();
-        if (now < this.shieldUntil) {
-            const remain = (this.shieldUntil - now) / 3500;
-            const r = this.width * 0.95;
+        if (this.shieldActive && this.shieldHp > 0) {
+            const hpPct = Math.max(0, Math.min(1, this.shieldHp / this.shieldMaxHp));
+            const sinceBorn = now - this.shieldBornAt;
+            // Spin-up scale during the first 250ms
+            const bornScale = Math.min(1, sinceBorn / 250);
+            const r = this.width * (0.85 + 0.1 * bornScale);
             ctx.save();
             ctx.globalCompositeOperation = 'lighter';
-            // Outer shield ring (rotating)
             const spin = now / 700;
             ctx.translate(cx, cy);
+            // Outer rotating dashed ring (alpha tied to hp)
+            ctx.save();
             ctx.rotate(spin);
-            ctx.globalAlpha = 0.4 * remain;
-            ctx.strokeStyle = '#ffb030';
+            ctx.globalAlpha = 0.55 * (0.4 + 0.6 * hpPct) * bornScale;
+            ctx.strokeStyle = '#ffd070';
             ctx.lineWidth = 4;
             ctx.setLineDash([18, 10]);
             ctx.beginPath();
             ctx.arc(0, 0, r, 0, Math.PI * 2);
             ctx.stroke();
             ctx.setLineDash([]);
+            ctx.restore();
             // Soft fill
-            const grad = ctx.createRadialGradient(0, 0, r * 0.6, 0, 0, r);
-            grad.addColorStop(0, 'rgba(255, 200, 80, 0)');
-            grad.addColorStop(0.7, 'rgba(255, 180, 60, 0.18)');
-            grad.addColorStop(1, 'rgba(255, 140, 40, 0.4)');
-            ctx.globalAlpha = 0.6 * remain;
+            const fillAlpha = 0.35 + 0.45 * hpPct;
+            const grad = ctx.createRadialGradient(0, 0, r * 0.55, 0, 0, r);
+            grad.addColorStop(0, 'rgba(255, 220, 120, 0)');
+            grad.addColorStop(0.7, `rgba(255, 200, 80, ${(0.18 * fillAlpha).toFixed(3)})`);
+            grad.addColorStop(1, `rgba(255, 140, 40, ${(0.5 * fillAlpha).toFixed(3)})`);
+            ctx.globalAlpha = bornScale;
             ctx.fillStyle = grad;
             ctx.beginPath();
             ctx.arc(0, 0, r, 0, Math.PI * 2);
             ctx.fill();
+            // HP arc on top of ring (counter-clockwise empties as hp drops)
+            ctx.globalAlpha = 0.95 * bornScale;
+            ctx.strokeStyle = '#fff0b0';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            const startA = -Math.PI / 2;
+            ctx.arc(0, 0, r * 0.92, startA, startA + Math.PI * 2 * hpPct);
+            ctx.stroke();
+            // Pulsing inner glow when hp < 30% to telegraph imminent break
+            if (hpPct < 0.3) {
+                const pulse = 0.5 + 0.5 * Math.sin(now * 0.018);
+                ctx.globalAlpha = 0.5 * pulse;
+                ctx.strokeStyle = '#fff8c0';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(0, 0, r * 0.7, 0, Math.PI * 2);
+                ctx.stroke();
+            }
             ctx.restore();
         }
 
@@ -1258,12 +1365,16 @@ class Magnus extends GameObject {
 // =================================================================
 // MagnusBullet - particle cannon shell + EMP wave bullet
 // =================================================================
+// All Magnus weapon damage is multiplied by this. Bumped from 1x to 2x to
+// give Magnus real teeth (he's the heavy artillery boss).
+const MAGNUS_DAMAGE_MULT = 2;
+
 class MagnusBullet extends GameObject {
     constructor(x, y, vx, vy, damage, scheme = 'gold') {
         super(x, y, 8, 8, '#ffc060');
         this.vx = vx;
         this.vy = vy;
-        this.damage = damage;
+        this.damage = Math.round(damage * MAGNUS_DAMAGE_MULT);
         this.scheme = scheme;
         this.startTime = Date.now();
         this.lifetime = 3500;
@@ -1333,7 +1444,7 @@ class MagnusArtilleryShell extends GameObject {
         this.originY = originY;
         this.targetX = targetX;
         this.targetY = targetY;
-        this.damage = damage;
+        this.damage = Math.round(damage * MAGNUS_DAMAGE_MULT);
         this.startTime = Date.now();
         this.flightDuration = 1100; // arc time
         this.aoeRadius = 80;

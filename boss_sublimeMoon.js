@@ -1384,6 +1384,267 @@ class SublimeMoon extends GameObject {
                         isDone: (b2, now) => b2.activeMove.summoned
                     };
                 }
+            },
+
+            // ---- Move: Crescent Ring (12-petal omni burst) ----------------
+            {
+                id: 'crescentRing',
+                cooldown: 6500,
+                score: () => 1.2 + Math.random() * 0.4,
+                start: (b) => {
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    const telegraphMs = 380;
+                    b.telegraphs.push(createTelegraphAura(cx, cy, 70, telegraphMs, '#7fc8ff'));
+                    return {
+                        startedAt: Date.now(),
+                        telegraphMs,
+                        fired: false,
+                        recoveryMs: 320,
+                        controlsMovement: true,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (now < st.startedAt + st.telegraphMs) {
+                                b2.vx *= 0.5; b2.vy *= 0.5;
+                                return;
+                            }
+                            if (!st.fired) {
+                                b2.fireCrescentRing(12);
+                                st.fired = true;
+                            }
+                        },
+                        isDone: (b2) => b2.activeMove.fired
+                    };
+                }
+            },
+
+            // ---- Move: Crescent Rain (drops from above the player) --------
+            {
+                id: 'crescentRain',
+                cooldown: 8500,
+                score: () => 1.1 + Math.random() * 0.4,
+                start: (b) => {
+                    const tc = getBossTargetCenter(b.x + b.width / 2, b.y + b.height / 2);
+                    const telegraphMs = 460;
+                    if (tc) {
+                        b.telegraphs.push(createTelegraphCircle(tc.x, tc.y - 40, 80, telegraphMs, '#a0d8ff'));
+                    }
+                    return {
+                        startedAt: Date.now(),
+                        telegraphMs,
+                        fired: false,
+                        recoveryMs: 360,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (now < st.startedAt + st.telegraphMs) return;
+                            if (!st.fired) {
+                                b2.fireCrescentRain(7);
+                                st.fired = true;
+                            }
+                        },
+                        isDone: (b2) => b2.activeMove.fired
+                    };
+                }
+            },
+
+            // ---- Move: Crescent Spiral (sequential bloom) -----------------
+            {
+                id: 'crescentSpiral',
+                cooldown: 9000,
+                score: () => 1.0 + Math.random() * 0.4,
+                start: (b) => {
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    const telegraphMs = 320;
+                    b.telegraphs.push(createTelegraphAura(cx, cy, 60, telegraphMs, '#a0d8ff'));
+                    return {
+                        startedAt: Date.now(),
+                        telegraphMs,
+                        nextShotAt: 0,
+                        shotsFired: 0,
+                        totalShots: 14,
+                        currentAngle: Math.random() * Math.PI * 2,
+                        recoveryMs: 360,
+                        controlsMovement: true,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (now < st.startedAt + st.telegraphMs) {
+                                b2.vx *= 0.6; b2.vy *= 0.6;
+                                return;
+                            }
+                            if (st.nextShotAt === 0) st.nextShotAt = now;
+                            if (now >= st.nextShotAt && st.shotsFired < st.totalShots) {
+                                b2.fireCrescentSpiralOne(st.currentAngle, { tracking: 0.04 });
+                                st.currentAngle += Math.PI * 2 / 8; // 45deg/petal
+                                st.shotsFired++;
+                                st.nextShotAt = now + 70;
+                            }
+                        },
+                        isDone: (b2) => b2.activeMove.shotsFired >= b2.activeMove.totalShots
+                    };
+                }
+            },
+
+            // ---- Move: Crescent Arc (focused fan toward player) -----------
+            // Best when the player is at mid-range; punishes standing still.
+            {
+                id: 'crescentArc',
+                cooldown: 4500,
+                score: (ctx) => {
+                    let s = 1.3;
+                    if (ctx.dist >= 180 && ctx.dist <= 460) s += 0.5;
+                    return s + Math.random() * 0.3;
+                },
+                start: (b, ctx) => {
+                    const telegraphMs = 320;
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    // Telegraph: a small arrow toward the player so the fan is readable
+                    if (typeof createTelegraphArrow === 'function') {
+                        b.telegraphs.push(createTelegraphArrow(cx, cy,
+                            ctx.angleToPlayer, 110, telegraphMs, '#a0d8ff'));
+                    } else {
+                        b.telegraphs.push(createTelegraphAura(cx, cy, 50, telegraphMs, '#a0d8ff'));
+                    }
+                    return {
+                        startedAt: Date.now(),
+                        telegraphMs,
+                        fired: false,
+                        recoveryMs: 280,
+                        controlsMovement: true,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (now < st.startedAt + st.telegraphMs) {
+                                b2.vx *= 0.6; b2.vy *= 0.6;
+                                return;
+                            }
+                            if (!st.fired) {
+                                b2.fireCrescentArc(5, Math.PI / 3);
+                                st.fired = true;
+                            }
+                        },
+                        isDone: (b2) => b2.activeMove.fired
+                    };
+                }
+            },
+
+            // ---- Move: Crescent Volley (fast 3-shot down a line) ----------
+            // Aggressive close-range answer with strong tracking.
+            {
+                id: 'crescentVolley',
+                cooldown: 5500,
+                score: (ctx) => {
+                    let s = 1.1;
+                    if (ctx.dist < 280) s += 0.6;
+                    return s + Math.random() * 0.3;
+                },
+                start: (b) => {
+                    const telegraphMs = 220;
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    b.telegraphs.push(createTelegraphAura(cx, cy, 40, telegraphMs, '#cdeeff'));
+                    return {
+                        startedAt: Date.now(),
+                        telegraphMs,
+                        shots: 0,
+                        nextShotAt: 0,
+                        recoveryMs: 260,
+                        controlsMovement: true,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (now < st.startedAt + st.telegraphMs) {
+                                b2.vx *= 0.5; b2.vy *= 0.5;
+                                return;
+                            }
+                            if (st.nextShotAt === 0) st.nextShotAt = now;
+                            if (now >= st.nextShotAt && st.shots < 3) {
+                                b2.fireCrescentDirected({ tracking: 0.09, speedMult: 1.25 });
+                                st.shots++;
+                                st.nextShotAt = now + 110;
+                            }
+                        },
+                        isDone: (b2) => b2.activeMove.shots >= 3
+                    };
+                }
+            },
+
+            // ---- Move: Crescent Twin (two counter-rotating spirals) -------
+            // Heavier ranged tool; longer cooldown and bigger payoff.
+            {
+                id: 'crescentTwin',
+                cooldown: 12000,
+                score: () => 1.3 + Math.random() * 0.4,
+                start: (b) => {
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    const telegraphMs = 460;
+                    b.telegraphs.push(createTelegraphAura(cx, cy, 80, telegraphMs, '#80c0ff'));
+                    return {
+                        startedAt: Date.now(),
+                        telegraphMs,
+                        nextShotAt: 0,
+                        shots: 0,
+                        totalShots: 18,
+                        angleA: Math.random() * Math.PI * 2,
+                        angleB: Math.random() * Math.PI * 2,
+                        recoveryMs: 460,
+                        controlsMovement: true,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (now < st.startedAt + st.telegraphMs) {
+                                b2.vx *= 0.5; b2.vy *= 0.5;
+                                return;
+                            }
+                            if (st.nextShotAt === 0) st.nextShotAt = now;
+                            if (now >= st.nextShotAt && st.shots < st.totalShots) {
+                                b2.fireCrescentSpiralOne(st.angleA, { tracking: 0.035 });
+                                b2.fireCrescentSpiralOne(st.angleB, { tracking: 0.035 });
+                                st.angleA += Math.PI * 2 / 9;       // CCW
+                                st.angleB -= Math.PI * 2 / 9;       // CW (counter-rotating)
+                                st.shots += 2;
+                                st.nextShotAt = now + 90;
+                            }
+                        },
+                        isDone: (b2) => b2.activeMove.shots >= b2.activeMove.totalShots
+                    };
+                }
+            },
+
+            // ---- Move: Crescent Siege (4-corner ambush) -------------------
+            // Powerful low-HP punish; locks the player to mid-screen.
+            {
+                id: 'crescentSiege',
+                cooldown: 16000,
+                canUse: (ctx) => ctx.hpPct < 0.7,
+                score: (ctx) => {
+                    if (ctx.hpPct >= 0.7) return -10;
+                    return 1.4 + (0.7 - ctx.hpPct) * 1.2;
+                },
+                start: (b) => {
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    const telegraphMs = 620;
+                    b.telegraphs.push(createTelegraphAura(cx, cy, 110, telegraphMs, '#a0c8ff'));
+                    return {
+                        startedAt: Date.now(),
+                        telegraphMs,
+                        fired: false,
+                        recoveryMs: 460,
+                        controlsMovement: true,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (now < st.startedAt + st.telegraphMs) {
+                                b2.vx *= 0.4; b2.vy *= 0.4;
+                                return;
+                            }
+                            if (!st.fired) {
+                                b2.fireCrescentSiege(3);
+                                st.fired = true;
+                            }
+                        },
+                        isDone: (b2) => b2.activeMove.fired
+                    };
+                }
             }
         ];
     }
@@ -1391,29 +1652,33 @@ class SublimeMoon extends GameObject {
     // 检查回旋斩攻击
     checkSpinSlashAttack() {
         if (!game.player || this.isSpinSlashing) return;
-        
+
         const now = Date.now();
-        if (now - this.lastSpinSlash < this.spinSlashCooldown) return;
-        
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
-        
-        // 优先检查导弹防御：如果导弹靠近且瞬移冷却中，使用回旋斩打掉导弹
-        const isTeleportOnCooldown = (now - this.lastTeleport < this.teleportCooldown);
-        if (isTeleportOnCooldown && game.missiles && game.missiles.length > 0) {
+
+        // ---- Reactive missile defense -------------------------------------
+        // Missiles are a hard counter to a stationary boss; spin slash any
+        // missile that drifts inside `missileSlashRange`. This bypasses the
+        // normal slash cooldown (it has its own short cooldown so we don't
+        // flicker every frame) but still respects `isSpinSlashing`.
+        const missileSlashRange = 130;
+        const missileDefenseCd = 350; // ms between defensive slashes
+        const lastDef = this._lastMissileSlashAt || 0;
+        if (game.missiles && game.missiles.length > 0 && now - lastDef >= missileDefenseCd) {
             for (const missile of game.missiles) {
-                const distanceToMissile = Math.sqrt(
-                    Math.pow(missile.x - bossCenterX, 2) + 
-                    Math.pow(missile.y - bossCenterY, 2)
-                );
-                
-                // 导弹在120像素内且瞬移冷却时，立刻回旋斩
-                if (distanceToMissile <= 120) {
+                const dx = missile.x - bossCenterX;
+                const dy = missile.y - bossCenterY;
+                if (dx * dx + dy * dy <= missileSlashRange * missileSlashRange) {
+                    this._lastMissileSlashAt = now;
                     this.performSpinSlash();
-                    return; // 执行回旋斩后立即返回
+                    return;
                 }
             }
         }
+
+        // ---- Reactive melee against the player ----------------------------
+        if (now - this.lastSpinSlash < this.spinSlashCooldown) return;
         
         const slashTC = getBossTargetCenter(this.x + this.width / 2, this.y + this.height / 2);
         if (!slashTC) return;
@@ -1444,18 +1709,26 @@ class SublimeMoon extends GameObject {
         const bossCenterX = this.x + this.width / 2;
         const bossCenterY = this.y + this.height / 2;
         
-        // 回旋斩可以打掉范围内的导弹
+        // Spin slash detonates any missiles in range. Range matches the
+        // detection range used by checkSpinSlashAttack so the boss never
+        // commits to a slash without actually clearing the threat.
         if (game.missiles && game.missiles.length > 0) {
             for (let i = game.missiles.length - 1; i >= 0; i--) {
                 const missile = game.missiles[i];
-                const distanceToMissile = Math.sqrt(
-                    Math.pow(missile.x - bossCenterX, 2) + 
-                    Math.pow(missile.y - bossCenterY, 2)
-                );
-                
-                // 回旋斩可以摧毁更大范围内的导弹（120像素，与导弹检测范围一致）
-                if (distanceToMissile <= 120) {
-                    game.missiles.splice(i, 1); // 移除导弹
+                const dx = missile.x - bossCenterX;
+                const dy = missile.y - bossCenterY;
+                if (dx * dx + dy * dy <= 130 * 130) {
+                    // Visual: small ice burst where the missile pops
+                    if (typeof bossFX !== 'undefined') {
+                        bossFX.addFlash(missile.x, missile.y, 18, '#cdeeff', 220, 0.85);
+                        bossFX.spawnBurst(missile.x, missile.y, 8, {
+                            color: '#a0e0ff',
+                            speedMin: 1.5, speedMax: 4,
+                            sizeMin: 1.5, sizeMax: 2.5,
+                            lifeMs: 320, drag: 0.9
+                        });
+                    }
+                    game.missiles.splice(i, 1);
                 }
             }
         }
@@ -1707,6 +1980,86 @@ class SublimeMoon extends GameObject {
         // Delay homing so the spiral shape is visible before petals curve in
         cb.trackingStrength = (opts.tracking != null) ? opts.tracking : 0.04;
         game.crescentBullets.push(cb);
+    }
+
+    // === Variant: crescent arc (focused fan toward player) ===================
+    // Telegraphs an arc, then fires `count` bullets in a fan within `spreadRad`
+    // centered on the player direction. Slightly faster than baseline.
+    fireCrescentArc(count = 5, spreadRad = Math.PI / 3) {
+        if (!game.player) return;
+        if (!game.crescentBullets) game.crescentBullets = [];
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const tc = getBossTargetCenter(cx, cy);
+        if (!tc) return;
+        const aimAngle = Math.atan2(tc.y - cy, tc.x - cx);
+        const launchDistance = this.width / 2 + 12;
+        for (let i = 0; i < count; i++) {
+            const t = count === 1 ? 0.5 : i / (count - 1);
+            const a = aimAngle - spreadRad / 2 + spreadRad * t;
+            const lx = cx + Math.cos(a) * launchDistance;
+            const ly = cy + Math.sin(a) * launchDistance;
+            const tx = lx + Math.cos(a) * 280;
+            const ty = ly + Math.sin(a) * 280;
+            const cb = new CrescentBullet(lx, ly, tx, ty,
+                this.crescentBulletDamage, this.crescentBulletSpeed * 1.1);
+            // Tighter tracking on outer petals so the fan converges on the player
+            const edgeWeight = Math.abs(t - 0.5) * 2; // 0 center, 1 edges
+            cb.trackingStrength = 0.05 + 0.04 * edgeWeight;
+            game.crescentBullets.push(cb);
+        }
+        bossFX.addShockwave(cx, cy, 12, 60, '#a0e0ff', 320, 3, 0.7);
+    }
+
+    // === Variant: directed volley (rapid 3-shot down a line at player) =======
+    // Single shot per call along the aimed direction with strong tracking.
+    // Used by the volley move which calls this 3 times spaced ~110ms apart.
+    fireCrescentDirected(opts = {}) {
+        if (!game.player) return;
+        if (!game.crescentBullets) game.crescentBullets = [];
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const tc = getBossTargetCenter(cx, cy);
+        if (!tc) return;
+        const aim = Math.atan2(tc.y - cy, tc.x - cx);
+        const launchDistance = this.width / 2 + 12;
+        const lx = cx + Math.cos(aim) * launchDistance;
+        const ly = cy + Math.sin(aim) * launchDistance;
+        const cb = new CrescentBullet(lx, ly, tc.x, tc.y,
+            this.crescentBulletDamage,
+            this.crescentBulletSpeed * (opts.speedMult != null ? opts.speedMult : 1.2));
+        cb.trackingStrength = (opts.tracking != null) ? opts.tracking : 0.09;
+        game.crescentBullets.push(cb);
+        bossFX.addFlash(lx, ly, 14, '#cdeeff', 180, 0.85);
+    }
+
+    // === Variant: siege from the four corners ================================
+    // Spawns `perCorner` bullets near each corner of the play field, all
+    // homing in on the player. Forces the player toward open space.
+    fireCrescentSiege(perCorner = 3) {
+        if (!game.player) return;
+        if (!game.crescentBullets) game.crescentBullets = [];
+        const tc = getBossTargetCenter(this.x + this.width / 2, this.y + this.height / 2);
+        if (!tc) return;
+        const corners = [
+            { x: 40, y: 40 },
+            { x: GAME_CONFIG.WIDTH - 40, y: 40 },
+            { x: 40, y: GAME_CONFIG.HEIGHT - 40 },
+            { x: GAME_CONFIG.WIDTH - 40, y: GAME_CONFIG.HEIGHT - 40 }
+        ];
+        for (const c of corners) {
+            for (let i = 0; i < perCorner; i++) {
+                // Slight scatter around each corner so the wave isn't a single point
+                const ox = c.x + (Math.random() - 0.5) * 24;
+                const oy = c.y + (Math.random() - 0.5) * 24;
+                const cb = new CrescentBullet(ox, oy, tc.x, tc.y,
+                    this.crescentBulletDamage,
+                    this.crescentBulletSpeed * 0.9);
+                cb.trackingStrength = 0.05;
+                game.crescentBullets.push(cb);
+            }
+            bossFX.addFlash(c.x, c.y, 18, '#a0e0ff', 260, 0.8);
+        }
     }
     
     // 检查分身召唤
