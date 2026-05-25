@@ -1337,6 +1337,7 @@ class HiveSplinter extends GameObject {
         if (typeof bossFX !== 'undefined' && bossFX.addFlash) {
             bossFX.addFlash(cx, cy, 22, '#caa8ff', 200, 0.6);
         }
+    }
 
     takeDamage(damage, source) {
         damage = (typeof applyOverdriveBoost === 'function') ? applyOverdriveBoost(damage, source) : damage;

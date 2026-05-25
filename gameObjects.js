@@ -43,15 +43,23 @@ class GameObject {
 
 // 子弹类
 class Bullet extends GameObject {
-    constructor(x, y, direction, speed, damage, range) {
+    constructor(x, y, direction, speed, damage, range, options = {}) {
         super(x, y, 4, 4, '#FFD700');
         this.direction = direction;
         this.speed = speed;
         this.damage = damage;
+        this.baseDamage = damage;
         this.maxRange = range;
         this.distanceTraveled = 0;
         this.startX = x;
         this.startY = y;
+
+        // Optional damage falloff: linearly scale damage from
+        // baseDamage at falloffStart distance down to baseDamage*minMul
+        // at falloffEnd distance. If not provided, damage stays flat.
+        this.falloffStart = options.falloffStart || 0;
+        this.falloffEnd = options.falloffEnd || 0;
+        this.falloffMinMul = (options.falloffMinMul != null) ? options.falloffMinMul : 1;
         
         // 根据角度设置速度
         const angleRad = direction * Math.PI / 180;
@@ -67,6 +75,21 @@ class Bullet extends GameObject {
             Math.pow(this.x - this.startX, 2) + 
             Math.pow(this.y - this.startY, 2)
         );
+
+        // Apply distance-based damage falloff if configured.
+        if (this.falloffEnd > this.falloffStart) {
+            const d = this.distanceTraveled;
+            let mul;
+            if (d <= this.falloffStart) {
+                mul = 1;
+            } else if (d >= this.falloffEnd) {
+                mul = this.falloffMinMul;
+            } else {
+                const t = (d - this.falloffStart) / (this.falloffEnd - this.falloffStart);
+                mul = 1 + (this.falloffMinMul - 1) * t;
+            }
+            this.damage = Math.max(1, Math.round(this.baseDamage * mul));
+        }
         
         // 超出射程或边界则标记为销毁
         if (this.distanceTraveled > this.maxRange || 

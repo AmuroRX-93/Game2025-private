@@ -17,7 +17,8 @@ class Game {
             { type: 'cluster_missile', name: t('weapon.cluster_missile'), color: '#FFD700', desc: t('weaponDesc.cluster_missile') },
             { type: 'laser_rifle', name: t('weapon.laser_rifle'), color: '#FF4444', desc: t('weaponDesc.laser_rifle') },
             { type: 'shotgun', name: t('weapon.shotgun'), color: '#ff9040', desc: t('weaponDesc.shotgun') },
-            { type: 'rocket_launcher', name: t('weapon.rocket_launcher'), color: '#ff7030', desc: t('weaponDesc.rocket_launcher') }
+            { type: 'rocket_launcher', name: t('weapon.rocket_launcher'), color: '#ff7030', desc: t('weaponDesc.rocket_launcher') },
+            { type: 'minigun', name: t('weapon.minigun'), color: '#d4a040', desc: t('weaponDesc.minigun') }
         ];
         const shoulderWeaponOptions = [
             { type: 'missile_launcher', name: t('weapon.missile_launcher'), color: '#FFD700', desc: t('weaponDesc.missile_launcher') },
@@ -120,6 +121,7 @@ class Game {
         this.plasmaFields = [];
         this.clusterMissiles = [];
         this.decoys = [];
+        this.damageNumbers = [];
         this.boss = null;
     }
 
@@ -196,14 +198,83 @@ class Game {
             }
         }
     }
+
+    // ===== Training Ground =====
+    // We keep TARGET_COUNT dummies alive at all times. When one
+    // dies it's removed by the regular enemy update loop, and a
+    // short-delayed timer (handled in update()) walks the count
+    // back up so the player always has something to shoot.
+    get _trainingTargetCount() { return 5; }
+    get _trainingRespawnDelay() { return 250; } // ms after a death
+
+    spawnTrainingDummies() {
+        this.enemies = this.enemies.filter(e => !(e && e.isTrainingDummy));
+        for (let i = 0; i < this._trainingTargetCount; i++) {
+            this.enemies.push(this._makeTrainingDummy());
+        }
+        this._trainingNextRespawnAt = 0;
+    }
+
+    _makeTrainingDummy() {
+        const margin = 80;
+        const W = GAME_CONFIG.WIDTH;
+        const H = GAME_CONFIG.HEIGHT;
+        // Avoid spawning on top of the player.
+        let x, y, tries = 0;
+        do {
+            x = margin + Math.random() * (W - margin * 2);
+            y = margin + Math.random() * (H - margin * 2);
+            tries++;
+            if (!this.player) break;
+            const dx = x - (this.player.x + this.player.width / 2);
+            const dy = y - (this.player.y + this.player.height / 2);
+            if (dx * dx + dy * dy >= 220 * 220) break;
+        } while (tries < 8);
+        return new TrainingDummy(x, y);
+    }
+
+    _maintainTrainingDummies() {
+        if (gameState.selectedGameMode !== 'TRAINING') return;
+        const live = this.enemies.filter(e => e && e.isTrainingDummy).length;
+        const need = this._trainingTargetCount - live;
+        if (need <= 0) {
+            this._trainingNextRespawnAt = 0;
+            return;
+        }
+        const now = Date.now();
+        if (!this._trainingNextRespawnAt) {
+            this._trainingNextRespawnAt = now + this._trainingRespawnDelay;
+            return;
+        }
+        if (now >= this._trainingNextRespawnAt) {
+            // Respawn one dummy per tick until we hit the cap; the
+            // gentle stagger keeps replacements from popping in as
+            // a single cluster.
+            this.enemies.push(this._makeTrainingDummy());
+            this._trainingNextRespawnAt = now + this._trainingRespawnDelay;
+        }
+    }
     
     selectGameMode(gameMode) {
         gameState.selectedGameMode = gameMode;
         gameState.showModeSelection = false;
-        
+
+        if (gameMode === 'TRAINING') {
+            // Training Ground has no level select — go straight to
+            // weapon config so the pilot can pick a loadout.
+            gameState.selectedLevel = null;
+            gameState.showLevelSelection = false;
+            gameState.showWeaponConfig = true;
+            this.enemies = [];
+            this.boss = null;
+            gameState.bossSpawned = false;
+            updateUI();
+            return;
+        }
+
         gameState.showLevelSelection = true;
         gameState.levelScrollOffset = 0;
-        
+
         updateUI();
     }
     
@@ -237,6 +308,11 @@ class Game {
         // 如果是Boss战模式，根据选中的关卡生成Boss
         if (gameState.selectedGameMode === 'BOSS_BATTLE' && gameState.selectedLevel) {
             this.spawnBossForLevel(gameState.selectedLevel);
+        }
+
+        // 训练场模式：生成初始假人靶
+        if (gameState.selectedGameMode === 'TRAINING') {
+            this.spawnTrainingDummies();
         }
         
         // 清除所有键盘状态，确保游戏开始时角色不会不由自主移动
@@ -695,6 +771,12 @@ class Game {
 
         // Boss FX system tick (particles, flashes, screen shake decay)
         if (typeof bossFX !== 'undefined') bossFX.update();
+
+        // Training Ground: keep the dummy population topped up.
+        this._maintainTrainingDummies();
+
+        // Floating damage numbers (lifetime-based fade).
+        if (typeof updateDamageNumbers === 'function') updateDamageNumbers();
     }
 
     draw() {
@@ -856,6 +938,10 @@ class Game {
         this.drawBoomerangHitEffects();
         // FX overlay (particles, flashes, shockwaves) on top of world; pops shake.
         if (typeof bossFX !== 'undefined') bossFX.postDraw(this.ctx);
+
+        // Floating damage numbers — drawn after the world FX so
+        // they always sit on top and stay readable.
+        if (typeof drawDamageNumbers === 'function') drawDamageNumbers(this.ctx);
         } catch (e) {
             console.error('游戏绘制错误:', e);
             this.ctx.restore();
@@ -928,6 +1014,15 @@ class Game {
             labelLetterSpacing: 2
         });
 
+        // Training ground button
+        by += btnH + gap;
+        this.trainingButton = uiDrawButton(ctx, btnX, by, btnW, btnH, t('menu.startTraining'), {
+            accentColor: '#5fa3ff',
+            subLabel: t('menu.startTrainingDesc'),
+            labelFont: `bold 24px ${UI_THEME.font.display}`,
+            labelLetterSpacing: 2
+        });
+
         // Customize mech button
         by += btnH + gap;
         this.customButton = uiDrawButton(ctx, btnX, by, btnW, btnH, t('menu.customizeMech'), {
@@ -971,7 +1066,6 @@ class Game {
         uiDrawScanlines(ctx, W, H);
 
         // Clear stale buttons from other screens
-        this.trainingButton = null;
         this.backButton = null;
         this.mainMenuButton = null;
         this.pauseButton = null;
@@ -2796,7 +2890,12 @@ class Game {
                 this.selectGameMode('BOSS_BATTLE');
                 return true;
             }
-            
+
+            if (this.trainingButton && this.isButtonClicked(this.trainingButton, mouseX, mouseY)) {
+                this.selectGameMode('TRAINING');
+                return true;
+            }
+
             if (this.customButton && this.isButtonClicked(this.customButton, mouseX, mouseY)) {
                 this.showMechCustomization();
                 return true;

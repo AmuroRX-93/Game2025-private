@@ -347,7 +347,7 @@ class Boss extends GameObject {
     }
     
     // === Combat AI: utility-driven move selector ============================
-    
+        
     updateCombatAI() {
         if (!game.player) return;
         const now = Date.now();
@@ -506,7 +506,64 @@ class Boss extends GameObject {
                     };
                 }
             },
-            // ---- Move 3: Red Dash ----
+            // ---- Move 2.5: Square Plasma Barrage ----
+            // Three oversized plasma missiles enter from each of the four
+            // arena edges (top/bottom/left/right) and chase the player.
+            // Heavy damage; missiles explode into hostile plasma fields on
+            // detonation. Visually distinct: thick orb-tipped warhead.
+            {
+                id: 'squareBarrage',
+                cooldown: 9000,
+                canUse: (ctx) => true,
+                score: (ctx) => {
+                    let s = 1.0;
+                    if (ctx.dist > 200) s += 0.4;
+                    if (ctx.hpPct < 0.6) s += 0.4;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    const telegraphMs = 700;
+                    const fireMs = 250;
+                    const startedAt = Date.now();
+                    const W = GAME_CONFIG.WIDTH;
+                    const H = GAME_CONFIG.HEIGHT;
+                    // Pre-compute spawn slots for the telegraph: 3 evenly
+                    // spaced points along each edge, mirrored when firing.
+                    const slots = []; // { x, y, dirX, dirY }
+                    for (let i = 0; i < 3; i++) {
+                        const t = (i + 1) / 4; // 0.25, 0.5, 0.75
+                        slots.push({ x: W * t, y: -20,     dirX: 0, dirY: 1 });   // top -> down
+                        slots.push({ x: W * t, y: H + 20,  dirX: 0, dirY: -1 });  // bottom -> up
+                        slots.push({ x: -20,    y: H * t,  dirX: 1, dirY: 0 });   // left -> right
+                        slots.push({ x: W + 20, y: H * t,  dirX: -1, dirY: 0 });  // right -> left
+                    }
+                    // Telegraph: short beam pointing inward at each spawn
+                    // point so the player sees the incoming corridor.
+                    const beamLen = 110;
+                    for (const s of slots) {
+                        const ex = s.x + s.dirX * beamLen;
+                        const ey = s.y + s.dirY * beamLen;
+                        b.telegraphs.push(createTelegraphBeam(s.x, s.y, ex, ey, 18, telegraphMs, '#ff3060'));
+                    }
+                    return {
+                        startedAt,
+                        telegraphMs,
+                        fireMs,
+                        totalMs: telegraphMs + fireMs,
+                        recoveryMs: 450,
+                        slots,
+                        fired: false,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (!st.fired && now >= st.startedAt + st.telegraphMs) {
+                                boss._fireSquareBarrage(st.slots);
+                                st.fired = true;
+                            }
+                        },
+                        isDone: (b2, now) => now - b2.activeMove.startedAt >= b2.activeMove.totalMs
+                    };
+                }
+            },
             // Telegraphs a red arrow, then dashes through player at high speed.
             {
                 id: 'redDash',
@@ -783,13 +840,15 @@ class Boss extends GameObject {
         const launchDist = this.width / 2 + 10;
         const launchX = cx + Math.cos(angle) * launchDist;
         const launchY = cy + Math.sin(angle) * launchDist;
-        const m = new Missile(launchX, launchY, playerCX, playerCY, this.missileDamage + 2, this.missileSpeed * 1.05);
+        const m = new Missile(launchX, launchY, playerCX, playerCY, this.missileDamage + 6, this.missileSpeed * 1.05);
         m.isBossMissile = true;
         m.isBossMissileDelayed = true;
         m.bossMissileType = 'homing';
         m.delayStartTime = Date.now();
         m.delayDuration = 120;
-        m.guideRange = 800;
+        m.guideRange = 1600;
+        m.enhancedHoming = true;
+        m.size = 1.35; // visually thicker than salvo missiles
         if (!game.bossMissiles) game.bossMissiles = [];
         game.bossMissiles.push(m);
 
@@ -809,12 +868,63 @@ class Boss extends GameObject {
             bossFX.addShake(3, 160);
         }
     }
+
+    _fireSquareBarrage(slots) {
+        if (!game.player) return;
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const tc = (typeof getBossTargetCenter === 'function')
+            ? getBossTargetCenter(cx, cy) : null;
+        const playerCX = tc ? tc.x : (game.player.x + game.player.width / 2);
+        const playerCY = tc ? tc.y : (game.player.y + game.player.height / 2);
+        const speed = this.missileSpeed * 0.85; // hefty plasma orbs are slower
+        const dmg = this.missileDamage + 4;
+
+        for (const s of slots) {
+            // Initial heading is straight inward from the edge so the
+            // telegraph beam matches the launch direction; the
+            // PlasmaMissile's own homing kicks in shortly after.
+            // We aim toward the player's current position at fire
+            // time so the inward sweep matches what was telegraphed.
+            const targetX = playerCX;
+            const targetY = playerCY;
+            const m = new PlasmaMissile(s.x, s.y, targetX, targetY, speed, {
+                hostile: true,
+                fuseRadius: 80,
+                fieldRadius: 110,
+                fieldDuration: 2200,
+                fieldDamageInterval: 250,
+                fieldDamage: 4,
+                contactDamage: dmg,
+                armingDelay: 250
+            });
+            // Tag so the missile can be visually drawn as a boss
+            // projectile (PlasmaMissile.draw checks `bossOwned`).
+            m.bossOwned = true;
+            if (!game.plasmaMissiles) game.plasmaMissiles = [];
+            game.plasmaMissiles.push(m);
+
+            const ang = Math.atan2(s.dirY, s.dirX);
+            bossFX.spawnBurst(s.x, s.y, 12, {
+                color: '#ff4070',
+                speedMin: 2, speedMax: 5.5,
+                sizeMin: 2, sizeMax: 3.5,
+                lifeMs: 480,
+                spreadAngle: Math.PI / 4,
+                baseAngle: ang,
+                drag: 0.9
+            });
+            bossFX.addFlash(s.x, s.y, 28, '#ff80a0', 240, 0.85);
+        }
+        bossFX.addFlash(cx, cy, 120, '#ff3060', 360, 0.9);
+        bossFX.addShockwave(cx, cy, 24, 200, '#ff3060', 600, 5, 0.7);
+        bossFX.addShake(6, 280);
+    }
     
     _fireGridBarrage(vLanesX, hLanesY) {
         const W = GAME_CONFIG.WIDTH;
         const H = GAME_CONFIG.HEIGHT;
         const speed = 22;
-        const gridDamage = this.missileDamage + 4;
         // Each lane spawns one beam-bullet that travels its full length.
         // Vertical lanes alternate up/down so pairs of adjacent lanes can't
         // be safely sandwiched.
@@ -823,12 +933,11 @@ class Boss extends GameObject {
             const goingDown = i % 2 === 0;
             const startY = goingDown ? -20 : H + 20;
             const endY = goingDown ? H + 20 : -20;
-            const m = new Missile(lx, startY, lx, endY, gridDamage, speed);
+            const m = new Missile(lx, startY, lx, endY, this.missileDamage, speed);
             m.isBossMissile = true;
             m.isBossMissileDelayed = false;
             m.bossMissileType = 'grid';
             m.guideRange = 0;
-            m.size = 2.2; // oversized plasma warhead
             if (!game.bossMissiles) game.bossMissiles = [];
             game.bossMissiles.push(m);
             const axisAngle = goingDown ? Math.PI / 2 : -Math.PI / 2;
@@ -847,12 +956,11 @@ class Boss extends GameObject {
             const goingRight = i % 2 === 0;
             const startX = goingRight ? -20 : W + 20;
             const endX = goingRight ? W + 20 : -20;
-            const m = new Missile(startX, ly, endX, ly, gridDamage, speed);
+            const m = new Missile(startX, ly, endX, ly, this.missileDamage, speed);
             m.isBossMissile = true;
             m.isBossMissileDelayed = false;
             m.bossMissileType = 'grid';
             m.guideRange = 0;
-            m.size = 2.2;
             if (!game.bossMissiles) game.bossMissiles = [];
             game.bossMissiles.push(m);
             const axisAngle = goingRight ? 0 : Math.PI;
@@ -1232,7 +1340,7 @@ class Boss extends GameObject {
     drawThrusterFlames(ctx) {
         const isMoving = this.vx !== 0 || this.vy !== 0;
         if (!isMoving) return;
-
+        
         const moveAngle = Math.atan2(this.vy, this.vx);
         const thrusterAngle = moveAngle + Math.PI; // flame points opposite movement
         const dodging = !!this.isDodging;

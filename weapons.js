@@ -1411,15 +1411,15 @@ class Missile {
         // 检查碰撞
         this.checkCollisions();
 
-        // Crimson King grid plasma missiles use a proximity fuse so the
-        // warhead detonates near the player instead of skimming past them.
-        if (this.isBossMissile && this.bossMissileType === 'grid' &&
+        // Crimson King square plasma missiles use a proximity fuse so the
+        // hefty warhead detonates near the player instead of skimming past.
+        if (this.isBossMissile && this.bossMissileType === 'square' &&
             !this.shouldDestroy && game.player && !game.player.isUntargetable) {
             const px = game.player.x + game.player.width / 2;
             const py = game.player.y + game.player.height / 2;
             const dx = px - this.x;
             const dy = py - this.y;
-            const fuse = 70;
+            const fuse = 60;
             if (dx * dx + dy * dy < fuse * fuse) {
                 this.explode();
             }
@@ -1571,8 +1571,10 @@ class Missile {
         
         // 计算飞行时间
         const elapsedTime = Date.now() - this.startTime;
-        const strongTrackingDuration = this.strongTrackingDuration || 1100; // 前1.1秒强追踪（超级导弹为4.1秒）
-        const fadeOutDuration = this.isSuperMissile ? 1000 : 500; // 超级导弹渐变时间更长
+        const strongTrackingDuration = this.enhancedHoming
+            ? 2200
+            : (this.strongTrackingDuration || 1100); // 前1.1秒强追踪（超级导弹为4.1秒）
+        const fadeOutDuration = this.isSuperMissile ? 1000 : (this.enhancedHoming ? 900 : 500); // 超级导弹渐变时间更长
         
         // 计算追踪强度
         let trackingStrength = 0;
@@ -1600,7 +1602,10 @@ class Missile {
         const distance = Math.sqrt(dx * dx + dy * dy);
         
         if (distance > 0) {
-            const baseTurnRate = this.isClusterChild ? 0.28 : 0.15;
+            let baseTurnRate;
+            if (this.isClusterChild) baseTurnRate = 0.28;
+            else if (this.enhancedHoming) baseTurnRate = 0.32; // crimson king homing missile
+            else baseTurnRate = 0.15;
             const turnRate = baseTurnRate * trackingStrength;
             
             const newVx = (dx / distance) * this.currentSpeed;
@@ -1710,7 +1715,13 @@ class Missile {
                     gameState.totalDamage += actualDamage;
                 
                 if (isDead) {
-                    if (enemy instanceof Boss || enemy instanceof SublimeMoon || enemy instanceof UglyEmperor || enemy instanceof Magnus || enemy instanceof HiveMind) {
+                    const isBossEntity =
+                        (typeof Boss !== 'undefined' && enemy instanceof Boss) ||
+                        (typeof SublimeMoon !== 'undefined' && enemy instanceof SublimeMoon) ||
+                        (typeof UglyEmperor !== 'undefined' && enemy instanceof UglyEmperor) ||
+                        (typeof Magnus !== 'undefined' && enemy instanceof Magnus) ||
+                        (typeof HiveMind !== 'undefined' && enemy instanceof HiveMind);
+                    if (isBossEntity) {
                         handleBossKill();
                     } else {
                         const enemyIndex = game.enemies.indexOf(enemy);
@@ -1727,22 +1738,20 @@ class Missile {
         // 创建爆炸效果
         this.createExplosion();
 
-        // Crimson King grid barrage: leave a large hostile plasma field
-        // wherever the warhead detonates (collision with the player or
-        // proximity-fused). Persists much longer than the player's plasma
-        // fields and ticks heavy damage. We skip the detonation if the
-        // missile drifted off-screen so we don't litter the arena edges.
-        if (this.isBossMissile && this.bossMissileType === 'grid') {
+        // Crimson King square plasma missile: leaves a hostile plasma field
+        // at the impact site. Larger and longer-lived than the player's
+        // plasma missile field so it forces the player to displace.
+        if (this.spawnHostilePlasma) {
             const margin = 30;
             const inArena = this.x > -margin && this.x < GAME_CONFIG.WIDTH + margin &&
                             this.y > -margin && this.y < GAME_CONFIG.HEIGHT + margin;
-            if (inArena) {
+            if (inArena && typeof PlasmaField !== 'undefined') {
                 const fx = Math.max(40, Math.min(GAME_CONFIG.WIDTH - 40, this.x));
                 const fy = Math.max(40, Math.min(GAME_CONFIG.HEIGHT - 40, this.y));
                 if (!game.plasmaFields) game.plasmaFields = [];
-                game.plasmaFields.push(new PlasmaField(fx, fy, 130, {
-                    duration: 4000,
-                    damageInterval: 200,
+                game.plasmaFields.push(new PlasmaField(fx, fy, 110, {
+                    duration: 2500,
+                    damageInterval: 250,
                     damage: 4,
                     hostile: true,
                     palette: 'crimson'
@@ -1776,12 +1785,24 @@ class Missile {
         // Pick a palette scheme keyed off the missile flavor.
         let scheme = 'gold';                  // player default
         let trailCol = '#ffd060';
+        let bodyAccent = null; // optional body tint for boss missiles
         if (this.isSuperMissile || this.isReversed) { scheme = 'violet'; trailCol = '#c080ff'; }
         else if (this.bossType === 'sublime_moon') { scheme = 'azure'; trailCol = '#80c0ff'; }
         else if (this.isBossMissile || this.bossType === 'crimson_king') {
             scheme = 'crimson';
             const bmType = this.bossMissileType;
-            trailCol = bmType === 'homing' ? '#ff8040' : (bmType === 'grid' || bmType === 'cross' ? '#ff5060' : '#ff4040');
+            if (bmType === 'homing') {
+                trailCol = '#ffb040';      // amber/orange — laser-guided seeker
+                bodyAccent = '#ff7020';
+            } else if (bmType === 'square') {
+                trailCol = '#ff60a0';      // pink-magenta — heavy plasma orb
+                bodyAccent = '#ff2080';
+            } else if (bmType === 'grid' || bmType === 'cross') {
+                trailCol = '#ff5060';
+            } else {
+                trailCol = '#ff4040';      // salvo: pure crimson
+                bodyAccent = '#cc1010';
+            }
         }
 
         const size = this.size || 1;
@@ -1840,55 +1861,114 @@ class Missile {
         ctx.translate(this.x, this.y);
         ctx.rotate(angle);
 
-        const bodyW = 10 * size;
-        const bodyH = 5 * size;
-        // Body shell with subtle highlight stripe
-        const bodyGrad = ctx.createLinearGradient(0, -bodyH / 2, 0, bodyH / 2);
-        bodyGrad.addColorStop(0, '#cccccc');
-        bodyGrad.addColorStop(0.4, '#888');
-        bodyGrad.addColorStop(0.6, '#555');
-        bodyGrad.addColorStop(1, '#222');
-        ctx.fillStyle = bodyGrad;
-        ctx.beginPath();
-        // Slight rounded rectangle
-        const r = bodyH * 0.4;
-        ctx.moveTo(-bodyW / 2 + r, -bodyH / 2);
-        ctx.lineTo(bodyW / 2 - r, -bodyH / 2);
-        ctx.quadraticCurveTo(bodyW / 2, -bodyH / 2, bodyW / 2, -bodyH / 2 + r);
-        ctx.lineTo(bodyW / 2, bodyH / 2 - r);
-        ctx.quadraticCurveTo(bodyW / 2, bodyH / 2, bodyW / 2 - r, bodyH / 2);
-        ctx.lineTo(-bodyW / 2 + r, bodyH / 2);
-        ctx.quadraticCurveTo(-bodyW / 2, bodyH / 2, -bodyW / 2, bodyH / 2 - r);
-        ctx.lineTo(-bodyW / 2, -bodyH / 2 + r);
-        ctx.quadraticCurveTo(-bodyW / 2, -bodyH / 2, -bodyW / 2 + r, -bodyH / 2);
-        ctx.closePath();
-        ctx.fill();
+        const bmType = this.bossMissileType;
+        if (bmType === 'square') {
+            // Big plasma orb warhead — no metal shell, just a layered
+            // glowing core with a swirling halo. Stands out clearly from
+            // the salvo / homing missiles.
+            ctx.globalCompositeOperation = 'lighter';
+            const orbR = 9 * size;
+            // Outer halo
+            const haloGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, orbR * 2.2);
+            haloGrad.addColorStop(0, 'rgba(255,180,210,0.0)');
+            haloGrad.addColorStop(0.45, 'rgba(255,80,150,0.55)');
+            haloGrad.addColorStop(1, 'rgba(255,30,80,0)');
+            ctx.fillStyle = haloGrad;
+            ctx.beginPath(); ctx.arc(0, 0, orbR * 2.2, 0, Math.PI * 2); ctx.fill();
+            // Core orb
+            const coreGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, orbR);
+            coreGrad.addColorStop(0, '#ffffff');
+            coreGrad.addColorStop(0.25, '#ffe0f0');
+            coreGrad.addColorStop(0.55, trailCol);
+            coreGrad.addColorStop(1, 'rgba(180,0,40,0)');
+            ctx.fillStyle = coreGrad;
+            ctx.beginPath(); ctx.arc(0, 0, orbR, 0, Math.PI * 2); ctx.fill();
+            // Spinning energy ring
+            const tnow = Date.now() * 0.012;
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.strokeStyle = `rgba(255,255,255,0.8)`;
+            ctx.lineWidth = 1.4;
+            ctx.beginPath();
+            for (let i = 0; i < 8; i++) {
+                const a = tnow + i * (Math.PI / 4);
+                const rx = Math.cos(a) * orbR * 0.85;
+                const ry = Math.sin(a) * orbR * 0.85;
+                if (i === 0) ctx.moveTo(rx, ry); else ctx.lineTo(rx, ry);
+            }
+            ctx.closePath();
+            ctx.stroke();
+            // Bright pinpoint
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath(); ctx.arc(0, 0, orbR * 0.25, 0, Math.PI * 2); ctx.fill();
+        } else {
+            const bodyW = 10 * size;
+            const bodyH = 5 * size;
+            // Body shell with subtle highlight stripe
+            const bodyGrad = ctx.createLinearGradient(0, -bodyH / 2, 0, bodyH / 2);
+            bodyGrad.addColorStop(0, '#cccccc');
+            bodyGrad.addColorStop(0.4, '#888');
+            bodyGrad.addColorStop(0.6, '#555');
+            bodyGrad.addColorStop(1, '#222');
+            ctx.fillStyle = bodyGrad;
+            ctx.beginPath();
+            // Slight rounded rectangle
+            const r = bodyH * 0.4;
+            ctx.moveTo(-bodyW / 2 + r, -bodyH / 2);
+            ctx.lineTo(bodyW / 2 - r, -bodyH / 2);
+            ctx.quadraticCurveTo(bodyW / 2, -bodyH / 2, bodyW / 2, -bodyH / 2 + r);
+            ctx.lineTo(bodyW / 2, bodyH / 2 - r);
+            ctx.quadraticCurveTo(bodyW / 2, bodyH / 2, bodyW / 2 - r, bodyH / 2);
+            ctx.lineTo(-bodyW / 2 + r, bodyH / 2);
+            ctx.quadraticCurveTo(-bodyW / 2, bodyH / 2, -bodyW / 2, bodyH / 2 - r);
+            ctx.lineTo(-bodyW / 2, -bodyH / 2 + r);
+            ctx.quadraticCurveTo(-bodyW / 2, -bodyH / 2, -bodyW / 2 + r, -bodyH / 2);
+            ctx.closePath();
+            ctx.fill();
 
-        // Fins
-        ctx.fillStyle = '#444';
-        ctx.beginPath();
-        ctx.moveTo(-bodyW / 2, -bodyH / 2);
-        ctx.lineTo(-bodyW / 2 - 3 * size, -bodyH);
-        ctx.lineTo(-bodyW / 2 + 1 * size, -bodyH / 2);
-        ctx.closePath();
-        ctx.fill();
-        ctx.beginPath();
-        ctx.moveTo(-bodyW / 2, bodyH / 2);
-        ctx.lineTo(-bodyW / 2 - 3 * size, bodyH);
-        ctx.lineTo(-bodyW / 2 + 1 * size, bodyH / 2);
-        ctx.closePath();
-        ctx.fill();
+            // Boss-missile body accent: colored stripe along the spine so
+            // salvo (deep red) and homing (amber) read differently at a
+            // glance.
+            if (bodyAccent) {
+                ctx.fillStyle = bodyAccent;
+                ctx.fillRect(-bodyW / 2 + 1, -bodyH * 0.18, bodyW - 2, bodyH * 0.36);
+                if (bmType === 'homing') {
+                    // Small fin tip lights for the seeker missile
+                    ctx.fillStyle = '#fff0a0';
+                    ctx.beginPath();
+                    ctx.arc(-bodyW / 2 - 2 * size, -bodyH * 0.85, 0.9 * size, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.arc(-bodyW / 2 - 2 * size, bodyH * 0.85, 0.9 * size, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
 
-        // Glowing nose cone
-        ctx.globalCompositeOperation = 'lighter';
-        const noseGrad = ctx.createRadialGradient(bodyW / 2, 0, 0, bodyW / 2, 0, bodyH * 1.6);
-        noseGrad.addColorStop(0, '#ffffff');
-        noseGrad.addColorStop(0.5, trailCol);
-        noseGrad.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = noseGrad;
-        ctx.beginPath();
-        ctx.arc(bodyW / 2, 0, bodyH * 1.6, 0, Math.PI * 2);
-        ctx.fill();
+            // Fins
+            ctx.fillStyle = '#444';
+            ctx.beginPath();
+            ctx.moveTo(-bodyW / 2, -bodyH / 2);
+            ctx.lineTo(-bodyW / 2 - 3 * size, -bodyH);
+            ctx.lineTo(-bodyW / 2 + 1 * size, -bodyH / 2);
+            ctx.closePath();
+            ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(-bodyW / 2, bodyH / 2);
+            ctx.lineTo(-bodyW / 2 - 3 * size, bodyH);
+            ctx.lineTo(-bodyW / 2 + 1 * size, bodyH / 2);
+            ctx.closePath();
+            ctx.fill();
+
+            // Glowing nose cone
+            ctx.globalCompositeOperation = 'lighter';
+            const noseGrad = ctx.createRadialGradient(bodyW / 2, 0, 0, bodyW / 2, 0, bodyH * 1.6);
+            noseGrad.addColorStop(0, '#ffffff');
+            noseGrad.addColorStop(0.5, trailCol);
+            noseGrad.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = noseGrad;
+            ctx.beginPath();
+            ctx.arc(bodyW / 2, 0, bodyH * 1.6, 0, Math.PI * 2);
+            ctx.fill();
+        }
 
         ctx.restore();
     }
@@ -2830,15 +2910,15 @@ class RepairProtocol extends Weapon {
         ctx.restore();
     }
 
-    getCurrentStatusText() {
+    getStatus() {
         if (this.isActive) {
             const remaining = Math.max(0,
                 (this.duration - (Date.now() - this.activationTime)) / 1000);
             return { text: t('ws.repairActive', remaining.toFixed(1)), color: '#60ff90' };
         }
-        const cdRemaining = Math.max(0, (this.cooldown - (Date.now() - this.lastUseTime)) / 1000);
+        const cdRemaining = this.getCooldownRemaining();
         if (cdRemaining > 0) {
-            return { text: t('ws.cooldownRemaining', cdRemaining.toFixed(1)), color: '#888888' };
+            return { text: t('ws.cooldown', (cdRemaining / 1000).toFixed(1)), color: '#CC6666' };
         }
         return { text: t('ws.ready'), color: '#00FF88' };
     }
@@ -2958,15 +3038,15 @@ class OverdriveBurst extends Weapon {
         ctx.restore();
     }
 
-    getCurrentStatusText() {
+    getStatus() {
         if (this.isActive) {
             const remaining = Math.max(0,
                 (this.duration - (Date.now() - this.activationTime)) / 1000);
             return { text: t('ws.overdriveActive', remaining.toFixed(1)), color: '#ff4040' };
         }
-        const cdRemaining = Math.max(0, (this.cooldown - (Date.now() - this.lastUseTime)) / 1000);
+        const cdRemaining = this.getCooldownRemaining();
         if (cdRemaining > 0) {
-            return { text: t('ws.cooldownRemaining', cdRemaining.toFixed(1)), color: '#888888' };
+            return { text: t('ws.cooldown', (cdRemaining / 1000).toFixed(1)), color: '#CC6666' };
         }
         return { text: t('ws.ready'), color: '#00FF88' };
     }
@@ -3978,7 +4058,7 @@ class PlasmaField {
 
 // 电浆飞弹类 - 近炸引信
 class PlasmaMissile {
-    constructor(x, y, targetX, targetY, speed = 10) {
+    constructor(x, y, targetX, targetY, speed = 10, options = {}) {
         this.x = x;
         this.y = y;
         this.targetX = targetX;
@@ -3986,15 +4066,30 @@ class PlasmaMissile {
         this.maxSpeed = speed;
         this.currentSpeed = speed * 0.6;
         this.shouldDestroy = false;
+
+        // Hostile mode: boss-launched plasma missile that homes on
+        // the player and leaves a hostile crimson plasma field
+        // when it detonates. Same flight + fuse logic as the
+        // player version.
+        this.hostile = !!options.hostile;
+        this.fuseRadius = options.fuseRadius || 55;
+        this.fieldRadius = options.fieldRadius || Math.round(this.fuseRadius * 1.3);
+        this.fieldDuration = options.fieldDuration || 1500;
+        this.fieldDamageInterval = options.fieldDamageInterval || 250;
+        this.fieldDamage = options.fieldDamage || 4;
+        this.contactDamage = options.contactDamage || 0; // hostile: damage to player on detonate
+
+        // Arming delay: real proximity-fused missiles arm only
+        // after they have flown clear of the launcher. Without
+        // this the missile can detonate on frame 0 against a
+        // friendly/training target standing next to the player.
+        this.armingDelay = options.armingDelay !== undefined ? options.armingDelay : 250;
         
-        this.fuseRadius = 55;
-        this.fieldRadius = Math.round(this.fuseRadius * 1.3);
-        
-        this.maxLifetime = 3000;
+        this.maxLifetime = options.maxLifetime || (this.hostile ? 5000 : 3000);
         this.startTime = Date.now();
         this.trackingRadius = 160;
         this.currentTarget = null;
-        this.strongTrackingDuration = 1100;
+        this.strongTrackingDuration = options.strongTrackingDuration || (this.hostile ? 3000 : 1100);
         this.accelerationDuration = 300;
         
         this.trail = [];
@@ -4014,6 +4109,13 @@ class PlasmaMissile {
     
     update() {
         if (Date.now() - this.startTime > this.maxLifetime) {
+            // Hostile (boss) plasma missiles silently expire on
+            // timeout — we don't want them carpeting the arena
+            // edges with hostile fields when they overshoot.
+            if (this.hostile) {
+                this.shouldDestroy = true;
+                return;
+            }
             this.detonate();
             return;
         }
@@ -4034,6 +4136,13 @@ class PlasmaMissile {
         
         if (this.x < -20 || this.x > GAME_CONFIG.WIDTH + 20 ||
             this.y < -20 || this.y > GAME_CONFIG.HEIGHT + 20) {
+            // Same rule for OOB hostile missiles — silently
+            // disappear instead of dropping a plasma field at the
+            // wall.
+            if (this.hostile) {
+                this.shouldDestroy = true;
+                return;
+            }
             this.detonate();
             return;
         }
@@ -4053,6 +4162,21 @@ class PlasmaMissile {
     }
     
     findTarget() {
+        if (this.hostile) {
+            // Hostile plasma missile homes only on the player.
+            if (game.player && !game.player.isUntargetable) {
+                const elapsedTime = Date.now() - this.startTime;
+                const trackingRadius = elapsedTime <= this.strongTrackingDuration ? 1600 : 600;
+                const dx = (game.player.x + game.player.width / 2) - this.x;
+                const dy = (game.player.y + game.player.height / 2) - this.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                this.currentTarget = (distance < trackingRadius) ? game.player : null;
+            } else {
+                this.currentTarget = null;
+            }
+            return;
+        }
+
         const elapsedTime = Date.now() - this.startTime;
         let trackingRadius;
         if (elapsedTime <= this.strongTrackingDuration) {
@@ -4129,6 +4253,23 @@ class PlasmaMissile {
     }
     
     checkProximity() {
+        // Don't trigger the proximity fuse during the arming
+        // delay — otherwise enemies (or training dummies) standing
+        // right next to the player make every shot self-detonate
+        // on frame zero.
+        if (Date.now() - this.startTime < this.armingDelay) return;
+
+        if (this.hostile) {
+            // Detonate near the player.
+            if (!game.player || game.player.isUntargetable) return;
+            const dx = (game.player.x + game.player.width / 2) - this.x;
+            const dy = (game.player.y + game.player.height / 2) - this.y;
+            if (dx * dx + dy * dy < this.fuseRadius * this.fuseRadius) {
+                this.detonate();
+            }
+            return;
+        }
+
         const allEnemies = [...game.enemies];
         if (game.boss && game.boss.health > 0 && !game.boss.notTargetable) {
             allEnemies.push(game.boss);
@@ -4148,17 +4289,40 @@ class PlasmaMissile {
     
     detonate() {
         if (this.shouldDestroy) return;
-        
+
         if (!game.plasmaFields) game.plasmaFields = [];
-        game.plasmaFields.push(new PlasmaField(this.x, this.y, this.fieldRadius));
-        
+        if (this.hostile) {
+            // Hostile plasma field damages the player and uses the
+            // crimson palette so it reads visually distinct from
+            // friendly cyan fields.
+            game.plasmaFields.push(new PlasmaField(this.x, this.y, this.fieldRadius, {
+                duration: this.fieldDuration,
+                damageInterval: this.fieldDamageInterval,
+                damage: this.fieldDamage,
+                hostile: true,
+                palette: 'crimson'
+            }));
+            // Direct contact damage on detonation (hostile only).
+            if (this.contactDamage > 0 && game.player && !game.player.isUntargetable) {
+                const dx = (game.player.x + game.player.width / 2) - this.x;
+                const dy = (game.player.y + game.player.height / 2) - this.y;
+                if (dx * dx + dy * dy < this.fuseRadius * this.fuseRadius * 1.4 * 1.4) {
+                    if (typeof game.player.takeDamage === 'function') {
+                        game.player.takeDamage(this.contactDamage);
+                    }
+                }
+            }
+        } else {
+            game.plasmaFields.push(new PlasmaField(this.x, this.y, this.fieldRadius));
+        }
+
         if (!game.explosions) game.explosions = [];
         game.explosions.push({
             x: this.x,
             y: this.y,
             startTime: Date.now(),
             duration: 350,
-            isBossMissile: false,
+            isBossMissile: !!this.hostile,
             isSuperMissile: false,
             explosionRadius: this.fuseRadius,
             isPlasma: true
@@ -4170,13 +4334,24 @@ class PlasmaMissile {
     draw(ctx) {
         const angle = Math.atan2(this.vy, this.vx);
 
+        // Color palette: cyan for friendly plasma missiles, hot
+        // pink for the Crimson King's hostile orbs.
+        const haloCol = this.hostile ? '#ff80a0' : '#80ffe0';
+        const bodyCol1 = this.hostile ? '#ffb0c8' : '#9adcd0';
+        const bodyCol2 = this.hostile ? '#a02040' : '#287a70';
+        const bodyCol3 = this.hostile ? '#400010' : '#003030';
+        const noseInner = '#ffffff';
+        const noseMid = this.hostile ? '#ff60a0' : '#80ffe0';
+        const noseOuter = this.hostile ? 'rgba(180,0,40,0)' : 'rgba(0,150,140,0)';
+        const flameScheme = this.hostile ? 'crimson' : 'azure';
+
         // Glowing additive trail
         if (this.trail && this.trail.length > 1) {
             ctx.save();
             ctx.globalCompositeOperation = 'lighter';
             ctx.lineCap = 'round';
             // Halo
-            ctx.strokeStyle = '#80ffe0';
+            ctx.strokeStyle = haloCol;
             for (let i = 1; i < this.trail.length; i++) {
                 const t = i / this.trail.length;
                 ctx.globalAlpha = 0.45 * t;
@@ -4208,7 +4383,7 @@ class PlasmaMissile {
                 angle: angle + Math.PI,
                 length: 16, width: 6,
                 intensity: 0.8,
-                scheme: 'azure',
+                scheme: flameScheme,
                 spawnEmbers: true,
                 emberDensity: 0.3,
                 id: (this._fxId = this._fxId || Math.floor(Math.random() * 100))
@@ -4219,17 +4394,20 @@ class PlasmaMissile {
         ctx.save();
         ctx.translate(this.x, this.y);
         ctx.rotate(angle);
+        // Hostile orbs are visibly chunkier than friendly missiles.
+        const sx = this.hostile ? 1.7 : 1.0;
+        ctx.scale(sx, sx);
         const bodyGrad = ctx.createLinearGradient(0, -3, 0, 3);
-        bodyGrad.addColorStop(0, '#9adcd0');
-        bodyGrad.addColorStop(0.5, '#287a70');
-        bodyGrad.addColorStop(1, '#003030');
+        bodyGrad.addColorStop(0, bodyCol1);
+        bodyGrad.addColorStop(0.5, bodyCol2);
+        bodyGrad.addColorStop(1, bodyCol3);
         ctx.fillStyle = bodyGrad;
         ctx.fillRect(-6, -2.5, 12, 5);
         ctx.globalCompositeOperation = 'lighter';
         const noseGrad = ctx.createRadialGradient(6, 0, 0, 6, 0, 8);
-        noseGrad.addColorStop(0, '#ffffff');
-        noseGrad.addColorStop(0.5, '#80ffe0');
-        noseGrad.addColorStop(1, 'rgba(0,150,140,0)');
+        noseGrad.addColorStop(0, noseInner);
+        noseGrad.addColorStop(0.5, noseMid);
+        noseGrad.addColorStop(1, noseOuter);
         ctx.fillStyle = noseGrad;
         ctx.beginPath(); ctx.arc(6, 0, 8, 0, Math.PI * 2); ctx.fill();
         ctx.restore();
@@ -4767,6 +4945,184 @@ class ShotgunPellet extends Bullet {
 
 // ============================================================
 // Shotgun: cone-spread pellet weapon, damage falls off with distance.
+// ============================================================
+// ============================================================
+// Minigun: hand-held rotary cannon. Massive 200-round drum, each
+// round hits twice as hard as the Auto Rifle, but the long belt
+// takes 4× the rifle's reload time to swap. Spins up before
+// firing, with a slight cone of inaccuracy and continuous muzzle
+// flash for the rotating-barrel feel.
+// ============================================================
+class Minigun extends Weapon {
+    constructor() {
+        super({
+            type: 'minigun',
+            name: '加特林',
+            damage: 12, // 2× the Auto Rifle's 6 dmg
+            cooldown: 0
+        });
+
+        this.fireRate = 14; // rounds per second — high ROF
+        this.magazineSize = 200;
+        this.range = 32 * 50;
+        this.bulletSpeed = 26;
+
+        this.currentAmmo = this.magazineSize;
+        this.reloading = false;
+        this.reloadStartTime = 0;
+        this.reloadDuration = 45000; // long belt-feed reload — pay for the firepower
+
+        // Spin-up: barrel must rev up before reaching peak ROF.
+        this.spinUpDuration = 350;
+        this.spinUpStart = 0;
+        this.isSpinning = false;
+        this.spread = 4; // degrees of cone inaccuracy
+
+        // Distance-based damage falloff: full damage up close, decays
+        // to 30% at max range so the minigun rewards staying close.
+        this.falloffStart = 32 * 8;   // ~8 tiles: full damage band
+        this.falloffEnd = this.range; // fades all the way to max range
+        this.falloffMinMul = 0.3;     // 30% damage at the far end
+
+        this.lastMuzzleFlashTime = 0;
+        this.lastMuzzleAngle = 0;
+        this.barrelAngle = 0; // visual rotation
+    }
+
+    canUse() {
+        const now = Date.now();
+        const fireInterval = 1000 / this.fireRate;
+        return (now - this.lastUseTime >= fireInterval) && !this.reloading;
+    }
+
+    use(player) {
+        if (!this.canUse()) return false;
+
+        if (this.currentAmmo <= 0) {
+            if (!this.reloading) this.reload();
+            return false;
+        }
+
+        const now = Date.now();
+        // Track spin-up: if we haven't fired recently, restart the rev.
+        if (!this.isSpinning) {
+            this.isSpinning = true;
+            this.spinUpStart = now;
+        }
+
+        this.lastUseTime = now;
+        this.currentAmmo--;
+        if (this.currentAmmo <= 0) this.reload();
+
+        const bulletX = player.x + player.width / 2;
+        const bulletY = player.y + player.height / 2;
+
+        const aimAngle = this._calcAimAngle(player, bulletX, bulletY);
+        const jitter = (Math.random() - 0.5) * this.spread * 2;
+        const finalAngle = aimAngle + jitter;
+
+        const bullet = new Bullet(
+            bulletX, bulletY,
+            finalAngle,
+            this.bulletSpeed,
+            this.damage,
+            this.range,
+            {
+                falloffStart: this.falloffStart,
+                falloffEnd: this.falloffEnd,
+                falloffMinMul: this.falloffMinMul
+            }
+        );
+        game.bullets.push(bullet);
+
+        this.lastMuzzleFlashTime = now;
+        this.lastMuzzleAngle = finalAngle * Math.PI / 180;
+        return true;
+    }
+
+    _calcAimAngle(player, ox, oy) {
+        if (gameState.lockMode === 'manual') {
+            const tx = gameState.manualLockX || mouse.x;
+            const ty = gameState.manualLockY || mouse.y;
+            return Math.atan2(ty - oy, tx - ox) * 180 / Math.PI;
+        }
+        const tgt = player.getCurrentTarget();
+        if (!tgt) return player.direction;
+        const ex = tgt.x + tgt.width / 2;
+        const ey = tgt.y + tgt.height / 2;
+
+        const evx = tgt.vx || 0;
+        const evy = tgt.vy || 0;
+        const dx = ex - ox;
+        const dy = ey - oy;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const flightTime = dist / this.bulletSpeed;
+        const px = ex + evx * flightTime;
+        const py = ey + evy * flightTime;
+        return Math.atan2(py - oy, px - ox) * 180 / Math.PI;
+    }
+
+    reload() {
+        this.reloading = true;
+        this.reloadStartTime = Date.now();
+        this.isSpinning = false;
+    }
+
+    canReload() {
+        return !this.reloading && this.currentAmmo < this.magazineSize;
+    }
+
+    update(player) {
+        if (this.reloading) {
+            if (Date.now() - this.reloadStartTime >= this.reloadDuration) {
+                this.reloading = false;
+                this.currentAmmo = this.magazineSize;
+            }
+        }
+        // Drop spin if we haven't fired recently so the next burst rev-ups again.
+        if (this.isSpinning && Date.now() - this.lastUseTime > 250) {
+            this.isSpinning = false;
+        }
+        // Visual barrel spin: rotate faster while spinning, decay when idle.
+        if (this.isSpinning) {
+            this.barrelAngle += 0.6;
+        } else {
+            this.barrelAngle += 0.05;
+        }
+    }
+
+    draw(ctx, player) {
+        if (!this.lastMuzzleFlashTime) return;
+        const dt = Date.now() - this.lastMuzzleFlashTime;
+        if (dt > 70) return;
+        const fade = 1 - dt / 70;
+        const px = player.x + player.width / 2;
+        const py = player.y + player.height / 2;
+        const offset = player.width / 2 + 6;
+        const fx = px + Math.cos(this.lastMuzzleAngle) * offset;
+        const fy = py + Math.sin(this.lastMuzzleAngle) * offset;
+        if (typeof drawMuzzleFlash === 'function') {
+            drawMuzzleFlash(ctx, {
+                x: fx, y: fy,
+                angle: this.lastMuzzleAngle,
+                size: 20,
+                scheme: 'gold',
+                alpha: fade
+            });
+        }
+    }
+
+    getStatus() {
+        if (this.reloading) return { text: t('ws.reloading'), color: '#CC6666' };
+        if (this.currentAmmo === 0) return { text: t('ws.ammoEmpty'), color: '#CC6666' };
+        let statusText = t('ws.ammo', this.currentAmmo, this.magazineSize);
+        if (this.currentAmmo < this.magazineSize) statusText += t('ws.pressR');
+        return { text: statusText, color: 'white' };
+    }
+}
+
+// ============================================================
+// Shotgun: cone spread of pellets, magazine + reload, heavy boom.
 // ============================================================
 class Shotgun extends Weapon {
     constructor() {
@@ -5329,5 +5685,6 @@ WEAPON_TYPES.decoy_clone = DecoyClone;
 WEAPON_TYPES.moonlight_greatsword = MoonlightGreatsword;
 WEAPON_TYPES.shotgun = Shotgun;
 WEAPON_TYPES.rocket_launcher = RocketLauncher;
+WEAPON_TYPES.minigun = Minigun;
 WEAPON_TYPES.overdrive_burst = OverdriveBurst;
 WEAPON_TYPES.repair_protocol = RepairProtocol;

@@ -702,3 +702,232 @@ class EliteEnemy extends Enemy {
         }
     }
 }
+
+// ============================================================
+// TrainingDummy: a passive sandbag-style enemy used in the
+// Training Ground mode. It wanders harmlessly, never attacks the
+// player, never dodges, and pops a floating damage number every
+// time it is hit so the pilot can read each weapon's per-shot
+// damage at a glance. Dummies are respawned by the game loop a
+// short moment after they die.
+// ============================================================
+class TrainingDummy extends Enemy {
+    constructor(x, y) {
+        super(x, y);
+        this.maxHealth = 500;
+        this.health = this.maxHealth;
+        this.color = '#5a8de8'; // distinct cyan-blue so it reads as "friendly target"
+        this.width = 32;
+        this.height = 32;
+
+        // Disable all evasive behavior — the whole point is to
+        // be an honest punching bag.
+        this.dodgeChance = 0;
+        this.missileDodgeChance = 0;
+        this.bulletDodgeChance = 0;
+
+        // Slow, lazy wander.
+        this.changeDirectionTimer = 0;
+        this.directionChangeInterval = 80 + Math.random() * 60;
+        this.setRandomDirection();
+
+        // Identifier so the game loop can recount/respawn
+        // training dummies without confusing them with regular
+        // enemies that may exist for other reasons.
+        this.isTrainingDummy = true;
+    }
+
+    setRandomDirection() {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = GAME_CONFIG.ENEMY_SPEED * 0.55;
+        this.vx = Math.cos(angle) * speed;
+        this.vy = Math.sin(angle) * speed;
+        this.directionChangeInterval = 80 + Math.random() * 60;
+    }
+
+    // No dodging at all.
+    checkDodge() { /* intentionally empty */ }
+    checkBulletDodge() { /* intentionally empty */ }
+    checkMissileDodge() { /* intentionally empty */ }
+
+    // Training dummies should never lay mines — base Enemy.update()
+    // calls this every tick, but dummies are passive targets only.
+    checkMinePlacement() { /* intentionally empty */ }
+    placeMine() { /* intentionally empty */ }
+
+    takeDamage(damage) {
+        const boosted = (typeof applyOverdriveBoost === 'function') ? applyOverdriveBoost(damage) : damage;
+        this.health -= boosted;
+        // Pop a floating damage number above the dummy.
+        if (typeof spawnDamageNumber === 'function') {
+            spawnDamageNumber(
+                this.x + this.width / 2,
+                this.y,
+                boosted
+            );
+        }
+        return this.health <= 0;
+    }
+
+    update() {
+        if (this.isImpaled) {
+            super.update();
+            return;
+        }
+        if (this.stunned) {
+            const now = Date.now();
+            if (now >= this.stunEndTime) {
+                this.stunned = false;
+            } else {
+                this.vx = 0;
+                this.vy = 0;
+                super.update();
+                return;
+            }
+        }
+
+        this.changeDirectionTimer++;
+        if (this.changeDirectionTimer >= this.directionChangeInterval) {
+            this.setRandomDirection();
+            this.changeDirectionTimer = 0;
+        }
+
+        super.update();
+
+        // Bounce off arena edges so dummies stay in the ring.
+        if (this.x <= 0 || this.x + this.width >= GAME_CONFIG.WIDTH) {
+            this.vx = -this.vx;
+            this.x = Math.max(0, Math.min(this.x, GAME_CONFIG.WIDTH - this.width));
+        }
+        if (this.y <= 0 || this.y + this.height >= GAME_CONFIG.HEIGHT) {
+            this.vy = -this.vy;
+            this.y = Math.max(0, Math.min(this.y, GAME_CONFIG.HEIGHT - this.height));
+        }
+    }
+
+    draw(ctx) {
+        // Stunned outline (still useful so spear/EMP read clearly)
+        if (this.stunned) {
+            ctx.save();
+            ctx.globalAlpha = 0.6;
+            ctx.strokeStyle = '#FF0000';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.strokeRect(this.x - 2, this.y - 2, this.width + 4, this.height + 4);
+            ctx.setLineDash([]);
+            ctx.restore();
+        }
+
+        // Body — rounded square with a target-cross overlay so it
+        // reads instantly as a practice dummy rather than an enemy.
+        ctx.save();
+        ctx.fillStyle = this.color;
+        ctx.fillRect(this.x, this.y, this.width, this.height);
+
+        // Outer ring
+        ctx.strokeStyle = '#9bcaff';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(this.x + 1, this.y + 1, this.width - 2, this.height - 2);
+
+        // Bullseye cross
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.moveTo(cx - this.width * 0.32, cy);
+        ctx.lineTo(cx + this.width * 0.32, cy);
+        ctx.moveTo(cx, cy - this.height * 0.32);
+        ctx.lineTo(cx, cy + this.height * 0.32);
+        ctx.stroke();
+        // Center pip
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(cx, cy, 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        // Health bar (dummies have a lot of HP, so seeing it drain
+        // visibly while floating numbers fly is satisfying).
+        const barWidth = this.width;
+        const barHeight = 4;
+        const barY = this.y - 8;
+        ctx.fillStyle = 'rgba(40,40,40,0.85)';
+        ctx.fillRect(this.x, barY, barWidth, barHeight);
+        const ratio = Math.max(0, this.health / this.maxHealth);
+        ctx.fillStyle = ratio > 0.5 ? '#5fffa0' : (ratio > 0.2 ? '#ffd060' : '#ff6060');
+        ctx.fillRect(this.x, barY, barWidth * ratio, barHeight);
+
+        // Lock indicator if the player is targeting it.
+        if (game.player && (gameState.lockMode === 'soft' || gameState.lockMode === 'hard')) {
+            const lockedTarget = game.player.getCurrentTarget();
+            if (lockedTarget === this) {
+                this.drawLockIndicator(ctx);
+            }
+        }
+    }
+}
+
+// ============================================================
+// Floating damage numbers — used by the training dummies (and
+// safely callable from anywhere else if we want to surface
+// damage feedback elsewhere later).
+// ============================================================
+function spawnDamageNumber(x, y, amount) {
+    if (!game) return;
+    if (!game.damageNumbers) game.damageNumbers = [];
+    game.damageNumbers.push({
+        x: x + (Math.random() - 0.5) * 14,
+        y: y - 4,
+        vy: -1.4 - Math.random() * 0.6,
+        vx: (Math.random() - 0.5) * 0.6,
+        amount: Math.round(amount * 10) / 10,
+        born: Date.now(),
+        life: 850
+    });
+    // Cap to avoid runaway memory if the player aoes a crowd.
+    if (game.damageNumbers.length > 120) {
+        game.damageNumbers.splice(0, game.damageNumbers.length - 120);
+    }
+}
+
+function updateDamageNumbers() {
+    if (!game || !game.damageNumbers) return;
+    const now = Date.now();
+    for (let i = game.damageNumbers.length - 1; i >= 0; i--) {
+        const d = game.damageNumbers[i];
+        d.x += d.vx;
+        d.y += d.vy;
+        d.vy *= 0.96;
+        if (now - d.born >= d.life) {
+            game.damageNumbers.splice(i, 1);
+        }
+    }
+}
+
+function drawDamageNumbers(ctx) {
+    if (!game || !game.damageNumbers || game.damageNumbers.length === 0) return;
+    const now = Date.now();
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const d of game.damageNumbers) {
+        const t = (now - d.born) / d.life;
+        const fade = 1 - t;
+        if (fade <= 0) continue;
+        // Color tier: small white, mid gold, big red.
+        let color = '#ffffff';
+        if (d.amount >= 25) color = '#ff5050';
+        else if (d.amount >= 10) color = '#ffd040';
+        const size = 14 + Math.min(10, d.amount * 0.18);
+        ctx.font = `bold ${size}px ${UI_THEME && UI_THEME.font ? UI_THEME.font.display : 'Aldrich'}`;
+        ctx.globalAlpha = fade;
+        // Outline for readability over any background.
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+        ctx.strokeText(String(d.amount), d.x, d.y);
+        ctx.fillStyle = color;
+        ctx.fillText(String(d.amount), d.x, d.y);
+    }
+    ctx.restore();
+}

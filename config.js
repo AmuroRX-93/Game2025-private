@@ -5,13 +5,19 @@ const GAME_CONFIG = {
     ENEMY_SPEED: 2.5
 };
 
-// 游戏模式配置（现在只有Boss战模式）
+// 游戏模式配置
 const GAME_MODES = {
     BOSS_BATTLE: {
         name: 'Boss战模式',
         description: '挑战强大的Boss敌人',
         key: 'BOSS_BATTLE',
         color: '#FF4444'
+    },
+    TRAINING: {
+        name: '训练场',
+        description: '在不会反击的假人靶上熟悉武器',
+        key: 'TRAINING',
+        color: '#5fa3ff'
     }
 };
 
