@@ -974,7 +974,7 @@ class LaserSpear extends Weapon {
                     enemy.vx = chargeVx;
                     enemy.vy = chargeVy;
                 } else {
-                    if (enemy instanceof Boss || enemy instanceof SublimeMoon || enemy instanceof UglyEmperor) {
+                    if (enemy instanceof Boss || enemy instanceof SublimeMoon || enemy instanceof UglyEmperor || enemy instanceof Magnus) {
                         handleBossKill();
                     } else {
                         gameState.score += 10;
@@ -1576,7 +1576,7 @@ class Missile {
                     gameState.totalDamage += actualDamage;
                 
                 if (isDead) {
-                    if (enemy instanceof Boss || enemy instanceof SublimeMoon || enemy instanceof UglyEmperor) {
+                    if (enemy instanceof Boss || enemy instanceof SublimeMoon || enemy instanceof UglyEmperor || enemy instanceof Magnus) {
                         handleBossKill();
                     } else {
                         const enemyIndex = game.enemies.indexOf(enemy);

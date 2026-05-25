@@ -106,6 +106,8 @@ class Game {
         this.molotovs = [];
         this.chaosBullets = [];
         this.starDevourerBullets = [];
+        this.magnusBullets = [];
+        this.magnusShells = [];
         this.ciwsBullets = [];
         this.plasmaMissiles = [];
         this.plasmaFields = [];
@@ -165,6 +167,9 @@ class Game {
                         break;
                     case 'UglyEmperor':
                         this.boss = new UglyEmperor(randomPos.x, randomPos.y);
+                        break;
+                    case 'Magnus':
+                        this.boss = new Magnus(randomPos.x, randomPos.y);
                         break;
                     default:
                         console.warn(`未知的Boss类型: ${level.bossClass}`);
@@ -557,6 +562,23 @@ class Game {
                 }
             }
         }
+
+        // Magnus particle cannon shells / EMP wave bullets
+        if (this.magnusBullets) {
+            for (let i = this.magnusBullets.length - 1; i >= 0; i--) {
+                const b = this.magnusBullets[i];
+                b.update();
+                if (b.shouldDestroy) this.magnusBullets.splice(i, 1);
+            }
+        }
+        // Magnus artillery shells (lobbed AOE)
+        if (this.magnusShells) {
+            for (let i = this.magnusShells.length - 1; i >= 0; i--) {
+                const s = this.magnusShells[i];
+                s.update();
+                if (s.shouldDestroy) this.magnusShells.splice(i, 1);
+            }
+        }
         
         // 更新近防炮子弹
         if (this.ciwsBullets) {
@@ -706,6 +728,11 @@ class Game {
         if (this.starDevourerBullets) {
             this.starDevourerBullets.forEach(bullet => bullet.draw(this.ctx));
         }
+
+        // Magnus particle bullets + lobbed shells + detached shoulder pods
+        if (this.magnusBullets) this.magnusBullets.forEach(b => b.draw(this.ctx));
+        if (this.magnusShells) this.magnusShells.forEach(s => s.draw(this.ctx));
+        if (this.boss && this.boss instanceof Magnus) this.boss.drawShoulderPods(this.ctx);
         
         // 绘制近防炮子弹
         if (this.ciwsBullets) {
@@ -1563,59 +1590,155 @@ class Game {
             this.spinSlashEffects = [];
             return;
         }
-        
+
+        const now = Date.now();
+        const ctx = this.ctx;
+
         for (let i = this.spinSlashEffects.length - 1; i >= 0; i--) {
             const effect = this.spinSlashEffects[i];
-            const elapsed = Date.now() - effect.startTime;
-            
+            const elapsed = now - effect.startTime;
+
             if (elapsed > effect.duration) {
                 this.spinSlashEffects.splice(i, 1);
                 continue;
             }
-            
+
             const progress = elapsed / effect.duration;
-            const alpha = 1 - progress;
-            const radius = effect.radius * (1 + progress * 0.3);
-            
-            this.ctx.save();
-            this.ctx.globalAlpha = alpha;
-            
-            // 青蓝色回旋斩特效
-            const color = effect.phase === 1 ? '#4682B4' : '#00BFFF'; // 第一段钢蓝色，第二段深天蓝
-            
-            // 绘制旋转的斩击圆环
-            this.ctx.strokeStyle = color;
-            this.ctx.lineWidth = 4;
-            this.ctx.setLineDash([8, 4]); // 虚线效果
-            this.ctx.beginPath();
-            this.ctx.arc(effect.x, effect.y, radius, 0, Math.PI * 2);
-            this.ctx.stroke();
-            
-            // 绘制内部填充
-            this.ctx.fillStyle = `rgba(70, 130, 180, ${alpha * 0.3})`;
-            this.ctx.beginPath();
-            this.ctx.arc(effect.x, effect.y, radius * 0.7, 0, Math.PI * 2);
-            this.ctx.fill();
-            
-            // 绘制旋转的刀光效果
-            const rotation = (elapsed / 100) * Math.PI; // 旋转动画
-            for (let j = 0; j < 4; j++) { // 四条刀光
-                const angle = rotation + (j * Math.PI / 2);
-                const x1 = effect.x + Math.cos(angle) * (radius * 0.3);
-                const y1 = effect.y + Math.sin(angle) * (radius * 0.3);
-                const x2 = effect.x + Math.cos(angle) * radius;
-                const y2 = effect.y + Math.sin(angle) * radius;
-                
-                this.ctx.strokeStyle = '#00CCFF';
-                this.ctx.lineWidth = 2;
-                this.ctx.setLineDash([]);
-                this.ctx.beginPath();
-                this.ctx.moveTo(x1, y1);
-                this.ctx.lineTo(x2, y2);
-                this.ctx.stroke();
+            const ease = 1 - Math.pow(1 - progress, 2.4);
+            const fade = Math.pow(1 - progress, 1.4);
+            const radius = effect.radius * (0.85 + ease * 0.6);
+            const phase = effect.phase || 1;
+            const scheme = phase === 1 ? 'azure' : 'cyan';
+
+            const x = effect.x;
+            const y = effect.y;
+
+            // 1) Big radial impact flash (fades fast)
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            const flashAlpha = fade;
+            const flashGrad = ctx.createRadialGradient(x, y, radius * 0.1, x, y, radius * 1.15);
+            const haloRGB = phase === 1 ? '120,200,255' : '160,230,255';
+            flashGrad.addColorStop(0, `rgba(255,255,255,${0.55 * flashAlpha})`);
+            flashGrad.addColorStop(0.35, `rgba(${haloRGB},${0.5 * flashAlpha})`);
+            flashGrad.addColorStop(1, `rgba(${haloRGB},0)`);
+            ctx.fillStyle = flashGrad;
+            ctx.beginPath();
+            ctx.arc(x, y, radius * 1.15, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+
+            // 2) Multi-layer crescent slash arcs (use weapon FX helper if available)
+            // Two opposing arcs sweep around the boss to convey rotational slash.
+            const sweepDir = phase === 1 ? 1 : -1;
+            const sweep = Math.PI * 1.15 * (0.6 + ease * 0.4); // 沿圆周的扫过角度
+            const baseAngle = (phase === 1 ? -Math.PI / 4 : Math.PI / 4) +
+                              elapsed / 90 * sweepDir;
+            const thickness = (phase === 1 ? 8 : 11) * (1.0 - progress * 0.4);
+
+            for (let k = 0; k < 2; k++) {
+                const start = baseAngle + k * Math.PI;
+                const end = start + sweep * sweepDir;
+                if (typeof drawSlashArc === 'function') {
+                    drawSlashArc(ctx, {
+                        x, y,
+                        radius: radius * 0.92,
+                        startAngle: Math.min(start, end),
+                        endAngle: Math.max(start, end),
+                        thickness,
+                        scheme,
+                        alpha: 1,
+                        progress
+                    });
+                } else {
+                    ctx.save();
+                    ctx.globalCompositeOperation = 'lighter';
+                    ctx.globalAlpha = fade * 0.9;
+                    ctx.strokeStyle = phase === 1 ? '#80c8ff' : '#a8e8ff';
+                    ctx.lineWidth = thickness;
+                    ctx.lineCap = 'round';
+                    ctx.beginPath();
+                    ctx.arc(x, y, radius * 0.92, Math.min(start, end), Math.max(start, end));
+                    ctx.stroke();
+                    ctx.restore();
+                }
             }
-            
-            this.ctx.restore();
+
+            // 3) Outer expanding shock ring (additive, soft)
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.globalAlpha = fade * 0.7;
+            const ringR = radius * (0.95 + progress * 0.3);
+            ctx.strokeStyle = phase === 1 ? '#a0d8ff' : '#c0f0ff';
+            ctx.lineWidth = Math.max(1.5, 4 * fade);
+            ctx.beginPath();
+            ctx.arc(x, y, ringR, 0, Math.PI * 2);
+            ctx.stroke();
+            // Secondary thin ring offset behind
+            ctx.globalAlpha = fade * 0.4;
+            ctx.lineWidth = Math.max(1, 2 * fade);
+            ctx.beginPath();
+            ctx.arc(x, y, ringR * 0.85, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+
+            // 4) Bright inner core disc (diminishes quickly)
+            if (progress < 0.6) {
+                ctx.save();
+                ctx.globalCompositeOperation = 'lighter';
+                const coreAlpha = (0.6 - progress) * 1.6;
+                const coreGrad = ctx.createRadialGradient(x, y, 0, x, y, radius * 0.5);
+                coreGrad.addColorStop(0, `rgba(255,255,255,${coreAlpha})`);
+                coreGrad.addColorStop(0.6, `rgba(${haloRGB},${coreAlpha * 0.7})`);
+                coreGrad.addColorStop(1, `rgba(${haloRGB},0)`);
+                ctx.fillStyle = coreGrad;
+                ctx.beginPath();
+                ctx.arc(x, y, radius * 0.5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+
+            // 5) Radial slash streaks (sharp lines, only briefly visible)
+            if (progress < 0.55) {
+                const streakAlpha = (0.55 - progress) * 1.8;
+                ctx.save();
+                ctx.globalCompositeOperation = 'lighter';
+                ctx.globalAlpha = streakAlpha;
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2;
+                const streaks = 6;
+                const baseStreakAng = elapsed / 60 * sweepDir;
+                for (let s = 0; s < streaks; s++) {
+                    const a = baseStreakAng + (s / streaks) * Math.PI * 2;
+                    const r1 = radius * (0.45 + Math.random() * 0.1);
+                    const r2 = radius * (1.05 + Math.random() * 0.1);
+                    ctx.beginPath();
+                    ctx.moveTo(x + Math.cos(a) * r1, y + Math.sin(a) * r1);
+                    ctx.lineTo(x + Math.cos(a) * r2, y + Math.sin(a) * r2);
+                    ctx.stroke();
+                }
+                ctx.restore();
+            }
+
+            // One-time burst of impact sparks at slash creation (phase 2 = bigger)
+            if (!effect._sparked) {
+                effect._sparked = true;
+                if (typeof drawImpactSparks === 'function' && typeof bossFX !== 'undefined') {
+                    drawImpactSparks({
+                        x, y,
+                        count: phase === 1 ? 14 : 22,
+                        scheme,
+                        speed: phase === 1 ? 5 : 7,
+                        lifeMs: 460
+                    });
+                }
+                if (typeof bossFX !== 'undefined') {
+                    bossFX.addShockwave(x, y, radius * 0.35, radius * 1.0,
+                        phase === 1 ? '#80c8ff' : '#a8e8ff',
+                        300, phase === 1 ? 4 : 5, 0.6);
+                    bossFX.addShake(phase === 1 ? 3 : 5, phase === 1 ? 140 : 200);
+                }
+            }
         }
     }
     
@@ -1624,67 +1747,140 @@ class Game {
             this.teleportEffects = [];
             return;
         }
-        
+
+        const now = Date.now();
         for (let i = this.teleportEffects.length - 1; i >= 0; i--) {
             const effect = this.teleportEffects[i];
-            const elapsed = Date.now() - effect.startTime;
-            
+            const elapsed = now - effect.startTime;
+
             if (elapsed > effect.duration) {
                 this.teleportEffects.splice(i, 1);
                 continue;
             }
-            
-            const progress = elapsed / effect.duration;
-            const alpha = 1 - progress;
-            const radius = 30 + progress * 20; // 传送圆环扩散
-            
-            this.ctx.save();
-            this.ctx.globalAlpha = alpha;
-            
-            // 根据是否为丑皇的传送特效选择颜色
-            let strokeColor, fillColor;
-            if (effect.isUglyEmperor) {
-                // 丑皇：橙红色传送特效
-                strokeColor = '#FF4500';
-                fillColor = `rgba(255, 69, 0, ${alpha * 0.4})`;
-            } else {
-                // 其他Boss：青蓝色传送特效
-                strokeColor = '#00CCFF';
-                fillColor = `rgba(70, 130, 180, ${alpha * 0.3})`;
-            }
-            
-            // 传送圆环
-            this.ctx.strokeStyle = strokeColor;
-            this.ctx.lineWidth = 3;
-            this.ctx.setLineDash([5, 5]);
-            this.ctx.beginPath();
-            this.ctx.arc(effect.x, effect.y, radius, 0, Math.PI * 2);
-            this.ctx.stroke();
-            
-            // 内部光芒
-            this.ctx.fillStyle = fillColor;
-            this.ctx.beginPath();
-            this.ctx.arc(effect.x, effect.y, radius * 0.6, 0, Math.PI * 2);
-            this.ctx.fill();
-            
-            // 传送粒子效果
-            for (let j = 0; j < 8; j++) {
-                const angle = (Math.PI * 2 / 8) * j + progress * Math.PI;
-                const particleRadius = radius * 0.8;
-                const particleX = effect.x + Math.cos(angle) * particleRadius;
-                const particleY = effect.y + Math.sin(angle) * particleRadius;
-                
-                // 根据是否为丑皇的传送特效选择粒子颜色
-                if (effect.isUglyEmperor) {
-                    this.ctx.fillStyle = '#FF4500'; // 丑皇：橙红色粒子
-                } else {
-                    this.ctx.fillStyle = '#00CCFF'; // 其他Boss：青蓝色粒子
-                }
-                this.ctx.fillRect(particleX - 2, particleY - 2, 4, 4);
-            }
-            
-            this.ctx.restore();
+
+            this._drawTeleportEffect(effect, elapsed);
         }
+    }
+
+    // Modern, multi-layer teleport burst (replaces the old dashed-circle version).
+    // Two palettes: ember (UglyEmperor) and frost (everything else, e.g. SublimeMoon).
+    _drawTeleportEffect(effect, elapsed) {
+        const ctx = this.ctx;
+        const t = Math.min(1, elapsed / effect.duration);
+        const isArrival = effect.type === 'arrival';
+        // Departure: things contract toward a point and pop. Arrival: things
+        // explode outward from a point and settle. We invert progress for
+        // departure so visuals "implode" instead of "expand".
+        const p = isArrival ? t : t;       // for outward growth (rings, sparks)
+        const pIn = isArrival ? t : 1 - t; // for inward collapse layers
+        const fade = 1 - t;
+        const ease = (k) => 1 - (1 - k) * (1 - k); // easeOutQuad
+
+        // Scheme
+        const ember = !!effect.isUglyEmperor;
+        const C = ember
+            ? { hot: '#fff2c8', mid: '#ff8a3a', edge: '#ff4500', glow: 'rgba(255,140,40,', ring: '#ffb56b' }
+            : { hot: '#f0fbff', mid: '#9fd8ff', edge: '#3aa9ff', glow: 'rgba(120,200,255,', ring: '#bfeaff' };
+
+        ctx.save();
+
+        // ---- 1) Outer expanding shock ring (additive) -----------------------
+        ctx.globalCompositeOperation = 'lighter';
+        const ringR = (isArrival ? 12 + ease(p) * 56 : 60 - ease(t) * 50);
+        const ringAlpha = fade * 0.85;
+        const ringGrad = ctx.createRadialGradient(effect.x, effect.y, ringR * 0.6, effect.x, effect.y, ringR);
+        ringGrad.addColorStop(0, C.glow + '0)');
+        ringGrad.addColorStop(0.7, C.glow + (0.5 * fade).toFixed(3) + ')');
+        ringGrad.addColorStop(1, C.glow + '0)');
+        ctx.fillStyle = ringGrad;
+        ctx.beginPath();
+        ctx.arc(effect.x, effect.y, ringR, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Crisp inner ring stroke for definition
+        ctx.globalAlpha = ringAlpha;
+        ctx.strokeStyle = C.ring;
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.arc(effect.x, effect.y, ringR * 0.92, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+
+        // ---- 2) Bright core flash (very brief, peaks early) -----------------
+        const corePeak = isArrival ? Math.max(0, 1 - t * 1.6) : Math.max(0, 1 - (1 - t) * 1.6);
+        if (corePeak > 0) {
+            const coreR = 22 * corePeak + 6;
+            const coreGrad = ctx.createRadialGradient(effect.x, effect.y, 0, effect.x, effect.y, coreR);
+            coreGrad.addColorStop(0, C.hot);
+            coreGrad.addColorStop(0.4, C.mid);
+            coreGrad.addColorStop(1, C.glow + '0)');
+            ctx.fillStyle = coreGrad;
+            ctx.beginPath();
+            ctx.arc(effect.x, effect.y, coreR, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // ---- 3) Vertical light pillar (taller on arrival, fades fast) -------
+        const pillarLife = isArrival ? Math.max(0, 1 - t * 1.4) : Math.max(0, 1 - (1 - t) * 1.4);
+        if (pillarLife > 0) {
+            const pillarH = 110 * pillarLife;
+            const pillarW = 18 * pillarLife + 4;
+            const pillarGrad = ctx.createLinearGradient(effect.x, effect.y - pillarH, effect.x, effect.y + pillarH * 0.3);
+            pillarGrad.addColorStop(0, C.glow + '0)');
+            pillarGrad.addColorStop(0.5, C.glow + (0.55 * pillarLife).toFixed(3) + ')');
+            pillarGrad.addColorStop(1, C.glow + '0)');
+            ctx.fillStyle = pillarGrad;
+            ctx.fillRect(effect.x - pillarW / 2, effect.y - pillarH, pillarW, pillarH * 1.3);
+        }
+
+        // ---- 4) Radial sparks / shards --------------------------------------
+        const sparkCount = 10;
+        const sparkLen = (isArrival ? 14 + ease(p) * 28 : 6 + ease(1 - t) * 30);
+        ctx.lineWidth = 1.4;
+        for (let i = 0; i < sparkCount; i++) {
+            const seedAngle = (i / sparkCount) * Math.PI * 2 + (effect.startTime % 1000) * 0.001;
+            const wob = Math.sin((effect.startTime + i * 137) * 0.01 + t * 8) * 0.15;
+            const a = seedAngle + wob;
+            const r0 = isArrival ? 8 : sparkLen + 4;
+            const r1 = isArrival ? sparkLen + 8 : 8;
+            const x0 = effect.x + Math.cos(a) * r0;
+            const y0 = effect.y + Math.sin(a) * r0;
+            const x1 = effect.x + Math.cos(a) * r1;
+            const y1 = effect.y + Math.sin(a) * r1;
+            const lg = ctx.createLinearGradient(x0, y0, x1, y1);
+            lg.addColorStop(0, C.glow + '0)');
+            lg.addColorStop(0.5, C.hot);
+            lg.addColorStop(1, C.glow + '0)');
+            ctx.strokeStyle = lg;
+            ctx.globalAlpha = fade;
+            ctx.beginPath();
+            ctx.moveTo(x0, y0);
+            ctx.lineTo(x1, y1);
+            ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+
+        // ---- 5) Drifting particles (ember motes / ice flakes) ---------------
+        const motes = 14;
+        for (let i = 0; i < motes; i++) {
+            const seed = (i * 73 + (effect.startTime % 977)) * 0.01;
+            const a = (i / motes) * Math.PI * 2 + Math.sin(seed) * 0.4;
+            const r = (isArrival ? 6 + ease(p) * 46 : 50 - ease(t) * 44) + Math.cos(seed * 2) * 4;
+            const px = effect.x + Math.cos(a) * r;
+            const py = effect.y + Math.sin(a) * r - (isArrival ? 0 : t * 18);
+            const moteR = (1.4 + Math.sin(seed * 5) * 0.6) * (isArrival ? (1 - t * 0.4) : (1 - t));
+            if (moteR <= 0) continue;
+            const mg = ctx.createRadialGradient(px, py, 0, px, py, moteR * 3);
+            mg.addColorStop(0, C.hot);
+            mg.addColorStop(0.5, C.glow + (0.6 * fade).toFixed(3) + ')');
+            mg.addColorStop(1, C.glow + '0)');
+            ctx.fillStyle = mg;
+            ctx.beginPath();
+            ctx.arc(px, py, moteR * 3, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        ctx.restore();
     }
     
     drawBoomerangHitEffects() {
@@ -1965,6 +2161,7 @@ class Game {
         if (this.boss instanceof SublimeMoon) bossName = t('boss.SUBLIME_MOON');
         else if (this.boss instanceof StarDevourer) bossName = t('boss.STAR_DEVOURER');
         else if (this.boss instanceof UglyEmperor) bossName = t('boss.UGLY_EMPEROR');
+        else if (this.boss instanceof Magnus) bossName = t('boss.MAGNUS_EXEC');
 
         ctx.save();
         ctx.fillStyle = UI_THEME.color.danger;
@@ -2331,42 +2528,163 @@ class Game {
     }
     
     drawCrosshair() {
-        // 获取鼠标位置或手动锁定位置
-        const crosshairX = gameState.manualLockX || mouse.x;
-        const crosshairY = gameState.manualLockY || mouse.y;
-        
-        // 绘制准心
-        this.ctx.strokeStyle = '#FFD700';
-        this.ctx.lineWidth = 3;
-        this.ctx.setLineDash([]);
-        
-        // 外圆
-        this.ctx.beginPath();
-        this.ctx.arc(crosshairX, crosshairY, 20, 0, Math.PI * 2);
-        this.ctx.stroke();
-        
-        // 内圆
-        this.ctx.beginPath();
-        this.ctx.arc(crosshairX, crosshairY, 5, 0, Math.PI * 2);
-        this.ctx.stroke();
-        
-        // 十字线
-        this.ctx.beginPath();
-        // 水平线
-        this.ctx.moveTo(crosshairX - 30, crosshairY);
-        this.ctx.lineTo(crosshairX - 20, crosshairY);
-        this.ctx.moveTo(crosshairX + 20, crosshairY);
-        this.ctx.lineTo(crosshairX + 30, crosshairY);
-        // 垂直线
-        this.ctx.moveTo(crosshairX, crosshairY - 30);
-        this.ctx.lineTo(crosshairX, crosshairY - 20);
-        this.ctx.moveTo(crosshairX, crosshairY + 20);
-        this.ctx.lineTo(crosshairX, crosshairY + 30);
-        this.ctx.stroke();
-        
-        // 中心点
-        this.ctx.fillStyle = '#FFD700';
-        this.ctx.fillRect(crosshairX - 1, crosshairY - 1, 2, 2);
+        // Modern sci-fi HUD reticle:
+        //   - Outer rotating dashed ring (slow CW)
+        //   - Counter-rotating inner dash ring (CCW, faster)
+        //   - Four animated bracket corners that breathe inward/outward
+        //   - Inner static crosshair gap with thin tick marks
+        //   - Tiny center dot with glow
+        //   - Color shifts when locked vs free aim, and pulses while firing
+        const ctx = this.ctx;
+        const cx = gameState.manualLockX || mouse.x;
+        const cy = gameState.manualLockY || mouse.y;
+        const now = Date.now();
+        const t = now / 1000;
+
+        // Detect "locked" (right mouse held / locked target) — manualLockX/Y
+        // are non-zero while a target is locked. We pulse color in that case.
+        const isLocked = !!(gameState.manualLockX || gameState.manualLockY);
+        const isFiring = !!(typeof mouse !== 'undefined' && mouse.isDown);
+
+        const baseColor = isLocked ? '#FF4040' : '#FFD700';
+        const accentColor = isLocked ? '#ffb0b0' : '#fff5b0';
+        const dimColor = isLocked
+            ? 'rgba(255, 80, 80, 0.55)'
+            : 'rgba(255, 215, 0, 0.55)';
+
+        // Breathing offset (pulse in when firing, out when idle)
+        const breath = isFiring
+            ? -2 + Math.sin(now * 0.025) * 1.5
+            :  Math.sin(now * 0.004) * 1.8;
+
+        ctx.save();
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        // ---- Soft glow disk (subtle, additive) ------------------------
+        ctx.globalCompositeOperation = 'lighter';
+        const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, 30);
+        glow.addColorStop(0, isLocked ? 'rgba(255, 60, 60, 0.35)' : 'rgba(255, 215, 0, 0.32)');
+        glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 30, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalCompositeOperation = 'source-over';
+
+        // ---- Outer rotating dashed ring (slow CW) ---------------------
+        const outerR = 26;
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(t * 0.6);
+        ctx.strokeStyle = dimColor;
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([6, 6]);
+        ctx.beginPath();
+        ctx.arc(0, 0, outerR, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+
+        // ---- Inner counter-rotating dashed ring (faster CCW) ----------
+        const innerR = 16;
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(-t * 1.4);
+        ctx.strokeStyle = baseColor;
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.arc(0, 0, innerR, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+
+        // ---- 4 breathing corner brackets [ ] ┐ ┘ ----------------------
+        const bSize = 9;             // bracket leg length
+        const bDist = 22 + breath;   // distance from center
+        ctx.strokeStyle = baseColor;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        // Top-left
+        ctx.moveTo(cx - bDist, cy - bDist + bSize);
+        ctx.lineTo(cx - bDist, cy - bDist);
+        ctx.lineTo(cx - bDist + bSize, cy - bDist);
+        // Top-right
+        ctx.moveTo(cx + bDist - bSize, cy - bDist);
+        ctx.lineTo(cx + bDist, cy - bDist);
+        ctx.lineTo(cx + bDist, cy - bDist + bSize);
+        // Bottom-right
+        ctx.moveTo(cx + bDist, cy + bDist - bSize);
+        ctx.lineTo(cx + bDist, cy + bDist);
+        ctx.lineTo(cx + bDist - bSize, cy + bDist);
+        // Bottom-left
+        ctx.moveTo(cx - bDist + bSize, cy + bDist);
+        ctx.lineTo(cx - bDist, cy + bDist);
+        ctx.lineTo(cx - bDist, cy + bDist - bSize);
+        ctx.stroke();
+
+        // ---- Cross-hair tick marks (with center gap) ------------------
+        const tickGap = 6;
+        const tickLen = 6;
+        ctx.strokeStyle = accentColor;
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        // Top tick
+        ctx.moveTo(cx, cy - tickGap);
+        ctx.lineTo(cx, cy - tickGap - tickLen);
+        // Bottom tick
+        ctx.moveTo(cx, cy + tickGap);
+        ctx.lineTo(cx, cy + tickGap + tickLen);
+        // Left tick
+        ctx.moveTo(cx - tickGap, cy);
+        ctx.lineTo(cx - tickGap - tickLen, cy);
+        // Right tick
+        ctx.moveTo(cx + tickGap, cy);
+        ctx.lineTo(cx + tickGap + tickLen, cy);
+        ctx.stroke();
+
+        // ---- Tiny diagonal accent ticks at 45° (decoration) -----------
+        ctx.strokeStyle = dimColor;
+        ctx.lineWidth = 1;
+        const diagInner = innerR + 2;
+        const diagOuter = innerR + 6;
+        for (let i = 0; i < 4; i++) {
+            const a = Math.PI / 4 + i * Math.PI / 2;
+            ctx.beginPath();
+            ctx.moveTo(cx + Math.cos(a) * diagInner, cy + Math.sin(a) * diagInner);
+            ctx.lineTo(cx + Math.cos(a) * diagOuter, cy + Math.sin(a) * diagOuter);
+            ctx.stroke();
+        }
+
+        // ---- Center dot + halo ----------------------------------------
+        ctx.globalCompositeOperation = 'lighter';
+        const dotGlow = ctx.createRadialGradient(cx, cy, 0, cx, cy, 5);
+        dotGlow.addColorStop(0, '#ffffff');
+        dotGlow.addColorStop(0.5, baseColor);
+        dotGlow.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = dotGlow;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(cx, cy, 1.4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // ---- Locked indicator: small "LOCK" label below the reticle ---
+        if (isLocked) {
+            ctx.fillStyle = baseColor;
+            ctx.font = `bold 10px ${UI_THEME && UI_THEME.font ? UI_THEME.font.mono : 'monospace'}`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillText('● LOCK', cx, cy + 36);
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'alphabetic';
+        }
+
+        ctx.restore();
     }
     
     isButtonClicked(button, mouseX, mouseY) {
@@ -2692,9 +3010,95 @@ class Game {
     }
     
     drawBlindnessEffect() {
-        // 绘制纯黑色的失明遮挡（无透明度）
-        this.ctx.fillStyle = '#000000';
-        this.ctx.fillRect(0, 0, GAME_CONFIG.WIDTH, GAME_CONFIG.HEIGHT);
+        // TV static "snow" jam effect — replaces the old all-black screen.
+        // Multi-layer composite:
+        //   1) Dark backing (lets the world bleed through faintly)
+        //   2) Per-frame procedural noise via a small offscreen canvas (cheap)
+        //   3) Rolling scanline distortion bands
+        //   4) Vignette + chromatic edge flicker for "broken signal" feel
+        const ctx = this.ctx;
+        const W = GAME_CONFIG.WIDTH;
+        const H = GAME_CONFIG.HEIGHT;
+        const now = Date.now();
+
+        // 1) Dark backing — heavy but not opaque so the player can sense
+        //    motion shapes underneath. Adjust alpha to taste.
+        ctx.save();
+        ctx.fillStyle = 'rgba(8, 8, 12, 0.82)';
+        ctx.fillRect(0, 0, W, H);
+
+        // 2) Procedural noise. We render to a tiny offscreen canvas (1/4 res)
+        //    then upscale — keeps it fast and gives chunky retro pixels.
+        if (!this._noiseCanvas) {
+            this._noiseCanvas = document.createElement('canvas');
+            this._noiseCanvas.width = 240;
+            this._noiseCanvas.height = 135;
+            this._noiseCtx = this._noiseCanvas.getContext('2d');
+            this._noiseImageData = this._noiseCtx.createImageData(
+                this._noiseCanvas.width, this._noiseCanvas.height);
+        }
+        const nc = this._noiseCanvas;
+        const nctx = this._noiseCtx;
+        const idata = this._noiseImageData;
+        const buf = idata.data;
+        // Fill with white-noise grayscale + occasional bright sparks
+        for (let i = 0; i < buf.length; i += 4) {
+            const v = (Math.random() * 255) | 0;
+            const spark = Math.random() < 0.012 ? 255 : v;
+            buf[i] = spark;
+            buf[i + 1] = spark;
+            buf[i + 2] = spark;
+            buf[i + 3] = 200 + ((Math.random() * 55) | 0);
+        }
+        nctx.putImageData(idata, 0, 0);
+        ctx.globalCompositeOperation = 'screen';   // additive-ish over the dark backing
+        ctx.globalAlpha = 0.85;
+        ctx.imageSmoothingEnabled = false;          // chunky pixels
+        ctx.drawImage(nc, 0, 0, W, H);
+        ctx.imageSmoothingEnabled = true;
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = 'source-over';
+
+        // 3) Rolling distortion bands (a few horizontal "tear" lines)
+        const bandCount = 3;
+        for (let i = 0; i < bandCount; i++) {
+            const speed = 60 + i * 90;
+            const phase = ((now / speed) + i * 0.37) % 1;
+            const y = phase * H;
+            const bandH = 18 + (i * 6);
+            ctx.fillStyle = `rgba(255, 255, 255, ${0.06 + Math.random() * 0.05})`;
+            ctx.fillRect(0, y, W, bandH);
+            // Thin tear line in the middle of the band
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+            ctx.fillRect(0, y + bandH / 2 - 1, W, 2);
+        }
+
+        // 4) Vignette + tinted edge flicker (broken signal vibe)
+        const vignette = ctx.createRadialGradient(
+            W / 2, H / 2, Math.min(W, H) * 0.25,
+            W / 2, H / 2, Math.max(W, H) * 0.7);
+        vignette.addColorStop(0, 'rgba(0, 0, 0, 0)');
+        vignette.addColorStop(1, 'rgba(0, 0, 0, 0.55)');
+        ctx.fillStyle = vignette;
+        ctx.fillRect(0, 0, W, H);
+
+        // Subtle red/blue chromatic flicker every few frames
+        if (Math.random() < 0.18) {
+            ctx.globalCompositeOperation = 'screen';
+            ctx.globalAlpha = 0.06 + Math.random() * 0.05;
+            ctx.fillStyle = (Math.random() < 0.5) ? '#ff3030' : '#3070ff';
+            ctx.fillRect(0, 0, W, H);
+            ctx.globalAlpha = 1;
+            ctx.globalCompositeOperation = 'source-over';
+        }
+
+        // Scanlines for "CRT" feel
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.18)';
+        for (let y = 0; y < H; y += 3) {
+            ctx.fillRect(0, y, W, 1);
+        }
+
+        ctx.restore();
     }
     
     drawBlindnessStatusText() {

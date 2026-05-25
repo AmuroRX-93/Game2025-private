@@ -52,6 +52,15 @@ const BOSS_LEVELS = {
         difficulty: 4,
         color: '#8B4513', // 棕色主色调
         unlocked: true // 第四关解锁
+    },
+    MAGNUS_EXEC: {
+        id: 'MAGNUS_EXEC',
+        name: '机甲执政官 Magnus',
+        description: '重装机甲执政官，肩载双炮塔、远程压制与轨道炮击',
+        bossClass: 'Magnus',
+        difficulty: 5,
+        color: '#ffb030', // 金属橙黄
+        unlocked: true
     }
     // 未来可以添加更多关卡
     // SHADOW_LORD: {

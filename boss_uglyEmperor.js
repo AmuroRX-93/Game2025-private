@@ -1447,13 +1447,10 @@ class ChaosBullet extends GameObject {
             const cy = this.y + this.height / 2;
             // Tracer line behind for motion smear
             if (typeof drawTracer === 'function') {
-                const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy) || 1;
-                const dirX = this.vx / speed;
-                const dirY = this.vy / speed;
-                const trail = 16;
                 drawTracer(ctx, {
-                    x1: cx - dirX * trail, y1: cy - dirY * trail,
-                    x2: cx, y2: cy,
+                    x: cx, y: cy,
+                    vx: this.vx, vy: this.vy,
+                    length: 16,
                     width: 2.5,
                     scheme: 'violet'
                 });

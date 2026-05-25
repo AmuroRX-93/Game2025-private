@@ -579,6 +579,13 @@ class StarDevourer extends GameObject {
         } else {
             // 闪避中保持闪避速度，不改变方向
         }
+
+        // Recovery stun after a committed combat move — freezes boss so the
+        // player gets a clean punish window after each big move.
+        if (this.combatPhase === 'recover') {
+            this.vx = 0;
+            this.vy = 0;
+        }
         
         // 更新二阶段系统
         this.updatePhaseTwo();
@@ -746,29 +753,44 @@ class StarDevourer extends GameObject {
     _buildMovesTable() {
         const boss = this;
         return [
-            // ---- Move: Forced Beam Snipe (request immediate beam) --------
-            // Pulls forward beam attack early when player is exposed mid-range.
+            // ---- Move: Snipe Shot (signature charged beam) ----------------
+            // Long telegraph aura → tracking line on player → fires beam.
+            // Long recovery so the player gets a clear punish window.
             {
-                id: 'forcedBeam',
-                cooldown: 6000,
-                canUse: (ctx) => ctx.dist > 280 && ctx.dist < 900,
+                id: 'snipeShot',
+                cooldown: 4500,
+                canUse: (ctx) => ctx.dist > 200,
                 score: (ctx) => {
-                    let s = 0.9;
-                    if (ctx.dist > 400) s += 0.5;
+                    let s = 1.2;
+                    if (ctx.dist > 380) s += 0.6;
+                    if (ctx.hpPct < 0.7) s += 0.2;
                     return s;
                 },
                 start: (b, ctx) => {
-                    // Force-arm the beam now (bypass cooldown)
-                    b.beamRifle.lastFire = 0;
-                    b.startBeamCharge();
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    // Big visible charge aura on the boss
+                    b.telegraphs.push(createTelegraphAura(cx, cy, 70, 700, '#00e8ff'));
+                    bossFX.addFlash(cx, cy, 30, '#00e8ff', 280, 0.85);
                     return {
                         startedAt: Date.now(),
-                        recoveryMs: 100,
-                        controlsMovement: false,
-                        tick: () => {},
-                        // The beam subsystem now owns the timing; we end this
-                        // commit immediately so dodge/movement keep working.
-                        isDone: (b2, now) => now - b2.activeMove.startedAt >= 80
+                        chargeAt: Date.now() + 350,
+                        charged: false,
+                        recoveryMs: 800,            // long stun after beam
+                        controlsMovement: true,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            // Anchor during windup
+                            b2.vx = 0; b2.vy = 0;
+                            if (!st.charged && now >= st.chargeAt) {
+                                b2.beamRifle.lastFire = 0;
+                                b2.startBeamCharge();
+                                st.charged = true;
+                            }
+                        },
+                        // Commit ends as soon as we trigger the charge — the
+                        // beam subsystem takes over from there.
+                        isDone: (b2, now) => b2.activeMove.charged
                     };
                 }
             },
@@ -807,6 +829,184 @@ class StarDevourer extends GameObject {
                             }
                         },
                         isDone: (b2, now) => b2.activeMove.triggered
+                    };
+                }
+            },
+
+            // ---- Move: Rifle Burst (fast 5-shot triangle stitch) ---------
+            // Quick burst at predicted player path — 5 shots in 250ms,
+            // aimed at "lead" + leadX2 + behind, stitching a small triangle.
+            // Punishes greedy strafing.
+            {
+                id: 'rifleBurst',
+                cooldown: 2200,
+                canUse: (ctx) => ctx.dist < 520,
+                score: (ctx) => {
+                    let s = 1.1;
+                    if (ctx.dist > 100 && ctx.dist < 360) s += 0.5;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    b.telegraphs.push(createTrackingArrow(b, 320, 280, '#ffe080'));
+                    return {
+                        startedAt: Date.now(),
+                        windupUntil: Date.now() + 280,
+                        nextShotAt: Date.now() + 280,
+                        firedCount: 0,
+                        target: 5,
+                        intervalMs: 60,
+                        recoveryMs: 500,            // visible pause after burst
+                        controlsMovement: true,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            b2.vx = 0; b2.vy = 0;     // root during the burst
+                            if (now < st.windupUntil) return;
+                            while (st.firedCount < st.target && now >= st.nextShotAt) {
+                                const bcx = b2.x + b2.width / 2;
+                                const bcy = b2.y + b2.height / 2;
+                                const tc = (typeof getBossTargetCenter === 'function')
+                                    ? getBossTargetCenter(bcx, bcy) : null;
+                                const px = tc ? tc.x : (game.player ? game.player.x + game.player.width / 2 : bcx);
+                                const py = tc ? tc.y : (game.player ? game.player.y + game.player.height / 2 : bcy);
+                                const pvx = (tc && tc.entity) ? (tc.entity.vx || 0) : 0;
+                                const pvy = (tc && tc.entity) ? (tc.entity.vy || 0) : 0;
+                                // Lead amount cycles 0 -> 0.5 -> 1.0 -> -0.5 -> 0.25
+                                const leadFactors = [0.0, 0.5, 1.0, -0.5, 0.25];
+                                const lead = leadFactors[st.firedCount % leadFactors.length];
+                                const flightTime = Math.sqrt((px - bcx) ** 2 + (py - bcy) ** 2)
+                                    / b2.autoRifle.bulletSpeed;
+                                const aimX = px + pvx * flightTime * lead;
+                                const aimY = py + pvy * flightTime * lead;
+                                const ang = Math.atan2(aimY - bcy, aimX - bcx);
+                                b2._fireAimedRifle(ang);
+                                st.firedCount++;
+                                st.nextShotAt += st.intervalMs;
+                            }
+                        },
+                        isDone: (b2, now) => b2.activeMove.firedCount >= b2.activeMove.target
+                    };
+                }
+            },
+
+            // ---- Move: Predictive Lead Snipe (single high-precision shot) -
+            // Big telegraph circle on predicted player position, then a single
+            // high-velocity rifle round — rewards reading the player's path.
+            {
+                id: 'predictiveLead',
+                cooldown: 5000,
+                canUse: (ctx) => ctx.dist > 220 && ctx.dist < 720,
+                score: (ctx) => {
+                    let s = 0.95;
+                    if (ctx.dist > 320) s += 0.4;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    const bcx = b.x + b.width / 2;
+                    const bcy = b.y + b.height / 2;
+                    // Predict where the player will be in ~700ms
+                    const tc = (typeof getBossTargetCenter === 'function')
+                        ? getBossTargetCenter(bcx, bcy) : null;
+                    const px = tc ? tc.x : ctx.playerCX;
+                    const py = tc ? tc.y : ctx.playerCY;
+                    const pvx = (tc && tc.entity) ? (tc.entity.vx || 0) : 0;
+                    const pvy = (tc && tc.entity) ? (tc.entity.vy || 0) : 0;
+                    const predictAhead = 0.7;
+                    const tx = px + pvx * 60 * predictAhead;
+                    const ty = py + pvy * 60 * predictAhead;
+                    b.telegraphs.push(createTelegraphCircle(tx, ty, 35, 700, '#ff8030'));
+                    b.telegraphs.push(createTelegraphAura(bcx, bcy, 30, 700, '#ff8030'));
+                    return {
+                        startedAt: Date.now(),
+                        fireAt: Date.now() + 700,
+                        targetX: tx, targetY: ty,
+                        fired: false,
+                        recoveryMs: 600,
+                        controlsMovement: true,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            b2.vx = 0; b2.vy = 0;
+                            if (!st.fired && now >= st.fireAt) {
+                                const cx = b2.x + b2.width / 2;
+                                const cy = b2.y + b2.height / 2;
+                                const ang = Math.atan2(st.targetY - cy, st.targetX - cx);
+                                // High-power shot: 3 bullets stacked tight
+                                for (let k = -1; k <= 1; k++) {
+                                    b2._fireAimedRifle(ang + k * 0.025);
+                                }
+                                bossFX.addFlash(cx, cy, 28, '#ff8030', 240, 0.9);
+                                bossFX.addShake(5, 220);
+                                st.fired = true;
+                            }
+                        },
+                        isDone: (b2, now) => b2.activeMove.fired
+                    };
+                }
+            },
+
+            // ---- Move: Ambush Reposition (warp + immediate burst) ---------
+            // Phase-2 signature: warps to a flank position relative to the
+            // player and immediately fires a 3-shot burst at point-blank.
+            {
+                id: 'ambushReposition',
+                cooldown: 9000,
+                canUse: (ctx) => boss.phaseTwo.activated || ctx.hpPct < 0.55,
+                score: (ctx) => {
+                    let s = 0.9;
+                    if (boss.phaseTwo.activated) s += 0.7;
+                    if (ctx.dist < 200 || ctx.dist > 520) s += 0.4;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    b.telegraphs.push(createTelegraphAura(cx, cy, 50, 350, '#a040c0'));
+                    return {
+                        startedAt: Date.now(),
+                        warpAt: Date.now() + 350,
+                        warped: false,
+                        nextShotAt: 0,
+                        firedCount: 0,
+                        target: 3,
+                        intervalMs: 90,
+                        recoveryMs: 700,
+                        controlsMovement: true,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            b2.vx = 0; b2.vy = 0;
+                            if (!st.warped && now >= st.warpAt) {
+                                // Pick a flank: 90° from player's facing, ~180px out
+                                const tc = (typeof getBossTargetCenter === 'function')
+                                    ? getBossTargetCenter(b2.x + b2.width / 2, b2.y + b2.height / 2) : null;
+                                const px = tc ? tc.x : ctx.playerCX;
+                                const py = tc ? tc.y : ctx.playerCY;
+                                const pdir = (game.player && typeof game.player.direction === 'number')
+                                    ? game.player.direction * Math.PI / 180 : 0;
+                                const flankSign = Math.random() < 0.5 ? 1 : -1;
+                                const flankAng = pdir + flankSign * Math.PI / 2;
+                                const tx = px + Math.cos(flankAng) * 200;
+                                const ty = py + Math.sin(flankAng) * 200;
+                                b2._warpTo(tx, ty);
+                                st.warped = true;
+                                st.nextShotAt = now + 120;
+                            }
+                            if (st.warped) {
+                                while (st.firedCount < st.target && now >= st.nextShotAt) {
+                                    const bcx = b2.x + b2.width / 2;
+                                    const bcy = b2.y + b2.height / 2;
+                                    const tc = (typeof getBossTargetCenter === 'function')
+                                        ? getBossTargetCenter(bcx, bcy) : null;
+                                    const px = tc ? tc.x : (game.player ? game.player.x + game.player.width / 2 : bcx);
+                                    const py = tc ? tc.y : (game.player ? game.player.y + game.player.height / 2 : bcy);
+                                    const ang = Math.atan2(py - bcy, px - bcx);
+                                    b2._fireAimedRifle(ang);
+                                    st.firedCount++;
+                                    st.nextShotAt += st.intervalMs;
+                                }
+                            }
+                        },
+                        isDone: (b2, now) => b2.activeMove.firedCount >= b2.activeMove.target
                     };
                 }
             },
@@ -961,6 +1161,29 @@ class StarDevourer extends GameObject {
         game.starDevourerBullets.push(bullet);
     }
 
+    // Instant teleport helper (used by ambushReposition).
+    // Snaps boss to (targetCX, targetCY) clamped to play field, leaves a small
+    // shockwave at both endpoints.
+    _warpTo(targetCX, targetCY) {
+        const oldCX = this.x + this.width / 2;
+        const oldCY = this.y + this.height / 2;
+        const w = this.width, h = this.height;
+        const margin = 30;
+        const clampedCX = Math.max(w / 2 + margin,
+            Math.min(GAME_CONFIG.WIDTH - w / 2 - margin, targetCX));
+        const clampedCY = Math.max(h / 2 + margin,
+            Math.min(GAME_CONFIG.HEIGHT - h / 2 - margin, targetCY));
+        this.x = clampedCX - w / 2;
+        this.y = clampedCY - h / 2;
+        this.vx = 0;
+        this.vy = 0;
+        if (typeof bossFX !== 'undefined') {
+            bossFX.addShockwave(oldCX, oldCY, 8, 70, '#ffe080', 320, 4, 0.6);
+            bossFX.addShockwave(clampedCX, clampedCY, 8, 90, '#ffe080', 360, 4, 0.7);
+            bossFX.addFlash(clampedCX, clampedCY, 30, '#ffe080', 280, 0.9);
+        }
+    }
+
     // Thruster flames (gold/orange jet, fades out when phase 2 invisible)
     drawThrusterFlames(ctx) {
         if (typeof drawJetFlame !== 'function') return;
@@ -1015,43 +1238,10 @@ class StarDevourer extends GameObject {
     
     // 自动步枪系统（近距离）
     updateAutoRifle() {
+        // The auto-rifle no longer fires on its own — combat moves
+        // (rifleBurst / bulletWall / etc.) drive every shot. We keep this hook
+        // so old call sites stay valid and the lastFire timestamp updates.
         if (!game.player) return;
-        const now = Date.now();
-        const fireInterval = 1000 / this.autoRifle.fireRate;
-        if (now - this.autoRifle.lastFire < fireInterval) return;
-        this.autoRifle.lastFire = now;
-        
-        const bossCenterX = this.x + this.width / 2;
-        const bossCenterY = this.y + this.height / 2;
-        
-        const rifleTC = getBossTargetCenter(bossCenterX, bossCenterY);
-        if (!rifleTC) return;
-        const playerCenterX = rifleTC.x;
-        const playerCenterY = rifleTC.y;
-        const dx = playerCenterX - bossCenterX;
-        const dy = playerCenterY - bossCenterY;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        
-        const flightTime = dist / this.autoRifle.bulletSpeed;
-        const predictedX = playerCenterX + (rifleTC.entity.vx || 0) * flightTime;
-        const predictedY = playerCenterY + (rifleTC.entity.vy || 0) * flightTime;
-        
-        const pdx = predictedX - bossCenterX;
-        const pdy = predictedY - bossCenterY;
-        const pDist = Math.sqrt(pdx * pdx + pdy * pdy);
-        
-        const direction = pDist > 0 ? Math.atan2(pdy, pdx) * 180 / Math.PI : 0;
-        
-        const bullet = new StarDevourerBullet(
-            bossCenterX, bossCenterY,
-            direction,
-            this.autoRifle.bulletSpeed,
-            this.autoRifle.damage,
-            this.autoRifle.range
-        );
-        
-        if (!game.starDevourerBullets) game.starDevourerBullets = [];
-        game.starDevourerBullets.push(bullet);
     }
     
     // 光束步枪系统
@@ -1096,10 +1286,9 @@ class StarDevourer extends GameObject {
                 this.endBeamAttack();
             }
         }
-        // 检查是否可以开始新的攻击
-        else if (now - this.beamRifle.lastFire >= this.beamRifle.cooldown) {
-            this.checkBeamAttack();
-        }
+        // The auto-cooldown trigger is removed — beam fires only via combat
+        // moves (snipeShot / forcedBeam / beamPincerCombo / predictiveLead /
+        // ambushReposition).
     }
     
     checkBeamAttack() {
@@ -1468,17 +1657,10 @@ class StarDevourer extends GameObject {
     
     // 浮游炮攻击系统
     updateBallAttack() {
-        const now = Date.now();
-        
-        // 二阶段时不启动新的攻击循环，浮游炮已经永久化
-        if (this.phaseTwo.activated && this.phaseTwo.permanentDrones) {
-            return;
-        }
-        
-        // 检查是否该开始新的攻击
-        if (!this.ballsInAttack && now - this.lastBallAttack >= this.ballAttackCooldown) {
-            this.startBallAttack();
-        }
+        // Ball attacks are now move-driven (dronePincer / beamPincerCombo).
+        // We still no-op early in phase 2 because permanent drones are
+        // managed by the phase-2 system.
+        return;
     }
     
     startBallAttack() {
@@ -2571,12 +2753,10 @@ class StarDevourerBullet extends GameObject {
             const cx = this.x + this.width / 2;
             const cy = this.y + this.height / 2;
             const ang = this.direction * Math.PI / 180;
-            const len = 14;
             drawTracer(ctx, {
-                x1: cx - Math.cos(ang) * len * 0.5,
-                y1: cy - Math.sin(ang) * len * 0.5,
-                x2: cx + Math.cos(ang) * len * 0.5,
-                y2: cy + Math.sin(ang) * len * 0.5,
+                x: cx, y: cy,
+                vx: Math.cos(ang), vy: Math.sin(ang),
+                length: 14,
                 width: 3,
                 scheme: 'azure'
             });

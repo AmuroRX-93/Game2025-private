@@ -35,6 +35,10 @@ class Player extends GameObject {
         // 僵直系统
         this.stunned = false; // 是否僵直
         this.stunEndTime = 0; // 僵直结束时间
+
+        // Slow status (movement-only debuff, e.g. SublimeMoon's spin slash)
+        this.slowEndTime = 0;
+        this.slowMultiplier = 1; // <1 means slowed; resets to 1 when expired
         
         // 燃烧状态
         this.burning = false;
@@ -449,7 +453,12 @@ class Player extends GameObject {
             this.vy = this.dodgeDirection.y * this.dodgeSpeed;
         } else if (!isWeaponControllingMovement) {
             // 正常移动（当武器不控制移动时由键盘控制）
-            const moveSpeed = this.burning ? this.speed * this.burnSpeedMultiplier : this.speed;
+            // Expire slow if its window passed.
+            if (this.slowMultiplier !== 1 && Date.now() >= this.slowEndTime) {
+                this.slowMultiplier = 1;
+            }
+            const burnMul = this.burning ? this.burnSpeedMultiplier : 1;
+            const moveSpeed = this.speed * burnMul * this.slowMultiplier;
             if (keys['ArrowLeft'] || keys['a'] || keys['A']) {
                 this.vx = -moveSpeed;
             }
@@ -651,6 +660,18 @@ class Player extends GameObject {
         this.vx = 0;
         this.vy = 0;
     }
+
+    // Apply a movement slow. multiplier should be in (0, 1]; lower = slower.
+    // Stronger or longer pending slows take precedence over weaker active ones.
+    applySlow(duration = 1500, multiplier = 0.55) {
+        const now = Date.now();
+        const newEnd = now + duration;
+        const currentlyActive = now < this.slowEndTime && this.slowMultiplier < 1;
+        if (!currentlyActive || multiplier < this.slowMultiplier) {
+            this.slowMultiplier = multiplier;
+        }
+        if (newEnd > this.slowEndTime) this.slowEndTime = newEnd;
+    }
     
     // 添加受击提示
     addHitIndicator(damage) {
@@ -772,9 +793,35 @@ class Player extends GameObject {
             ctx.restore();
         }
 
-        // 燃烧状态视觉效果
-        if (this.burning) {
+        // Frostbite slow VFX — pale-blue aura ring while slowMultiplier < 1.
+        if (this.slowMultiplier < 1 && Date.now() < this.slowEndTime) {
             ctx.save();
+            const sCenterX = this.x + this.width / 2;
+            const sCenterY = this.y + this.height / 2;
+            const t = Date.now() * 0.005;
+            const ringR = this.width / 2 + 4 + Math.sin(t) * 1.2;
+            ctx.globalCompositeOperation = 'lighter';
+            const grad = ctx.createRadialGradient(sCenterX, sCenterY, ringR * 0.4, sCenterX, sCenterY, ringR + 4);
+            grad.addColorStop(0, 'rgba(160, 220, 255, 0)');
+            grad.addColorStop(0.7, 'rgba(120, 200, 255, 0.45)');
+            grad.addColorStop(1, 'rgba(80, 160, 255, 0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(sCenterX, sCenterY, ringR + 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 0.85;
+            ctx.strokeStyle = '#aee0ff';
+            ctx.lineWidth = 1.4;
+            ctx.setLineDash([3, 3]);
+            ctx.beginPath();
+            ctx.arc(sCenterX, sCenterY, ringR, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.restore();
+        }
+
+        // 燃烧状态视觉效果
+        if (this.burning) {            ctx.save();
             const bCenterX = this.x + this.width / 2;
             const bCenterY = this.y + this.height / 2;
             const flicker = Math.sin(Date.now() * 0.03) * 3;
