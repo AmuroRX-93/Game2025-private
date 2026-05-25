@@ -232,6 +232,16 @@ function createTelegraphArrow(startX, startY, endX, endY, durationMs, color = '#
     const now = Date.now();
     return { kind: 'arrow', startX, startY, endX, endY, color, startedAt: now, expiresAt: now + durationMs };
 }
+// Smart variant: arrow that re-aims at the player (and re-anchors at the boss)
+// every frame, so the telegraph never lies. Pass the boss + an optional fixed
+// length (defaults to the original distance).
+function createTrackingArrow(boss, durationMs, length, color = '#ff4040') {
+    const now = Date.now();
+    return {
+        kind: 'arrow', color, startedAt: now, expiresAt: now + durationMs,
+        trackBoss: boss, trackLength: length || 90
+    };
+}
 function createTelegraphCircle(x, y, radius, durationMs, color = '#ff4040') {
     const now = Date.now();
     return { kind: 'circle', x, y, radius, color, startedAt: now, expiresAt: now + durationMs };
@@ -264,6 +274,19 @@ function renderBossTelegraphs(ctx, telegraphs) {
         const flicker = 0.85 + 0.15 * Math.sin(elapsed / 35);
 
         if (t.kind === 'arrow') {
+            // Live-track the player if requested
+            if (t.trackBoss && game && game.player) {
+                const b = t.trackBoss;
+                const sx = b.x + b.width / 2;
+                const sy = b.y + b.height / 2;
+                const px = game.player.x + game.player.width / 2;
+                const py = game.player.y + game.player.height / 2;
+                const a = Math.atan2(py - sy, px - sx);
+                t.startX = sx;
+                t.startY = sy;
+                t.endX = sx + Math.cos(a) * t.trackLength;
+                t.endY = sy + Math.sin(a) * t.trackLength;
+            }
             _renderTelegraphArrow(ctx, t, urgency, flicker);
         } else if (t.kind === 'circle') {
             _renderTelegraphCircle(ctx, t, progress, urgency, flicker);
@@ -289,43 +312,76 @@ function _renderTelegraphArrow(ctx, t, urgency, flicker) {
     ctx.translate(t.startX, t.startY);
     ctx.rotate(ang);
 
-    // Layer 1: outer halo bar (wide, soft)
-    const haloW = 38;
-    const haloAlpha = 0.18 * urgency * flicker;
-    ctx.globalAlpha = haloAlpha;
+    // Thin sci-fi laser sight: outer halo + crisp inner line + travelling
+    // pulse + reticle ring at the target end.
+    //
+    // 1) Soft outer halo (additive, very subtle)
+    const haloW = 6;
+    ctx.globalAlpha = 0.35 * urgency * flicker;
     ctx.fillStyle = t.color;
     ctx.fillRect(0, -haloW / 2, len, haloW);
 
-    // Layer 2: mid arrow body (filled trapezoid)
-    const w1 = 14, w2 = 30;
-    const headLen = Math.min(36, len * 0.32);
-    ctx.globalAlpha = 0.55 * urgency * flicker;
-    ctx.fillStyle = t.color;
+    // 2) Mid line
+    ctx.globalAlpha = 0.7 * urgency * flicker;
+    ctx.fillRect(0, -1.5, len, 3);
+
+    // 3) Inner bright core (white hot)
+    ctx.globalAlpha = 0.9 * urgency;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, -0.6, len, 1.2);
+
+    // 4) Travelling pulse (scanning the line toward the target)
+    const pulseW = 28;
+    const pulseTravel = (Date.now() / 380) % 1;
+    const px = pulseTravel * len;
+    const grad = ctx.createLinearGradient(px - pulseW, 0, px + pulseW, 0);
+    grad.addColorStop(0, 'rgba(255,255,255,0)');
+    grad.addColorStop(0.5, t.color);
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.globalAlpha = 0.7 * urgency * flicker;
+    ctx.fillStyle = grad;
+    ctx.fillRect(px - pulseW, -3, pulseW * 2, 6);
+
+    // 5) End reticle: cross + ring at target point
+    const rOuter = 14 + 4 * Math.sin(Date.now() / 110);
+    const rInner = 6;
+    ctx.globalAlpha = 0.75 * urgency * flicker;
+    ctx.strokeStyle = t.color;
+    ctx.lineWidth = 1.6;
     ctx.beginPath();
-    ctx.moveTo(0, -w1 / 2);
-    ctx.lineTo(len - headLen, -w1 / 2);
-    ctx.lineTo(len - headLen, -w2 / 2);
-    ctx.lineTo(len, 0);
-    ctx.lineTo(len - headLen, w2 / 2);
-    ctx.lineTo(len - headLen, w1 / 2);
-    ctx.lineTo(0, w1 / 2);
-    ctx.closePath();
-    ctx.fill();
+    ctx.arc(len, 0, rOuter, 0, Math.PI * 2);
+    ctx.stroke();
 
-    // Layer 3: inner bright core line
     ctx.globalAlpha = urgency;
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, -1.5, len - headLen, 3);
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(len, 0, rInner, 0, Math.PI * 2);
+    ctx.stroke();
 
-    // Layer 4: animated dashed marching segments along the arrow
-    const dashSpacing = 24;
-    const offset = (Date.now() / 30) % dashSpacing;
-    ctx.globalAlpha = urgency * 0.8;
-    ctx.fillStyle = '#ffffff';
-    for (let x = -offset; x < len - headLen; x += dashSpacing) {
-        if (x + 8 < 0) continue;
-        ctx.fillRect(Math.max(0, x), -1, 8, 2);
+    // Cross-hair tick marks
+    ctx.beginPath();
+    ctx.moveTo(len - rOuter - 5, 0); ctx.lineTo(len - rInner - 1, 0);
+    ctx.moveTo(len + rInner + 1, 0); ctx.lineTo(len + rOuter + 5, 0);
+    ctx.moveTo(len, -rOuter - 5);     ctx.lineTo(len, -rInner - 1);
+    ctx.moveTo(len, rInner + 1);      ctx.lineTo(len, rOuter + 5);
+    ctx.stroke();
+
+    // 6) Slim arrowhead tucked just before the reticle (directional cue)
+    const headLen = 10;
+    const headHalfW = 5;
+    const headBaseX = len - rOuter - 8;
+    if (headBaseX > 0) {
+        ctx.globalAlpha = 0.85 * urgency * flicker;
+        ctx.fillStyle = t.color;
+        ctx.beginPath();
+        ctx.moveTo(headBaseX, -headHalfW);
+        ctx.lineTo(headBaseX + headLen, 0);
+        ctx.lineTo(headBaseX, headHalfW);
+        ctx.closePath();
+        ctx.fill();
     }
+
     ctx.restore();
 }
 
@@ -483,6 +539,17 @@ const JET_FLAME_SCHEMES = {
         coreOut:    'rgba(240, 220, 255, 0.0)',
         coreIn:     'rgba(255, 255, 255, 1)',
         ember:      ['#ffffff', '#d8a0ff', '#9040e0', '#5010a0']
+    },
+    gold: {
+        haloColor:  'rgba(120, 80, 0, 0.0)',
+        haloMid:    'rgba(220, 170, 40, 0.55)',
+        haloIn:     'rgba(255, 230, 130, 0.95)',
+        bodyOut:    'rgba(140, 80, 0, 0.0)',
+        bodyMid:    'rgba(255, 200, 60, 0.85)',
+        bodyIn:     'rgba(255, 245, 200, 0.95)',
+        coreOut:    'rgba(255, 240, 200, 0.0)',
+        coreIn:     'rgba(255, 255, 255, 1)',
+        ember:      ['#ffffff', '#ffe080', '#ffa030', '#a06010']
     }
 };
 

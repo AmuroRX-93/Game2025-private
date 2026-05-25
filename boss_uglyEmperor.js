@@ -661,6 +661,331 @@ class UglyEmperor extends GameObject {
         this.activeMove = state;
         this.combatPhase = 'commit';
     }
+
+    // === Move primitives =====================================================
+    // Aimed cone fan (n bullets across spread radians, base = angle to player)
+    _fireChaosFan(n, spread) {
+        if (!game.player) return;
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const tc = getBossTargetCenter(cx, cy);
+        if (!tc) return;
+        const base = Math.atan2(tc.y - cy, tc.x - cx);
+        if (!game.chaosBullets) game.chaosBullets = [];
+        for (let i = 0; i < n; i++) {
+            const t = (n === 1) ? 0 : (i / (n - 1) - 0.5);
+            const ang = base + t * spread;
+            const tx = cx + Math.cos(ang) * 600;
+            const ty = cy + Math.sin(ang) * 600;
+            game.chaosBullets.push(new ChaosBullet(
+                cx, cy, tx, ty,
+                this.chaosBarrage.bulletDamage,
+                this.chaosBarrage.bulletSpeed
+            ));
+        }
+        bossFX.addFlash(cx, cy, 28, '#ff80c0', 220, 0.8);
+    }
+
+    // 360° Nova (n evenly distributed bullets)
+    _fireChaosNova(n) {
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        if (!game.chaosBullets) game.chaosBullets = [];
+        for (let i = 0; i < n; i++) {
+            const ang = (i / n) * Math.PI * 2;
+            const tx = cx + Math.cos(ang) * 600;
+            const ty = cy + Math.sin(ang) * 600;
+            game.chaosBullets.push(new ChaosBullet(
+                cx, cy, tx, ty,
+                this.chaosBarrage.bulletDamage,
+                this.chaosBarrage.bulletSpeed
+            ));
+        }
+        bossFX.addFlash(cx, cy, 50, '#ff60a0', 350, 1.0);
+        bossFX.addShockwave(cx, cy, 16, 180, '#ff80c0', 500, 5, 0.7);
+        bossFX.addShake(4, 250);
+    }
+
+    // Direct teleport (no cooldown gate) used by warp-strike move
+    _instantWarpTo(targetX, targetY) {
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        this.createTeleportEffect(cx, cy, 'departure');
+        const fx = Math.max(40, Math.min(GAME_CONFIG.WIDTH - this.width - 40, targetX - this.width / 2));
+        const fy = Math.max(40, Math.min(GAME_CONFIG.HEIGHT - this.height - 40, targetY - this.height / 2));
+        this.x = fx;
+        this.y = fy;
+        const ncx = this.x + this.width / 2;
+        const ncy = this.y + this.height / 2;
+        this.createTeleportEffect(ncx, ncy, 'arrival');
+        bossFX.addShockwave(ncx, ncy, 10, 90, '#ff80a0', 400, 4, 0.7);
+    }
+
+    _buildMovesTable() {
+        const boss = this;
+        return [
+            // ---- Move: Chaos Fan (main pressure, mid range) --------------
+            {
+                id: 'chaosFan',
+                cooldown: 2200,
+                canUse: (ctx) => ctx.dist > 80 && ctx.dist < 520,
+                score: (ctx) => {
+                    let s = 1.1;
+                    if (ctx.dist > 180 && ctx.dist < 380) s += 0.5;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    b.telegraphs.push(createTrackingArrow(b, 260, 90, '#ff60a0'));
+                    return {
+                        startedAt: Date.now(),
+                        fireAt: Date.now() + 260,
+                        fired: false,
+                        recoveryMs: 220,
+                        controlsMovement: false,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (!st.fired && now >= st.fireAt) {
+                                b2._fireChaosFan(8, Math.PI / 2.5);
+                                st.fired = true;
+                            }
+                        },
+                        isDone: (b2, now) => now - b2.activeMove.startedAt >= 480
+                    };
+                }
+            },
+
+            // ---- Move: Warp-Strike (in-and-out double-pulse) -------------
+            {
+                id: 'warpStrike',
+                cooldown: 6000,
+                canUse: (ctx) => true,
+                score: (ctx) => {
+                    let s = 1.0;
+                    if (ctx.dist > 360 || ctx.dist < 120) s += 0.6; // good for breaking range
+                    if (ctx.hpPct < 0.6) s += 0.3;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    // Pick a strike point ~140 from player, random angle
+                    const strikeAngle = Math.random() * Math.PI * 2;
+                    const strikeR = 150;
+                    const strikeX = ctx.playerCX + Math.cos(strikeAngle) * strikeR;
+                    const strikeY = ctx.playerCY + Math.sin(strikeAngle) * strikeR;
+                    b.telegraphs.push(createTelegraphAura(cx, cy, 32, 320, '#ff60a0'));
+                    b.telegraphs.push(createTelegraphCircle(strikeX, strikeY, 60, 320, '#ff80c0'));
+                    return {
+                        startedAt: Date.now(),
+                        warpAt: Date.now() + 320,
+                        novaAt: Date.now() + 460,
+                        warpOutAt: Date.now() + 720,
+                        strikeX, strikeY,
+                        warped: false, novaed: false, warpedOut: false,
+                        recoveryMs: 280,
+                        controlsMovement: true,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (now < st.warpAt) {
+                                b2.vx *= 0.7; b2.vy *= 0.7;
+                                return;
+                            }
+                            if (!st.warped) {
+                                b2._instantWarpTo(st.strikeX, st.strikeY);
+                                st.warped = true;
+                            }
+                            if (!st.novaed && now >= st.novaAt) {
+                                b2._fireChaosNova(12);
+                                st.novaed = true;
+                            }
+                            if (!st.warpedOut && now >= st.warpOutAt) {
+                                // Warp back to a safer mid-range spot
+                                const ang = Math.random() * Math.PI * 2;
+                                const r = 320;
+                                const bx = ctx.playerCX + Math.cos(ang) * r;
+                                const by = ctx.playerCY + Math.sin(ang) * r;
+                                b2._instantWarpTo(bx, by);
+                                st.warpedOut = true;
+                            }
+                        },
+                        isDone: (b2, now) => b2.activeMove.warpedOut
+                    };
+                }
+            },
+
+            // ---- Move: Mine Trail (drop a curved chain while strafing) ---
+            {
+                id: 'mineTrail',
+                cooldown: 8500,
+                canUse: (ctx) => ctx.dist > 150 && !boss.phaseTwo.activated,
+                score: (ctx) => {
+                    let s = 0.85;
+                    if (ctx.dist > 240) s += 0.4;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    return {
+                        startedAt: Date.now(),
+                        dropCount: 0,
+                        targetDrops: 5,
+                        nextDropAt: Date.now() + 80,
+                        intervalMs: 180,
+                        recoveryMs: 250,
+                        controlsMovement: true,
+                        // Lateral strafe direction (perp to player)
+                        strafeAngle: ctx.angleToPlayer + Math.PI / 2 * (Math.random() < 0.5 ? 1 : -1),
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            // Force fast lateral movement
+                            const fastV = b2.speed * 1.8;
+                            const tvx = Math.cos(st.strafeAngle) * fastV;
+                            const tvy = Math.sin(st.strafeAngle) * fastV;
+                            b2.vx += (tvx - b2.vx) * 0.25;
+                            b2.vy += (tvy - b2.vy) * 0.25;
+                            if (st.dropCount < st.targetDrops && now >= st.nextDropAt) {
+                                if (typeof b2.placeMine === 'function') b2.placeMine();
+                                bossFX.addFlash(b2.x + b2.width / 2, b2.y + b2.height / 2, 14, '#ff8050', 200, 0.7);
+                                st.dropCount++;
+                                st.nextDropAt += st.intervalMs;
+                            }
+                        },
+                        isDone: (b2, now) => b2.activeMove.dropCount >= b2.activeMove.targetDrops
+                    };
+                }
+            },
+
+            // ---- Move: Molotov Volley (phase 2, area denial) -------------
+            {
+                id: 'molotovVolley',
+                cooldown: 5500,
+                canUse: (ctx) => boss.phaseTwo.activated && ctx.dist > 120,
+                score: (ctx) => {
+                    let s = 1.0;
+                    if (ctx.dist > 220) s += 0.4;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    b.telegraphs.push(createTelegraphAura(cx, cy, 38, 480, '#ff8030'));
+                    return {
+                        startedAt: Date.now(),
+                        thrown: 0,
+                        target: 3,
+                        nextThrowAt: Date.now() + 480,
+                        intervalMs: 160,
+                        recoveryMs: 320,
+                        controlsMovement: true,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (now < st.startedAt + 480) {
+                                b2.vx *= 0.85; b2.vy *= 0.85;
+                                return;
+                            }
+                            while (st.thrown < st.target && now >= st.nextThrowAt) {
+                                if (typeof b2.throwMolotov === 'function') b2.throwMolotov();
+                                st.thrown++;
+                                st.nextThrowAt += st.intervalMs;
+                            }
+                        },
+                        isDone: (b2, now) => b2.activeMove.thrown >= b2.activeMove.target
+                    };
+                }
+            },
+
+            // ---- Move: Chaos Nova (HP < 55%) -----------------------------
+            {
+                id: 'chaosNova',
+                cooldown: 9500,
+                canUse: (ctx) => ctx.hpPct < 0.6,
+                score: (ctx) => {
+                    let s = 0.9;
+                    if (ctx.dist < 280) s += 0.6;
+                    if (ctx.hpPct < 0.35) s += 0.5;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    b.telegraphs.push(createTelegraphAura(cx, cy, 90, 600, '#ff60a0'));
+                    return {
+                        startedAt: Date.now(),
+                        fireAt: Date.now() + 600,
+                        fired: false,
+                        recoveryMs: 420,
+                        controlsMovement: true,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (now < st.fireAt) {
+                                b2.vx *= 0.6; b2.vy *= 0.6;
+                                return;
+                            }
+                            if (!st.fired) {
+                                b2._fireChaosNova(16);
+                                st.fired = true;
+                            }
+                        },
+                        isDone: (b2, now) => b2.activeMove.fired && now >= b2.activeMove.fireAt + 200
+                    };
+                }
+            },
+
+            // ---- Move: Vanish Gambit (HP < 35% panic + counter) ----------
+            {
+                id: 'vanishGambit',
+                cooldown: 14000,
+                canUse: (ctx) => ctx.hpPct < 0.4,
+                score: (ctx) => {
+                    let s = 0.7;
+                    if (ctx.hpPct < 0.25) s += 0.8;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    b.telegraphs.push(createTelegraphAura(cx, cy, 60, 350, '#a040ff'));
+                    return {
+                        startedAt: Date.now(),
+                        warpedAt: Date.now() + 350,
+                        novaAt: Date.now() + 750,
+                        warped: false, novaed: false,
+                        recoveryMs: 350,
+                        controlsMovement: true,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (now < st.warpedAt) {
+                                b2.vx *= 0.5; b2.vy *= 0.5;
+                                return;
+                            }
+                            if (!st.warped) {
+                                // Warp to a random screen edge spot far from player
+                                const W = GAME_CONFIG.WIDTH;
+                                const H = GAME_CONFIG.HEIGHT;
+                                let bx = 0, by = 0;
+                                let best = -1;
+                                for (let i = 0; i < 6; i++) {
+                                    const tx = 80 + Math.random() * (W - 160);
+                                    const ty = 80 + Math.random() * (H - 160);
+                                    const d2 = (tx - ctx.playerCX) ** 2 + (ty - ctx.playerCY) ** 2;
+                                    if (d2 > best) { best = d2; bx = tx; by = ty; }
+                                }
+                                b2._instantWarpTo(bx, by);
+                                st.warped = true;
+                            }
+                            if (!st.novaed && now >= st.novaAt) {
+                                b2._fireChaosNova(20);
+                                bossFX.addShake(5, 250);
+                                st.novaed = true;
+                            }
+                        },
+                        isDone: (b2, now) => b2.activeMove.novaed
+                    };
+                }
+            }
+        ];
+    }
     
     checkBounds() {
         // 硬边界钳制，防止出界
@@ -805,6 +1130,9 @@ class UglyEmperor extends GameObject {
     }
     
     draw(ctx) {
+        if (this.telegraphs && this.telegraphs.length > 0 && typeof renderBossTelegraphs === 'function') {
+            renderBossTelegraphs(ctx, this.telegraphs);
+        }
         ctx.save();
         
         // 应用扭曲效果
@@ -917,79 +1245,36 @@ class UglyEmperor extends GameObject {
     }
     
     drawThrusterFlames(ctx) {
-        // 绘制丑皇特有的混沌推进特效
-        const centerX = this.x + this.width / 2;
-        const centerY = this.y + this.height / 2;
-        
-        // 计算移动角度
-        const moveAngle = Math.atan2(this.vy, this.vx);
-        const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-        
-        if (speed > 0) {
-            ctx.save();
-            
-            // 混沌火焰效果
-            const flameLength = Math.min(18, speed * 2.5);
-            const flameStartX = centerX - Math.cos(moveAngle) * (this.width / 2 + 2);
-            const flameStartY = centerY - Math.sin(moveAngle) * (this.height / 2 + 2);
-            
-            // 绘制多层扭曲火焰
-            for (let layer = 0; layer < 3; layer++) {
-                const alpha = 0.8 - layer * 0.2;
-                const layerLength = flameLength * (1 - layer * 0.2);
-                const lineWidth = 4 - layer;
-                
-                ctx.globalAlpha = alpha;
-                ctx.strokeStyle = layer === 0 ? '#FF4500' : layer === 1 ? '#FF6B35' : '#FF8C42';
-                ctx.lineWidth = lineWidth;
-                ctx.lineCap = 'round';
-                
-                // 绘制扭曲的火焰线条
-                for (let i = 0; i < 4; i++) {
-                    const timeOffset = this.distortionEffect.offset + i * 0.5;
-                    const distortion = Math.sin(timeOffset) * 2 + Math.cos(timeOffset * 0.7) * 1.5;
-                    const angleOffset = Math.sin(timeOffset * 1.3) * 0.3;
-                    
-                    const flameEndX = flameStartX - Math.cos(moveAngle + angleOffset) * (layerLength + distortion);
-                    const flameEndY = flameStartY - Math.sin(moveAngle + angleOffset) * (layerLength + distortion);
-                    
-                    ctx.beginPath();
-                    ctx.moveTo(flameStartX, flameStartY);
-                    ctx.lineTo(flameEndX, flameEndY);
-                    ctx.stroke();
-                }
-            }
-            
-            // 绘制混沌粒子效果
-            ctx.globalAlpha = 0.6;
-            for (let i = 0; i < 6; i++) {
-                const particleAngle = moveAngle + (Math.random() - 0.5) * 0.8;
-                const particleDistance = Math.random() * flameLength * 0.8;
-                const particleX = flameStartX - Math.cos(particleAngle) * particleDistance;
-                const particleY = flameStartY - Math.sin(particleAngle) * particleDistance;
-                
-                ctx.fillStyle = `hsl(${30 + Math.random() * 20}, 100%, 60%)`;
-                ctx.beginPath();
-                ctx.arc(particleX, particleY, Math.random() * 2 + 1, 0, 2 * Math.PI);
-                ctx.fill();
-            }
-            
-            // 绘制扭曲光环
-            ctx.globalAlpha = 0.3;
-            ctx.strokeStyle = '#FF4500';
-            ctx.lineWidth = 2;
-            ctx.setLineDash([3, 3]);
-            
-            const auraRadius = 8 + Math.sin(this.distortionEffect.offset * 2) * 3;
-            ctx.beginPath();
-            ctx.arc(flameStartX, flameStartY, auraRadius, 0, 2 * Math.PI);
-            ctx.stroke();
-            
-            ctx.setLineDash([]);
-            ctx.restore();
+        const isMoving = this.vx !== 0 || this.vy !== 0;
+        if (!isMoving) {
+            this.drawThrusterParticles(ctx);
+            return;
         }
-        
-        // 绘制推进器粒子
+        if (typeof drawJetFlame === 'function') {
+            const moveAngle = Math.atan2(this.vy, this.vx);
+            const thrusterAngle = moveAngle + Math.PI;
+            const dodging = !!this.isDodging;
+            const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+            const intensity = dodging ? 1.0 : 0.7 + Math.min(0.25, speed / 60);
+            const length = dodging ? 56 : 36;
+            const width = dodging ? 14 : 10;
+            const cx = this.x + this.width / 2;
+            const cy = this.y + this.height / 2;
+            const startDistance = this.width / 2 + 3;
+            const ox = cx + Math.cos(thrusterAngle) * startDistance;
+            const oy = cy + Math.sin(thrusterAngle) * startDistance;
+            drawJetFlame(ctx, {
+                originX: ox, originY: oy,
+                angle: thrusterAngle,
+                length, width,
+                intensity,
+                scheme: 'violet',
+                spawnEmbers: true,
+                emberDensity: dodging ? 0.9 : 0.6,
+                id: dodging ? 41 : 40
+            });
+        }
+        // Bonus: keep the legacy chaos sparkle particles (now violet-tinted)
         this.drawThrusterParticles(ctx);
     }
     
@@ -1036,7 +1321,7 @@ class UglyEmperor extends GameObject {
                 vy: -Math.sin(moveAngle) * (2 + Math.random() * 3),
                 size: 2 + Math.random() * 3,
                 life: 100 + Math.random() * 50,
-                color: `hsl(${30 + Math.random() * 30}, 100%, ${60 + Math.random() * 20}%)`,
+                color: `hsl(${280 + Math.random() * 40}, 100%, ${65 + Math.random() * 20}%)`,
                 distortion: Math.random() * Math.PI * 2
             });
         }
@@ -1157,25 +1442,43 @@ class ChaosBullet extends GameObject {
     }
     
     draw(ctx) {
+        if (typeof drawBulletGlow === 'function') {
+            const cx = this.x + this.width / 2;
+            const cy = this.y + this.height / 2;
+            // Tracer line behind for motion smear
+            if (typeof drawTracer === 'function') {
+                const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy) || 1;
+                const dirX = this.vx / speed;
+                const dirY = this.vy / speed;
+                const trail = 16;
+                drawTracer(ctx, {
+                    x1: cx - dirX * trail, y1: cy - dirY * trail,
+                    x2: cx, y2: cy,
+                    width: 2.5,
+                    scheme: 'violet'
+                });
+            }
+            // Throbbing chaotic glow
+            const wobble = 1 + 0.18 * Math.sin(this.distortionOffset + Date.now() * 0.012);
+            drawBulletGlow(ctx, {
+                x: cx, y: cy,
+                radius: this.width * 0.55 * wobble,
+                scheme: 'violet',
+                alpha: 1
+            });
+            return;
+        }
         ctx.save();
-        
-        // 应用扭曲效果
         const centerX = this.x + this.width / 2;
         const centerY = this.y + this.height / 2;
-        
         ctx.translate(centerX, centerY);
         ctx.rotate(Math.sin(this.distortionOffset) * 0.3);
         ctx.translate(-centerX, -centerY);
-        
-        // 绘制扭曲的子弹
         ctx.fillStyle = this.color;
         ctx.fillRect(this.x, this.y, this.width, this.height);
-        
-        // 绘制扭曲边框
         ctx.strokeStyle = '#FF4500';
         ctx.lineWidth = 1;
         ctx.strokeRect(this.x, this.y, this.width, this.height);
-        
         ctx.restore();
     }
 }
@@ -1322,38 +1625,88 @@ class Mine extends GameObject {
         // 只有在可见时才绘制机雷
         if (!this.isVisible) return;
         
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const now = Date.now();
+        const pulse = 1 + Math.sin(this.pulseEffect.offset) * this.pulseEffect.intensity;
+        const r = this.width / 2;
+
         ctx.save();
-        
-        // 应用脉冲效果
-        const pulseScale = 1 + Math.sin(this.pulseEffect.offset) * this.pulseEffect.intensity;
-        const centerX = this.x + this.width / 2;
-        const centerY = this.y + this.height / 2;
-        
-        ctx.translate(centerX, centerY);
-        ctx.scale(pulseScale, pulseScale);
-        ctx.translate(-centerX, -centerY);
-        
-        // 绘制机雷主体（圆形）
-        ctx.fillStyle = this.color;
+        ctx.globalCompositeOperation = 'lighter';
+
+        // 1) Soft outer glow halo (additive)
+        const halo = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 3.2 * pulse);
+        halo.addColorStop(0, 'rgba(255, 120, 60, 0.55)');
+        halo.addColorStop(0.5, 'rgba(255, 80, 40, 0.22)');
+        halo.addColorStop(1, 'rgba(255, 80, 40, 0)');
+        ctx.fillStyle = halo;
         ctx.beginPath();
-        ctx.arc(centerX, centerY, this.width / 2, 0, Math.PI * 2);
+        ctx.arc(cx, cy, r * 3.2 * pulse, 0, Math.PI * 2);
         ctx.fill();
-        
-        // 绘制机雷边框
-        ctx.strokeStyle = '#FF4500';
-        ctx.lineWidth = 2;
+
+        // 2) Rotating warning ring (dashed)
+        ctx.globalCompositeOperation = 'source-over';
+        const rot = (now * 0.0025) % (Math.PI * 2);
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(rot);
+        ctx.strokeStyle = '#ff6030';
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 1.7, 0, Math.PI * 2);
         ctx.stroke();
-        
-        // 绘制机雷纹理（十字形）
-        ctx.strokeStyle = '#FF0000';
+        ctx.setLineDash([]);
+        ctx.restore();
+
+        // 3) Solid body with pulsing core
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.scale(pulse, pulse);
+        ctx.translate(-cx, -cy);
+
+        // Body
+        const body = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        body.addColorStop(0, '#ffd0a0');
+        body.addColorStop(0.5, '#ff6020');
+        body.addColorStop(1, '#7a1810');
+        ctx.fillStyle = body;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Spikes (8 directional triangles)
+        ctx.fillStyle = '#a02818';
+        for (let i = 0; i < 8; i++) {
+            const a = (i / 8) * Math.PI * 2;
+            const tipX = cx + Math.cos(a) * (r + 4);
+            const tipY = cy + Math.sin(a) * (r + 4);
+            const baseAngle1 = a + 0.32;
+            const baseAngle2 = a - 0.32;
+            ctx.beginPath();
+            ctx.moveTo(cx + Math.cos(baseAngle1) * r * 0.92, cy + Math.sin(baseAngle1) * r * 0.92);
+            ctx.lineTo(tipX, tipY);
+            ctx.lineTo(cx + Math.cos(baseAngle2) * r * 0.92, cy + Math.sin(baseAngle2) * r * 0.92);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        // Outline
+        ctx.strokeStyle = '#ffe0b0';
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(centerX - 3, centerY);
-        ctx.lineTo(centerX + 3, centerY);
-        ctx.moveTo(centerX, centerY - 3);
-        ctx.lineTo(centerX, centerY + 3);
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
         ctx.stroke();
-        
+
+        // Pulsing core LED
+        const coreAlpha = 0.5 + 0.5 * Math.sin(now * 0.012);
+        ctx.globalAlpha = coreAlpha;
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
         ctx.restore();
     }
     
@@ -1498,30 +1851,62 @@ class MolotovCocktail extends GameObject {
             this.drawFireZone(ctx);
             return;
         }
-        
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const now = Date.now();
+
+        // 1) Glowing trail behind the bottle (additive)
         ctx.save();
-        
-        const centerX = this.x + this.width / 2;
-        const centerY = this.y + this.height / 2;
-        ctx.translate(centerX, centerY);
+        ctx.globalCompositeOperation = 'lighter';
+        const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy) || 1;
+        const dirX = this.vx / speed;
+        const dirY = this.vy / speed;
+        for (let i = 0; i < 5; i++) {
+            const t = i / 4;
+            const tx = cx - dirX * (8 + i * 5);
+            const ty = cy - dirY * (8 + i * 5);
+            ctx.globalAlpha = 0.55 * (1 - t);
+            const grad = ctx.createRadialGradient(tx, ty, 0, tx, ty, 8 - i * 0.6);
+            grad.addColorStop(0, '#ffe080');
+            grad.addColorStop(0.5, 'rgba(255, 130, 30, 0.8)');
+            grad.addColorStop(1, 'rgba(255, 80, 0, 0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(tx, ty, 8 - i * 0.6, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.restore();
+
+        // 2) Bottle body (rotated)
+        ctx.save();
+        ctx.translate(cx, cy);
         ctx.rotate(this.rotation);
-        ctx.translate(-centerX, -centerY);
-        
-        ctx.fillStyle = this.color;
-        ctx.fillRect(this.x, this.y, this.width, this.height);
-        
-        ctx.fillStyle = '#8B4513';
-        ctx.fillRect(this.x + 2, this.y - 2, 4, 2);
-        
-        ctx.strokeStyle = '#FF0000';
-        ctx.lineWidth = 1;
+        // Body (glass)
+        ctx.fillStyle = '#5b3a18';
+        ctx.fillRect(-this.width / 2, -this.height / 2, this.width, this.height);
+        // Glass highlight
+        ctx.fillStyle = 'rgba(255, 230, 180, 0.35)';
+        ctx.fillRect(-this.width / 2 + 1, -this.height / 2 + 1, 1.5, this.height - 2);
+        // Cork / neck
+        ctx.fillStyle = '#3a2510';
+        ctx.fillRect(-1.5, -this.height / 2 - 3, 3, 3);
+        // Burning rag (flickering tip)
+        const flick = 0.6 + 0.4 * Math.sin(now * 0.04);
+        ctx.globalCompositeOperation = 'lighter';
+        const tipR = 3 + 1.2 * flick;
+        const tipGrad = ctx.createRadialGradient(0, -this.height / 2 - 4, 0, 0, -this.height / 2 - 4, tipR + 2);
+        tipGrad.addColorStop(0, '#ffffff');
+        tipGrad.addColorStop(0.4, '#ffe080');
+        tipGrad.addColorStop(0.8, 'rgba(255, 100, 30, 0.7)');
+        tipGrad.addColorStop(1, 'rgba(255, 80, 0, 0)');
+        ctx.fillStyle = tipGrad;
         ctx.beginPath();
-        ctx.moveTo(this.x + 1, this.y + 2);
-        ctx.lineTo(this.x + this.width - 1, this.y + 2);
-        ctx.moveTo(this.x + 1, this.y + 5);
-        ctx.lineTo(this.x + this.width - 1, this.y + 5);
-        ctx.stroke();
-        
+        ctx.arc(0, -this.height / 2 - 4, tipR + 2, 0, Math.PI * 2);
+        ctx.fill();
+        // Liquid level inside (orange glow)
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = 'rgba(255, 110, 30, 0.55)';
+        ctx.fillRect(-this.width / 2 + 0.5, -this.height / 4, this.width - 1, this.height * 0.6);
         ctx.restore();
     }
     

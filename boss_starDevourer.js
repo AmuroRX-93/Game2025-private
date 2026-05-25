@@ -429,6 +429,26 @@ class StarDevourer extends GameObject {
         this.weaponDistanceThreshold = 250; // 距离阈值：低于此值用步枪，高于用光束
         
         this.spawnTime = Date.now();
+
+        // === Movement FSM (replaces dumb 3-second random direction) ===
+        this.movementState = 'orbit'; // orbit | reposition | retreat | hold
+        this.movementStateTimer = 0;
+        this.lastMovementUpdate = Date.now();
+        this.idealDistance = 320;
+        this.minDistance = 220;
+        this.maxDistance = 460;
+        this.orbitDirection = Math.random() < 0.5 ? 1 : -1;
+
+        // === Combat utility AI (sits on TOP of existing weapon subsystems) ===
+        // We don't replace the beam/rifle/orbit-ball logic; instead we use this
+        // table to occasionally trigger telegraphed *composite* attacks.
+        this.combatPhase = 'idle';
+        this.activeMove = null;
+        this.combatRecoverUntil = 0;
+        this.aiMemory = createBossAIMemory();
+        this.telegraphs = [];
+        this.firstDecisionAt = this.spawnTime + 1500;
+        this.movesTable = this._buildMovesTable();
     }
 
     // 强制重置浮游炮到标准等边三角形阵型
@@ -548,59 +568,10 @@ class StarDevourer extends GameObject {
         const isBeamPausing = this.beamRifle.isPreFirePause || this.beamRifle.isPostFirePause;
         
         if (!this.isDodging && !isBeamPausing) {
-            // 二阶段：距离玩家过近时远离玩家
-            if (this.phaseTwo.activated && game.player) {
-                const bossCenterX = this.x + this.width / 2;
-                const bossCenterY = this.y + this.height / 2;
-                const p2TC = getBossTargetCenter(bossCenterX, bossCenterY);
-                const playerCenterX = p2TC ? p2TC.x : this.x + this.width / 2;
-                const playerCenterY = p2TC ? p2TC.y : this.y + this.height / 2;
-                const dx = playerCenterX - bossCenterX;
-                const dy = playerCenterY - bossCenterY;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                
-                if (distance < 300) {
-                    // 有30%概率远离玩家到500像素距离
-                    if (Math.random() < 0.3) {
-                        // 计算远离玩家的方向
-                        const awayAngle = Math.atan2(-dy, -dx);
-                        // 计算目标位置（距离玩家500像素）
-                        const targetDistance = 500;
-                        const targetX = playerCenterX + Math.cos(awayAngle) * targetDistance;
-                        const targetY = playerCenterY + Math.sin(awayAngle) * targetDistance;
-                        
-                        // 朝目标位置移动
-                        const targetDx = targetX - bossCenterX;
-                        const targetDy = targetY - bossCenterY;
-                        const targetDist = Math.sqrt(targetDx * targetDx + targetDy * targetDy);
-                        
-                        if (targetDist > 0) {
-                            this.vx = (targetDx / targetDist) * this.speed;
-                            this.vy = (targetDy / targetDist) * this.speed;
-                            // 立即更新时间，防止下一帧又切换方向
-                            this.lastDirectionChange = now;
-                        }
-                    } else {
-                        // 不远离时，继续正常随机移动
-                        if (now - this.lastDirectionChange > this.directionChangeInterval) {
-                            this.setRandomDirection();
-                            this.lastDirectionChange = now;
-                        }
-                    }
-                } else {
-                    // 距离正常时，继续正常随机移动
-                    if (now - this.lastDirectionChange > this.directionChangeInterval) {
-                        this.setRandomDirection();
-                        this.lastDirectionChange = now;
-                    }
-                }
-            } else {
-                // 一阶段或没有玩家时，继续正常随机移动
-                if (now - this.lastDirectionChange > this.directionChangeInterval) {
-                    this.setRandomDirection();
-                    this.lastDirectionChange = now;
-                }
-            }
+            // Movement FSM (replaces all the old random-direction nonsense
+            // including phase-2 retreat-when-close — which now happens via
+            // updateMovementAI() bonus distance preference).
+            this.updateMovementAI();
         } else if (isBeamPausing) {
             // 开火前后停顿期间完全停止移动
             this.vx = 0;
@@ -647,6 +618,388 @@ class StarDevourer extends GameObject {
         
         // 智能边界处理：如果Boss太靠近边缘，让它向中央移动
         this.handleSmartBoundary();
+
+        // High-level utility AI sits on top of all the per-system cooldowns.
+        // It can occasionally trigger composite, telegraphed *combo* moves.
+        this.updateCombatAI();
+    }
+    
+    // === Movement FSM ========================================================
+    updateMovementAI() {
+        if (!game.player) { this.vx = 0; this.vy = 0; return; }
+        const now = Date.now();
+        const dt = Math.min(0.05, (now - this.lastMovementUpdate) / 1000);
+        this.lastMovementUpdate = now;
+
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const tc = (typeof getBossTargetCenter === 'function')
+            ? getBossTargetCenter(cx, cy) : null;
+        const px = tc ? tc.x : (game.player.x + game.player.width / 2);
+        const py = tc ? tc.y : (game.player.y + game.player.height / 2);
+        const dx = px - cx;
+        const dy = py - cy;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const toPlayer = Math.atan2(dy, dx);
+
+        // Phase 2 prefers to keep distance more aggressively
+        const ideal = this.phaseTwo.activated ? 380 : this.idealDistance;
+        const minD = this.phaseTwo.activated ? 280 : this.minDistance;
+        const maxD = this.maxDistance;
+
+        this.movementStateTimer -= dt;
+        if (this.movementStateTimer <= 0) {
+            if (dist < minD) {
+                this.movementState = 'retreat';
+                this.movementStateTimer = 0.8 + Math.random() * 0.5;
+            } else if (dist > maxD) {
+                this.movementState = 'reposition';
+                this.movementStateTimer = 0.9 + Math.random() * 0.5;
+            } else {
+                if (Math.random() < 0.2) this.orbitDirection *= -1;
+                this.movementState = 'orbit';
+                this.movementStateTimer = 1.6 + Math.random() * 1.4;
+            }
+        }
+
+        let moveAngle = 0;
+        let moveSpeed = 0;
+        switch (this.movementState) {
+            case 'orbit': {
+                const perp = toPlayer + (Math.PI / 2) * this.orbitDirection;
+                const distErr = dist - ideal;
+                const w = Math.min(Math.abs(distErr) / 160, 0.6);
+                const corr = distErr > 0 ? toPlayer : toPlayer + Math.PI;
+                moveAngle = perp * (1 - w) + corr * w;
+                moveSpeed = this.speed * 0.95;
+                break;
+            }
+            case 'retreat': {
+                moveAngle = toPlayer + Math.PI + (Math.random() - 0.5) * 0.4;
+                moveSpeed = this.speed * 1.15;
+                break;
+            }
+            case 'reposition': {
+                moveAngle = toPlayer + (Math.random() - 0.5) * 0.3;
+                moveSpeed = this.speed * 1.0;
+                break;
+            }
+        }
+
+        const margin = 70;
+        let bx = 0, by = 0;
+        if (cx < margin) bx = (margin - cx) / margin;
+        else if (cx > GAME_CONFIG.WIDTH - margin) bx = (GAME_CONFIG.WIDTH - margin - cx) / margin;
+        if (cy < margin) by = (margin - cy) / margin;
+        else if (cy > GAME_CONFIG.HEIGHT - margin) by = (GAME_CONFIG.HEIGHT - margin - cy) / margin;
+
+        const tvx = Math.cos(moveAngle) * moveSpeed + bx * this.speed * 1.4;
+        const tvy = Math.sin(moveAngle) * moveSpeed + by * this.speed * 1.4;
+        this.vx += (tvx - this.vx) * 0.14;
+        this.vy += (tvy - this.vy) * 0.14;
+    }
+
+    // === Combat utility AI ===================================================
+    // Sits ON TOP of existing weapon subsystems. Picks composite moves when
+    // they'd be impactful, otherwise stays idle and lets the per-system
+    // cooldowns (beam, autoRifle, orbit balls, blindness) drive base behavior.
+    updateCombatAI() {
+        if (!game.player) return;
+        const now = Date.now();
+
+        if (this.combatPhase === 'commit' && this.activeMove) {
+            const m = this.activeMove;
+            if (m.tick) m.tick(this, now);
+            if (m.isDone(this, now)) {
+                if (m.onEnd) m.onEnd(this);
+                this.activeMove = null;
+                this.combatPhase = 'recover';
+                this.combatRecoverUntil = now + (m.recoveryMs || 250);
+            }
+            return;
+        }
+        if (this.combatPhase === 'recover') {
+            if (now >= this.combatRecoverUntil) {
+                this.combatPhase = 'idle';
+            } else {
+                return;
+            }
+        }
+        if (now < this.firstDecisionAt) return;
+        if (now - this.aiMemory.lastMoveTime < 500) return;
+
+        // Don't override the beam mid-cycle — let it finish.
+        const beamBusy = this.beamRifle.isCharging || this.beamRifle.isPreFirePause ||
+                         this.beamRifle.isFiring || this.beamRifle.isPostFirePause;
+        if (beamBusy) return;
+
+        const ctx = buildBossAIContext(this);
+        const chosen = selectBossMove(this.movesTable, this.aiMemory, ctx);
+        if (!chosen) return;
+        commitBossMove(chosen, this.aiMemory, now);
+        const state = chosen.start(this, ctx);
+        if (!state) { this.combatPhase = 'idle'; return; }
+        this.activeMove = state;
+        this.combatPhase = 'commit';
+    }
+
+    _buildMovesTable() {
+        const boss = this;
+        return [
+            // ---- Move: Forced Beam Snipe (request immediate beam) --------
+            // Pulls forward beam attack early when player is exposed mid-range.
+            {
+                id: 'forcedBeam',
+                cooldown: 6000,
+                canUse: (ctx) => ctx.dist > 280 && ctx.dist < 900,
+                score: (ctx) => {
+                    let s = 0.9;
+                    if (ctx.dist > 400) s += 0.5;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    // Force-arm the beam now (bypass cooldown)
+                    b.beamRifle.lastFire = 0;
+                    b.startBeamCharge();
+                    return {
+                        startedAt: Date.now(),
+                        recoveryMs: 100,
+                        controlsMovement: false,
+                        tick: () => {},
+                        // The beam subsystem now owns the timing; we end this
+                        // commit immediately so dodge/movement keep working.
+                        isDone: (b2, now) => now - b2.activeMove.startedAt >= 80
+                    };
+                }
+            },
+
+            // ---- Move: Drone Pincer (force orbit balls into combat NOW) --
+            // Bypass the 10s ball cooldown to surprise-attack from 3 angles.
+            {
+                id: 'dronePincer',
+                cooldown: 8500,
+                canUse: (ctx) => !boss.ballsInAttack && !boss.phaseTwo.activated,
+                score: (ctx) => {
+                    let s = 1.0;
+                    if (ctx.dist > 200 && ctx.dist < 500) s += 0.5;
+                    if (ctx.hpPct > 0.5) s += 0.2;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    b.telegraphs.push(createTelegraphAura(cx, cy, 90, 500, '#ffe080'));
+                    return {
+                        startedAt: Date.now(),
+                        triggerAt: Date.now() + 500,
+                        triggered: false,
+                        recoveryMs: 200,
+                        controlsMovement: false,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (!st.triggered && now >= st.triggerAt) {
+                                b2.lastBallAttack = 0;
+                                if (typeof b2.startBallAttack === 'function') {
+                                    b2.startBallAttack();
+                                }
+                                bossFX.addFlash(b2.x + b2.width / 2, b2.y + b2.height / 2, 36, '#ffe080', 280, 0.9);
+                                st.triggered = true;
+                            }
+                        },
+                        isDone: (b2, now) => b2.activeMove.triggered
+                    };
+                }
+            },
+
+            // ---- Move: Bullet Wall (telegraphed full-auto sweep) ---------
+            // Fires a tight rifle stream while sweeping the muzzle ±30° around
+            // the player — punishes still play and forces the player to move.
+            {
+                id: 'bulletWall',
+                cooldown: 5500,
+                canUse: (ctx) => ctx.dist < 480,
+                score: (ctx) => {
+                    let s = 1.0;
+                    if (ctx.dist < 320) s += 0.4;
+                    if (ctx.hpPct < 0.7) s += 0.2;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    b.telegraphs.push(createTrackingArrow(b, 450, 110, '#ffe080'));
+                    return {
+                        startedAt: Date.now(),
+                        fireUntil: Date.now() + 450 + 1100,
+                        startFireAt: Date.now() + 450,
+                        nextShotAt: Date.now() + 450,
+                        sweepHalfWidth: Math.PI / 6,
+                        intervalMs: 35, // ~28 shots/s
+                        recoveryMs: 350,
+                        controlsMovement: true,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (now < st.startFireAt) {
+                                b2.vx *= 0.7; b2.vy *= 0.7;
+                                return;
+                            }
+                            // Slow down so the wall actually places consistently
+                            b2.vx *= 0.5; b2.vy *= 0.5;
+                            while (now >= st.nextShotAt && now <= st.fireUntil) {
+                                // Re-aim sweep center at the player every shot
+                                const cx = b2.x + b2.width / 2;
+                                const cy = b2.y + b2.height / 2;
+                                const tc = (typeof getBossTargetCenter === 'function')
+                                    ? getBossTargetCenter(cx, cy) : null;
+                                const px = tc ? tc.x : (game.player ? game.player.x + game.player.width / 2 : cx);
+                                const py = tc ? tc.y : (game.player ? game.player.y + game.player.height / 2 : cy);
+                                const center = Math.atan2(py - cy, px - cx);
+                                const t = (now - st.startFireAt) / (st.fireUntil - st.startFireAt);
+                                // Triangular sweep: -hw -> +hw -> -hw
+                                const phase = (t * 2) % 2;
+                                const sweepT = phase < 1 ? (phase * 2 - 1) : (1 - (phase - 1) * 2);
+                                const ang = center + sweepT * st.sweepHalfWidth;
+                                b2._fireAimedRifle(ang);
+                                st.nextShotAt += st.intervalMs;
+                            }
+                        },
+                        isDone: (b2, now) => now >= b2.activeMove.fireUntil
+                    };
+                }
+            },
+
+            // ---- Move: Blind Strike (force blindness window for ambush) --
+            {
+                id: 'blindStrike',
+                cooldown: 10000,
+                canUse: (ctx) => boss.blindnessSkill.unlocked && !boss.blindnessSkill.isActive,
+                score: (ctx) => {
+                    let s = 0.8;
+                    if (ctx.dist < 320) s += 0.5;
+                    if (ctx.hpPct < 0.6) s += 0.3;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    if (typeof b.activateBlindness !== 'function') return null;
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    b.telegraphs.push(createTelegraphAura(cx, cy, 70, 350, '#202020'));
+                    return {
+                        startedAt: Date.now(),
+                        triggerAt: Date.now() + 350,
+                        triggered: false,
+                        recoveryMs: 150,
+                        controlsMovement: false,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (!st.triggered && now >= st.triggerAt) {
+                                b2.blindnessSkill.lastUse = 0;
+                                b2.activateBlindness();
+                                bossFX.addShockwave(b2.x + b2.width / 2, b2.y + b2.height / 2, 14, 160, '#404060', 500, 4, 0.7);
+                                st.triggered = true;
+                            }
+                        },
+                        isDone: (b2, now) => b2.activeMove.triggered
+                    };
+                }
+            },
+
+            // ---- Move: Combo Beam-Pincer (HP < 60% – beam + pincer) ------
+            // Telegraphed combo: fires beam, simultaneously scrambles balls.
+            {
+                id: 'beamPincerCombo',
+                cooldown: 14000,
+                canUse: (ctx) => ctx.hpPct < 0.65 && !boss.ballsInAttack && !boss.phaseTwo.activated,
+                score: (ctx) => {
+                    let s = 1.0;
+                    if (ctx.hpPct < 0.45) s += 0.6;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    b.telegraphs.push(createTelegraphAura(cx, cy, 110, 600, '#ff7050'));
+                    return {
+                        startedAt: Date.now(),
+                        beamAt: Date.now() + 600,
+                        ballAt: Date.now() + 800,
+                        beamed: false, balled: false,
+                        recoveryMs: 250,
+                        controlsMovement: false,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (!st.beamed && now >= st.beamAt) {
+                                b2.beamRifle.lastFire = 0;
+                                b2.startBeamCharge();
+                                st.beamed = true;
+                            }
+                            if (!st.balled && now >= st.ballAt) {
+                                b2.lastBallAttack = 0;
+                                if (typeof b2.startBallAttack === 'function') b2.startBallAttack();
+                                bossFX.addShake(4, 250);
+                                st.balled = true;
+                            }
+                        },
+                        isDone: (b2, now) => b2.activeMove.beamed && b2.activeMove.balled
+                    };
+                }
+            }
+        ];
+    }
+
+    // Aimed single-shot rifle helper used by bulletWall move
+    _fireAimedRifle(direction) {
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const directionDeg = direction * 180 / Math.PI;
+        const bullet = new StarDevourerBullet(
+            cx, cy,
+            directionDeg,
+            this.autoRifle.bulletSpeed,
+            this.autoRifle.damage,
+            this.autoRifle.range
+        );
+        if (!game.starDevourerBullets) game.starDevourerBullets = [];
+        game.starDevourerBullets.push(bullet);
+    }
+
+    // Thruster flames (gold/orange jet, fades out when phase 2 invisible)
+    drawThrusterFlames(ctx) {
+        if (typeof drawJetFlame !== 'function') return;
+        const isMoving = this.vx !== 0 || this.vy !== 0;
+        if (!isMoving) return;
+        // Hide if phase-2 invisible and player is far (matches body alpha logic)
+        if (this.phaseTwo.activated && this.phaseTwo.isInvisible &&
+            !this.isWithinDetectionRange()) return;
+
+        const moveAngle = Math.atan2(this.vy, this.vx);
+        const thrusterAngle = moveAngle + Math.PI;
+        const dodging = !!this.isDodging;
+        const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+        const intensity = dodging ? 1.0 : 0.7 + Math.min(0.25, speed / 60);
+        const length = dodging ? 75 : 50;
+        const width = dodging ? 20 : 14;
+        const thrusterCount = 3;
+        const thrusterSpacing = dodging ? 14 : 11;
+
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const startDistance = this.width / 2 + 4;
+        const perpAngle = thrusterAngle + Math.PI / 2;
+        for (let i = 0; i < thrusterCount; i++) {
+            const offsetPerp = (i - (thrusterCount - 1) / 2) * thrusterSpacing;
+            const ox = cx + Math.cos(thrusterAngle) * startDistance + Math.cos(perpAngle) * offsetPerp;
+            const oy = cy + Math.sin(thrusterAngle) * startDistance + Math.sin(perpAngle) * offsetPerp;
+            drawJetFlame(ctx, {
+                originX: ox, originY: oy,
+                angle: thrusterAngle,
+                length: length * (i === 1 ? 1.0 : 0.85),
+                width: width * (i === 1 ? 1.0 : 0.8),
+                intensity,
+                scheme: 'gold',
+                spawnEmbers: true,
+                emberDensity: dodging ? 0.9 : 0.5,
+                id: i + (dodging ? 50 : 0)
+            });
+        }
     }
     
     tryHeal() {
@@ -1710,6 +2063,12 @@ class StarDevourer extends GameObject {
     }
 
     draw(ctx) {
+        // Telegraphs render under boss body
+        if (this.telegraphs && this.telegraphs.length > 0 && typeof renderBossTelegraphs === 'function') {
+            renderBossTelegraphs(ctx, this.telegraphs);
+        }
+        // 推进器尾焰（仅在可见时）
+        this.drawThrusterFlames(ctx);
         // 检查是否在检测范围内
         const withinDetectionRange = this.isWithinDetectionRange();
         
@@ -2024,39 +2383,58 @@ class StarDevourer extends GameObject {
         
         // 绘制光束发射效果
         if (this.beamRifle.isFiring) {
-            ctx.save();
-            
-            // 计算光束终点
             const beamEndX = bossCenterX + Math.cos(this.beamRifle.targetAngle) * this.beamRifle.range;
             const beamEndY = bossCenterY + Math.sin(this.beamRifle.targetAngle) * this.beamRifle.range;
-            
-            // 绘制主光束
-            ctx.strokeStyle = '#00FFFF'; // 青色光束
-            ctx.lineWidth = this.beamRifle.width;
-            ctx.lineCap = 'round';
-            
-            ctx.beginPath();
-            ctx.moveTo(bossCenterX, bossCenterY);
-            ctx.lineTo(beamEndX, beamEndY);
-            ctx.stroke();
-            
-            // 绘制光束内核
-            ctx.strokeStyle = '#FFFFFF'; // 白色内核
-            ctx.lineWidth = this.beamRifle.width / 2;
-            
-            ctx.beginPath();
-            ctx.moveTo(bossCenterX, bossCenterY);
-            ctx.lineTo(beamEndX, beamEndY);
-            ctx.stroke();
-            
-            // 绘制发射点光效
-            ctx.fillStyle = '#00FFFF';
-            ctx.globalAlpha = 0.8;
-            ctx.beginPath();
-            ctx.arc(bossCenterX, bossCenterY, 8, 0, 2 * Math.PI);
-            ctx.fill();
-            
-            ctx.restore();
+
+            if (typeof drawBeam === 'function') {
+                drawBeam(ctx, {
+                    x1: bossCenterX, y1: bossCenterY,
+                    x2: beamEndX, y2: beamEndY,
+                    width: this.beamRifle.width,
+                    scheme: 'cyan',
+                    alpha: 1,
+                    charge: 1.1
+                });
+                if (typeof drawMuzzleFlash === 'function') {
+                    drawMuzzleFlash(ctx, {
+                        x: bossCenterX, y: bossCenterY,
+                        angle: this.beamRifle.targetAngle,
+                        radius: 22,
+                        scheme: 'cyan',
+                        alpha: 1
+                    });
+                }
+                // Impact sparks at end (subtle, every couple frames)
+                if (typeof drawImpactSparks === 'function' && Math.random() < 0.6) {
+                    drawImpactSparks(ctx, {
+                        x: beamEndX, y: beamEndY,
+                        count: 4,
+                        scheme: 'cyan',
+                        radius: 10
+                    });
+                }
+            } else {
+                ctx.save();
+                ctx.strokeStyle = '#00FFFF';
+                ctx.lineWidth = this.beamRifle.width;
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                ctx.moveTo(bossCenterX, bossCenterY);
+                ctx.lineTo(beamEndX, beamEndY);
+                ctx.stroke();
+                ctx.strokeStyle = '#FFFFFF';
+                ctx.lineWidth = this.beamRifle.width / 2;
+                ctx.beginPath();
+                ctx.moveTo(bossCenterX, bossCenterY);
+                ctx.lineTo(beamEndX, beamEndY);
+                ctx.stroke();
+                ctx.fillStyle = '#00FFFF';
+                ctx.globalAlpha = 0.8;
+                ctx.beginPath();
+                ctx.arc(bossCenterX, bossCenterY, 8, 0, 2 * Math.PI);
+                ctx.fill();
+                ctx.restore();
+            }
         }
         
         // 绘制开火后停顿效果（新增）
@@ -2188,6 +2566,22 @@ class StarDevourerBullet extends GameObject {
     }
     
     draw(ctx) {
+        // Modern glowing tracer (matches noOp's player tracer style)
+        if (typeof drawTracer === 'function') {
+            const cx = this.x + this.width / 2;
+            const cy = this.y + this.height / 2;
+            const ang = this.direction * Math.PI / 180;
+            const len = 14;
+            drawTracer(ctx, {
+                x1: cx - Math.cos(ang) * len * 0.5,
+                y1: cy - Math.sin(ang) * len * 0.5,
+                x2: cx + Math.cos(ang) * len * 0.5,
+                y2: cy + Math.sin(ang) * len * 0.5,
+                width: 3,
+                scheme: 'azure'
+            });
+            return;
+        }
         ctx.save();
         ctx.fillStyle = this.color;
         ctx.shadowColor = '#4488FF';

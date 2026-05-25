@@ -148,69 +148,90 @@ class CrescentBullet extends GameObject {
     }
     
     draw(ctx) {
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const now = Date.now();
+
+        // 1) Trail (additive ice mist behind)
+        if (typeof drawTracer === 'function') {
+            const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy) || 1;
+            const dirX = this.vx / speed;
+            const dirY = this.vy / speed;
+            const trail = 22;
+            drawTracer(ctx, {
+                x1: cx - dirX * trail, y1: cy - dirY * trail,
+                x2: cx, y2: cy,
+                width: 2.4,
+                scheme: 'azure'
+            });
+        }
+
+        // 2) Halo glow under the snowflake
         ctx.save();
-        
-        // 移动到月牙弹中心并旋转
-        const centerX = this.x + this.width / 2;
-        const centerY = this.y + this.height / 2;
-        ctx.translate(centerX, centerY);
+        ctx.globalCompositeOperation = 'lighter';
+        const haloR = 12 + 1.6 * Math.sin(now * 0.012);
+        const halo = ctx.createRadialGradient(cx, cy, 0, cx, cy, haloR);
+        halo.addColorStop(0, 'rgba(220, 240, 255, 0.85)');
+        halo.addColorStop(0.5, 'rgba(120, 200, 255, 0.45)');
+        halo.addColorStop(1, 'rgba(60, 150, 255, 0)');
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        // 3) Snowflake body (kept similar shape but with brighter palette)
+        ctx.save();
+        ctx.translate(cx, cy);
         ctx.rotate(this.rotation);
-        
-        // 绘制雪花样式的月牙弹
-        const size = 8;
-        
-        // 主体 - 月牙形状
-        ctx.fillStyle = '#87CEEB'; // 天蓝色
+
+        const size = 9;
+        // Crescent body (cyan glow)
+        ctx.fillStyle = '#a0e0ff';
         ctx.beginPath();
-        ctx.arc(-size/4, 0, size/2, 0, Math.PI * 2);
+        ctx.arc(-size / 4, 0, size / 2, 0, Math.PI * 2);
         ctx.fill();
-        
-        // 月牙缺口
-        ctx.fillStyle = '#404040'; // 灰色背景色，造成月牙效果
+        // Notch
+        ctx.globalCompositeOperation = 'destination-out';
         ctx.beginPath();
-        ctx.arc(size/6, -size/6, size/3, 0, Math.PI * 2);
+        ctx.arc(size / 6, -size / 6, size / 3, 0, Math.PI * 2);
         ctx.fill();
-        
-        // 雪花装饰 - 6条射线
-        ctx.strokeStyle = '#B0E0E6'; // 淡蓝色
-        ctx.lineWidth = 1;
+        ctx.globalCompositeOperation = 'source-over';
+
+        // 6 snowflake rays
+        ctx.strokeStyle = '#e0f8ff';
+        ctx.lineWidth = 1.2;
         for (let i = 0; i < 6; i++) {
             const angle = (i * Math.PI) / 3;
-            const lineLength = size * 0.6;
-            
+            const lineLength = size * 0.65;
             ctx.beginPath();
             ctx.moveTo(0, 0);
             ctx.lineTo(Math.cos(angle) * lineLength, Math.sin(angle) * lineLength);
             ctx.stroke();
-            
-            // 射线末端的小分支
-            const branchAngle1 = angle + Math.PI / 6;
-            const branchAngle2 = angle - Math.PI / 6;
-            const branchLength = size * 0.2;
-            
-            ctx.beginPath();
-            ctx.moveTo(Math.cos(angle) * lineLength, Math.sin(angle) * lineLength);
-            ctx.lineTo(
-                Math.cos(angle) * lineLength + Math.cos(branchAngle1) * branchLength,
-                Math.sin(angle) * lineLength + Math.sin(branchAngle1) * branchLength
-            );
-            ctx.stroke();
-            
-            ctx.beginPath();
-            ctx.moveTo(Math.cos(angle) * lineLength, Math.sin(angle) * lineLength);
-            ctx.lineTo(
-                Math.cos(angle) * lineLength + Math.cos(branchAngle2) * branchLength,
-                Math.sin(angle) * lineLength + Math.sin(branchAngle2) * branchLength
-            );
-            ctx.stroke();
+            const branchLength = size * 0.22;
+            for (const ba of [angle + Math.PI / 6, angle - Math.PI / 6]) {
+                ctx.beginPath();
+                ctx.moveTo(Math.cos(angle) * lineLength, Math.sin(angle) * lineLength);
+                ctx.lineTo(
+                    Math.cos(angle) * lineLength + Math.cos(ba) * branchLength,
+                    Math.sin(angle) * lineLength + Math.sin(ba) * branchLength
+                );
+                ctx.stroke();
+            }
         }
-        
-        // 中心光点
-        ctx.fillStyle = '#FFFFFF';
+
+        // White hot center
+        ctx.globalCompositeOperation = 'lighter';
+        const coreR = 2.2 + 0.6 * Math.sin(now * 0.025);
+        const coreGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, coreR + 2);
+        coreGrad.addColorStop(0, '#ffffff');
+        coreGrad.addColorStop(0.6, 'rgba(180, 230, 255, 0.6)');
+        coreGrad.addColorStop(1, 'rgba(80, 150, 255, 0)');
+        ctx.fillStyle = coreGrad;
         ctx.beginPath();
-        ctx.arc(0, 0, 2, 0, Math.PI * 2);
+        ctx.arc(0, 0, coreR + 2, 0, Math.PI * 2);
         ctx.fill();
-        
+
         ctx.restore();
     }
 }
@@ -274,9 +295,9 @@ class SublimeMoon extends GameObject {
         this.movementState = 'orbit';
         this.movementStateTimer = 0;
         this.lastMovementUpdate = Date.now();
-        this.idealDistance = 240;
-        this.minDistance = 140;
-        this.maxDistance = 360;
+        this.idealDistance = 100;
+        this.minDistance = 50;
+        this.maxDistance = 200;
         this.orbitDirection = Math.random() < 0.5 ? 1 : -1;
         // Combat FSM
         this.combatPhase = 'idle';      // idle | commit | recover
@@ -1176,6 +1197,13 @@ class SublimeMoon extends GameObject {
             this.updateMovementAI();
         }
 
+        // Recovery stun: boss is briefly rooted after melee/heavy moves so the
+        // player has a clean window to retaliate.
+        if (this.combatPhase === 'recover') {
+            this.vx = 0;
+            this.vy = 0;
+        }
+
         // Combat FSM picks/executes attack moves
         this.updateCombatAI();
 
@@ -1374,84 +1402,138 @@ class SublimeMoon extends GameObject {
                 }
             },
 
-            // ---- Move: Crescent Fan (spread shot, mid range) -------------
+            // ---- Move: Aggressive Melee Slash ---------------------------
+            // Primary close-range option. Boss dashes in, performs spin slash,
+            // then is rooted in long recovery so the player has a counter-window.
             {
-                id: 'crescentFan',
-                cooldown: 3500,
-                canUse: (ctx) => ctx.dist > 90 && ctx.dist < 480,
+                id: 'aggressiveSlash',
+                cooldown: 1300,
+                canUse: (ctx) => ctx.dist < 220,
                 score: (ctx) => {
-                    let s = 1.0;
-                    if (ctx.dist > 160 && ctx.dist < 360) s += 0.7;
+                    let s = 1.4;
+                    if (ctx.dist < 110) s += 1.2;       // strongly prefer when already in melee
+                    else if (ctx.dist < 170) s += 0.6;
+                    if (ctx.hpPct < 0.5) s += 0.3;      // gets more aggressive when wounded
                     return s;
                 },
                 start: (b, ctx) => {
                     const cx = b.x + b.width / 2;
                     const cy = b.y + b.height / 2;
-                    b.telegraphs.push(createTelegraphArrow(
-                        cx, cy,
-                        cx + Math.cos(ctx.angleToPlayer) * 80,
-                        cy + Math.sin(ctx.angleToPlayer) * 80,
-                        320, '#a0e0ff'
-                    ));
+                    // Brief telegraph aura at boss before lunge
+                    b.telegraphs.push(createTelegraphAura(cx, cy, b.spinSlashRange + 14, 220, '#a0e0ff'));
+                    bossFX.addFlash(cx, cy, 24, '#a0e0ff', 200, 0.8);
                     return {
                         startedAt: Date.now(),
-                        fireAt: Date.now() + 320,
-                        fired: false,
-                        recoveryMs: 250,
-                        controlsMovement: false,
+                        windupUntil: Date.now() + 220,  // visible windup
+                        slashUntil: Date.now() + 480,   // dash + slash window
+                        slashed: false,
+                        recoveryMs: 700,                // long stun after the swing
+                        controlsMovement: true,
                         tick: (b2, now) => {
                             const st = b2.activeMove;
-                            if (!st.fired && now >= st.fireAt) {
-                                b2.fireCrescentBullets();
-                                bossFX.addFlash(b2.x + b2.width / 2, b2.y + b2.height / 2, 30, '#a0e0ff', 220, 0.9);
-                                st.fired = true;
+                            // Phase 1: anchor in place during windup
+                            if (now < st.windupUntil) {
+                                b2.vx = 0; b2.vy = 0;
+                                return;
+                            }
+                            // Phase 2: hard lunge toward the player
+                            if (game.player) {
+                                const bcx = b2.x + b2.width / 2;
+                                const bcy = b2.y + b2.height / 2;
+                                const tc = (typeof getBossTargetCenter === 'function')
+                                    ? getBossTargetCenter(bcx, bcy) : null;
+                                const tx = tc ? tc.x : (game.player.x + game.player.width / 2);
+                                const ty = tc ? tc.y : (game.player.y + game.player.height / 2);
+                                const dx = tx - bcx, dy = ty - bcy;
+                                const d = Math.sqrt(dx * dx + dy * dy) || 1;
+                                const lungeSpeed = 26;
+                                b2.vx = (dx / d) * lungeSpeed;
+                                b2.vy = (dy / d) * lungeSpeed;
+                            }
+                            // Trigger slash mid-lunge once we're close enough or window expires
+                            if (!st.slashed) {
+                                const bcx = b2.x + b2.width / 2;
+                                const bcy = b2.y + b2.height / 2;
+                                const tc = (typeof getBossTargetCenter === 'function')
+                                    ? getBossTargetCenter(bcx, bcy) : null;
+                                const tx = tc ? tc.x : (game.player ? game.player.x + game.player.width / 2 : bcx);
+                                const ty = tc ? tc.y : (game.player ? game.player.y + game.player.height / 2 : bcy);
+                                const d = Math.sqrt((tx - bcx) ** 2 + (ty - bcy) ** 2);
+                                if (d <= b2.spinSlashRange || now >= st.slashUntil) {
+                                    b2.lastSpinSlash = 0;
+                                    b2.performSpinSlash();
+                                    bossFX.addShockwave(bcx, bcy, 8, b2.spinSlashRange + 10,
+                                        '#a0e0ff', 320, 4, 0.6);
+                                    bossFX.addShake(160, 4);
+                                    st.slashed = true;
+                                    b2.vx = 0; b2.vy = 0;
+                                }
                             }
                         },
-                        isDone: (b2, now) => now - b2.activeMove.startedAt >= 520
+                        // End commit as soon as the slash fired (or window expires)
+                        isDone: (b2, now) => b2.activeMove.slashed || now >= b2.activeMove.slashUntil
                     };
                 }
             },
 
-            // ---- Move: Triple Crescent Volley (HP < 70%) -----------------
-            // 3 fans in 0.6s — denies space.
+            // ---- Move: Missile Cleave (anti-missile reflex) -------------
+            // High priority when player missiles are inbound: boss spins to
+            // shred them all, then briefly stuns herself.
             {
-                id: 'tripleCrescent',
-                cooldown: 9000,
-                canUse: (ctx) => ctx.dist > 120 && ctx.dist < 460 && ctx.hpPct < 0.75,
+                id: 'missileCleave',
+                cooldown: 700,
+                canUse: (ctx) => {
+                    if (!game.missiles || game.missiles.length === 0) return false;
+                    const cx = ctx.boss.x + ctx.boss.width / 2;
+                    const cy = ctx.boss.y + ctx.boss.height / 2;
+                    for (const m of game.missiles) {
+                        const dx = m.x - cx, dy = m.y - cy;
+                        if (dx * dx + dy * dy <= 200 * 200) return true;
+                    }
+                    return false;
+                },
                 score: (ctx) => {
-                    let s = 1.1;
-                    if (ctx.hpPct < 0.5) s += 0.6;
-                    if (ctx.hpPct < 0.3) s += 0.4;
+                    // Count nearby missiles -> higher score the more there are
+                    const cx = ctx.boss.x + ctx.boss.width / 2;
+                    const cy = ctx.boss.y + ctx.boss.height / 2;
+                    let near = 0, closest = Infinity;
+                    for (const m of (game.missiles || [])) {
+                        const dx = m.x - cx, dy = m.y - cy;
+                        const d2 = dx * dx + dy * dy;
+                        if (d2 <= 200 * 200) {
+                            near++;
+                            if (d2 < closest) closest = d2;
+                        }
+                    }
+                    if (near === 0) return -Infinity;
+                    let s = 2.5;                              // outranks most other moves
+                    if (closest < 90 * 90) s += 1.2;          // emergency
+                    if (near >= 2) s += 0.6;
                     return s;
                 },
                 start: (b, ctx) => {
                     const cx = b.x + b.width / 2;
                     const cy = b.y + b.height / 2;
-                    b.telegraphs.push(createTelegraphAura(cx, cy, 50, 500, '#80d8ff'));
+                    b.telegraphs.push(createTelegraphAura(cx, cy, 130, 140, '#c0f0ff'));
+                    bossFX.addFlash(cx, cy, 30, '#c0f0ff', 200, 0.9);
                     return {
                         startedAt: Date.now(),
-                        nextFireAt: Date.now() + 500,
-                        firedCount: 0,
-                        target: 3,
-                        intervalMs: 250,
-                        recoveryMs: 350,
+                        slashed: false,
+                        recoveryMs: 280,
                         controlsMovement: true,
                         tick: (b2, now) => {
                             const st = b2.activeMove;
-                            if (now < st.startedAt + 500) {
-                                b2.vx *= 0.85; b2.vy *= 0.85;
-                                return;
-                            }
-                            if (st.firedCount < st.target && now >= st.nextFireAt) {
-                                // bypass cooldown
-                                b2.lastCrescentBullet = 0;
-                                b2.fireCrescentBullets();
-                                bossFX.addFlash(b2.x + b2.width / 2, b2.y + b2.height / 2, 26, '#a0e0ff', 200, 0.8);
-                                st.firedCount++;
-                                st.nextFireAt += st.intervalMs;
+                            // Brief anchor + slash, no movement
+                            b2.vx = 0; b2.vy = 0;
+                            if (!st.slashed && now - st.startedAt >= 140) {
+                                b2.lastSpinSlash = 0;
+                                b2.performSpinSlash();
+                                bossFX.addShockwave(b2.x + b2.width / 2, b2.y + b2.height / 2,
+                                    14, 130, '#c0f0ff', 360, 5, 0.6);
+                                st.slashed = true;
                             }
                         },
-                        isDone: (b2, now) => b2.activeMove.firedCount >= b2.activeMove.target
+                        isDone: (b2, now) => b2.activeMove.slashed
                     };
                 }
             },
@@ -1532,6 +1614,130 @@ class SublimeMoon extends GameObject {
                 }
             },
 
+            // ---- Move: Crescent Ring (360° homing bloom) -----------------
+            // Boss anchors and emits petals in all directions; they slowly
+            // home back onto the player. Best when player is in mid range.
+            {
+                id: 'crescentRing',
+                cooldown: 8000,
+                canUse: (ctx) => ctx.dist > 60 && ctx.dist < 360,
+                score: (ctx) => {
+                    let s = 0.9;
+                    if (ctx.dist > 120 && ctx.dist < 260) s += 0.5;
+                    if (ctx.hpPct < 0.6) s += 0.3;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    b.telegraphs.push(createTelegraphAura(cx, cy, 60, 480, '#a0e0ff'));
+                    return {
+                        startedAt: Date.now(),
+                        fired: false,
+                        recoveryMs: 350,
+                        controlsMovement: true,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            // Anchor during windup
+                            b2.vx = 0; b2.vy = 0;
+                            if (!st.fired && now - st.startedAt >= 480) {
+                                b2.fireCrescentRing(12);
+                                bossFX.addFlash(b2.x + b2.width / 2, b2.y + b2.height / 2,
+                                    36, '#c0f0ff', 260, 0.95);
+                                st.fired = true;
+                            }
+                        },
+                        isDone: (b2, now) => b2.activeMove.fired
+                    };
+                }
+            },
+
+            // ---- Move: Crescent Rain (homing petals from overhead) -------
+            // Long-range zoning; spawns above the player and dives down.
+            {
+                id: 'crescentRain',
+                cooldown: 11000,
+                canUse: (ctx) => ctx.dist > 200,
+                score: (ctx) => {
+                    let s = 0.85;
+                    if (ctx.dist > 320) s += 0.6;
+                    if (ctx.hpPct < 0.5) s += 0.25;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    // Telegraph appears at the player's position to warn of incoming rain
+                    b.telegraphs.push(createTelegraphCircle(ctx.playerCX, ctx.playerCY, 130, 600, '#a0e0ff'));
+                    b.telegraphs.push(createTelegraphAura(cx, cy, 30, 600, '#80c0ff'));
+                    return {
+                        startedAt: Date.now(),
+                        fired: false,
+                        recoveryMs: 400,
+                        controlsMovement: false,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (!st.fired && now - st.startedAt >= 600) {
+                                b2.fireCrescentRain(7);
+                                bossFX.addFlash(b2.x + b2.width / 2, b2.y + b2.height / 2,
+                                    28, '#80c0ff', 240, 0.9);
+                                st.fired = true;
+                            }
+                        },
+                        isDone: (b2, now) => b2.activeMove.fired
+                    };
+                }
+            },
+
+            // ---- Move: Crescent Spiral (timed spinning bloom) ------------
+            // Sequential petals over ~600ms forming a spiral, all homing.
+            // Forces the player to commit to a movement direction early.
+            {
+                id: 'crescentSpiral',
+                cooldown: 9500,
+                canUse: (ctx) => ctx.dist > 80 && ctx.dist < 420,
+                score: (ctx) => {
+                    let s = 1.0;
+                    if (ctx.dist > 140 && ctx.dist < 320) s += 0.5;
+                    if (ctx.hpPct < 0.4) s += 0.4;          // signature phase-2 pressure
+                    return s;
+                },
+                start: (b, ctx) => {
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    b.telegraphs.push(createTelegraphAura(cx, cy, 50, 360, '#80d8ff'));
+                    return {
+                        startedAt: Date.now(),
+                        windupUntil: Date.now() + 360,
+                        firedCount: 0,
+                        target: 16,                          // 16 petals * 22.5° step = 360°
+                        nextFireAt: Date.now() + 360,
+                        intervalMs: 55,                      // ~880ms total spiral
+                        baseAngle: Math.random() * Math.PI * 2,
+                        spinDir: Math.random() < 0.5 ? 1 : -1,
+                        recoveryMs: 380,
+                        controlsMovement: true,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (now < st.windupUntil) {
+                                b2.vx *= 0.7; b2.vy *= 0.7;
+                                return;
+                            }
+                            // Slow spin in place during the bloom
+                            b2.vx *= 0.85; b2.vy *= 0.85;
+                            while (st.firedCount < st.target && now >= st.nextFireAt) {
+                                const a = st.baseAngle +
+                                    st.spinDir * st.firedCount * (Math.PI * 2 / st.target);
+                                b2.fireCrescentSpiralOne(a);
+                                st.firedCount++;
+                                st.nextFireAt += st.intervalMs;
+                            }
+                        },
+                        isDone: (b2, now) => b2.activeMove.firedCount >= b2.activeMove.target
+                    };
+                }
+            },
+
             // ---- Move: Clone Summon (zoning helpers) ---------------------
             {
                 id: 'cloneSummon',
@@ -1568,35 +1774,6 @@ class SublimeMoon extends GameObject {
                             }
                         },
                         isDone: (b2, now) => b2.activeMove.summoned
-                    };
-                }
-            },
-
-            // ---- Move: Defensive Spin (anti-melee reflex) ----------------
-            {
-                id: 'spinDefense',
-                cooldown: 1800,
-                canUse: (ctx) => ctx.dist < 90,
-                score: (ctx) => {
-                    let s = 0.6;
-                    if (ctx.dist < 70) s += 1.0;
-                    return s;
-                },
-                start: (b, ctx) => {
-                    return {
-                        startedAt: Date.now(),
-                        recoveryMs: 200,
-                        controlsMovement: false,
-                        slashed: false,
-                        tick: (b2, now) => {
-                            const st = b2.activeMove;
-                            if (!st.slashed) {
-                                b2.lastSpinSlash = 0;
-                                b2.performSpinSlash();
-                                st.slashed = true;
-                            }
-                        },
-                        isDone: (b2, now) => now - b2.activeMove.startedAt >= 200
                     };
                 }
             }
@@ -1845,6 +2022,78 @@ class SublimeMoon extends GameObject {
             
             game.crescentBullets.push(crescentBullet);
         }
+    }
+
+    // === Variant: 360° crescent ring (omnidirectional, all home in) ===========
+    // Petals shoot outward in all directions, then home back onto the player.
+    // Forces the player to commit to a clear escape angle instead of just
+    // strafing perpendicular to a single fan.
+    fireCrescentRing(petals = 12) {
+        if (!game.player) return;
+        if (!game.crescentBullets) game.crescentBullets = [];
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const launchDistance = this.width / 2 + 12;
+        for (let i = 0; i < petals; i++) {
+            const a = (i / petals) * Math.PI * 2;
+            const lx = cx + Math.cos(a) * launchDistance;
+            const ly = cy + Math.sin(a) * launchDistance;
+            // Use a distant target on the petal direction so the bullet flies
+            // outward initially before homing kicks in.
+            const tx = lx + Math.cos(a) * 200;
+            const ty = ly + Math.sin(a) * 200;
+            const cb = new CrescentBullet(lx, ly, tx, ty,
+                this.crescentBulletDamage, this.crescentBulletSpeed);
+            // Slightly weaker tracking so they bloom outward longer
+            cb.trackingStrength = 0.05;
+            game.crescentBullets.push(cb);
+        }
+        bossFX.addShockwave(cx, cy, 14, 80, '#a0e0ff', 380, 4, 0.7);
+    }
+
+    // === Variant: crescent rain (drops from above the player) ================
+    // Spawns a row of bullets near the top of the play field that dive toward
+    // the player and home in. Punishes hugging the top of the arena.
+    fireCrescentRain(count = 7) {
+        if (!game.player) return;
+        if (!game.crescentBullets) game.crescentBullets = [];
+        const tc = getBossTargetCenter(this.x + this.width / 2, this.y + this.height / 2);
+        if (!tc) return;
+        const px = tc.x;
+        const py = tc.y;
+        const spawnY = Math.max(20, py - 360);
+        const spread = 220;
+        for (let i = 0; i < count; i++) {
+            const t = count === 1 ? 0.5 : i / (count - 1);
+            const sx = (px - spread / 2) + spread * t;
+            const sy = spawnY - 8 * Math.sin(t * Math.PI);    // gentle arc spawn
+            // Initial velocity targets the player roughly straight down
+            const cb = new CrescentBullet(sx, sy, px, py + 80,
+                this.crescentBulletDamage, this.crescentBulletSpeed * 0.85);
+            cb.trackingStrength = 0.06;
+            game.crescentBullets.push(cb);
+        }
+    }
+
+    // === Variant: crescent spiral (sequential spinning bloom) ================
+    // One petal launched per call at an advancing angle, building a spiral
+    // pattern over a few hundred ms before each petal homes in.
+    // `step` is provided by the move state to advance the spiral.
+    fireCrescentSpiralOne(angleRad, opts = {}) {
+        if (!game.player) return;
+        if (!game.crescentBullets) game.crescentBullets = [];
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const launchDistance = this.width / 2 + 12;
+        const lx = cx + Math.cos(angleRad) * launchDistance;
+        const ly = cy + Math.sin(angleRad) * launchDistance;
+        const tx = lx + Math.cos(angleRad) * 220;
+        const ty = ly + Math.sin(angleRad) * 220;
+        const cb = new CrescentBullet(lx, ly, tx, ty,
+            this.crescentBulletDamage, this.crescentBulletSpeed);
+        // Delay homing so the spiral shape is visible before petals curve in
+        cb.trackingStrength = (opts.tracking != null) ? opts.tracking : 0.04;
+        game.crescentBullets.push(cb);
     }
     
     // 检查分身召唤
@@ -2174,174 +2423,38 @@ class SublimeMoon extends GameObject {
     
     // 绘制Boss推进器火焰效果 - 冰之姬专属火箭推进器（青蓝色主题）
     drawThrusterFlames(ctx) {
-        // 检查是否有移动
         const isMoving = this.vx !== 0 || this.vy !== 0;
         if (!isMoving) return;
-        
-        // 计算移动方向
+        if (typeof drawJetFlame !== 'function') return;
+
         const moveAngle = Math.atan2(this.vy, this.vx);
-        
-        // 冰之姬火箭推进器参数（简化版本，青蓝色主题）
-        let thrusterCount, thrusterSpacing, flameLength, innerWidth, outerWidth;
-        
-        if (this.isDodging) {
-            // Boss闪避时的双推进器
-            thrusterCount = 2;
-            thrusterSpacing = 15;
-            flameLength = 80;
-            innerWidth = 10;
-            outerWidth = 20;
-        } else {
-            // Boss普通移动时的双推进器
-            thrusterCount = 2;
-            thrusterSpacing = 12;
-            flameLength = 50;
-            innerWidth = 6;
-            outerWidth = 12;
-        }
-        
-        // 计算推进器方向
-        const thrusterAngle = moveAngle + Math.PI; // 相反方向
-        
-        // 绘制多个巨大的并排推进器喷射口（青蓝色主题）
+        const thrusterAngle = moveAngle + Math.PI;
+        const dodging = !!this.isDodging;
+        const intensity = dodging ? 1.0 : 0.7;
+        const length = dodging ? 70 : 44;
+        const width = dodging ? 18 : 12;
+        const thrusterCount = 2;
+        const thrusterSpacing = dodging ? 14 : 11;
+
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const startDistance = this.width / 2 + 4;
+        const perpAngle = thrusterAngle + Math.PI / 2;
         for (let i = 0; i < thrusterCount; i++) {
             const offsetPerp = (i - (thrusterCount - 1) / 2) * thrusterSpacing;
-            
-            // 计算垂直于推进方向的偏移
-            const perpAngle = thrusterAngle + Math.PI / 2;
-            const offsetX = Math.cos(perpAngle) * offsetPerp;
-            const offsetY = Math.sin(perpAngle) * offsetPerp;
-            
-            // Boss推进器喷射口位置
-            const startDistance = this.width / 2 + 5;
-            const startX = this.x + this.width / 2 + Math.cos(thrusterAngle) * startDistance + offsetX;
-            const startY = this.y + this.height / 2 + Math.sin(thrusterAngle) * startDistance + offsetY;
-            
-            // 每个推进器的火焰长度有轻微变化（Boss的更加规律）
-            const currentFlameLength = flameLength + (Math.sin(Date.now() * 0.015 + i) * 8);
-            const endX = startX + Math.cos(thrusterAngle) * currentFlameLength;
-            const endY = startY + Math.sin(thrusterAngle) * currentFlameLength;
-            
-            // 绘制外层火焰（青蓝到青白渐变）
-            const outerGradient = ctx.createLinearGradient(startX, startY, endX, endY);
-            if (this.isDodging) {
-                // Boss闪避时的炽热青蓝火焰
-                outerGradient.addColorStop(0, 'rgba(70, 130, 180, 1.0)');   // 钢蓝色
-                outerGradient.addColorStop(0.2, 'rgba(0, 191, 255, 0.95)'); // 深天蓝
-                outerGradient.addColorStop(0.5, 'rgba(0, 206, 209, 0.85)'); // 暗青色
-                outerGradient.addColorStop(0.8, 'rgba(175, 238, 238, 0.6)'); // 苍白青绿
-                outerGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');    // 透明白
-            } else {
-                // Boss普通移动时的青蓝火焰
-                outerGradient.addColorStop(0, 'rgba(65, 105, 225, 0.9)');   // 皇家蓝
-                outerGradient.addColorStop(0.3, 'rgba(0, 149, 182, 0.8)');  // 深青色
-                outerGradient.addColorStop(0.6, 'rgba(72, 209, 204, 0.7)'); // 中青绿
-                outerGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');    // 透明白
-            }
-            
-            ctx.strokeStyle = outerGradient;
-            ctx.lineWidth = outerWidth;
-            ctx.lineCap = 'round';
-            ctx.beginPath();
-            ctx.moveTo(startX, startY);
-            ctx.lineTo(endX, endY);
-            ctx.stroke();
-            
-            // 绘制内层火焰（白色/青白色高温核心）
-            const coreEndX = startX + Math.cos(thrusterAngle) * (currentFlameLength * 0.6);
-            const coreEndY = startY + Math.sin(thrusterAngle) * (currentFlameLength * 0.6);
-            
-            const innerGradient = ctx.createLinearGradient(startX, startY, coreEndX, coreEndY);
-            if (this.isDodging) {
-                // Boss闪避时的白热核心
-                innerGradient.addColorStop(0, 'rgba(255, 255, 255, 1.0)');   // 纯白色
-                innerGradient.addColorStop(0.4, 'rgba(240, 248, 255, 0.9)'); // 爱丽丝蓝
-                innerGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');     // 透明白
-            } else {
-                // Boss普通时的高温核心
-                innerGradient.addColorStop(0, 'rgba(224, 255, 255, 0.9)');   // 淡青色
-                innerGradient.addColorStop(0.5, 'rgba(240, 248, 255, 0.7)'); // 爱丽丝蓝
-                innerGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');     // 透明白
-            }
-            
-            ctx.strokeStyle = innerGradient;
-            ctx.lineWidth = innerWidth;
-            ctx.beginPath();
-            ctx.moveTo(startX, startY);
-            ctx.lineTo(coreEndX, coreEndY);
-            ctx.stroke();
-        }
-        
-        // Boss专属火焰粒子效果
-        this.drawBossRocketFlameParticles(ctx, moveAngle, flameLength);
-    }
-    
-    // 绘制冰之姬火箭火焰粒子效果（青蓝色主题）
-    drawBossRocketFlameParticles(ctx, moveAngle, flameLength) {
-        // 根据闪避状态调整粒子参数（Boss的粒子更多更强）
-        const particleCount = this.isDodging ? 40 : 25;
-        const particleIntensity = this.isDodging ? 0.7 : 0.5;
-        const particleSizeMultiplier = this.isDodging ? 1.5 : 1.0;
-        
-        const time = Date.now() * 0.01; // 用于动画
-        
-        // 计算推进器方向
-        const thrusterAngle = moveAngle + Math.PI;
-        
-        for (let i = 0; i < particleCount; i++) {
-            // Boss粒子在火焰区域内随机分布，范围更大
-            const spreadAngle = (Math.random() - 0.5) * 0.8; // Boss粒子散布角度更大
-            const particleAngle = thrusterAngle + spreadAngle;
-            
-            // 粒子距离随机分布在火焰长度内
-            const distance = this.width / 2 + 12 + Math.random() * (flameLength * 0.9);
-            
-            // 计算粒子位置
-            const x = this.x + this.width / 2 + Math.cos(particleAngle) * distance;
-            const y = this.y + this.height / 2 + Math.sin(particleAngle) * distance;
-            
-            // 根据距离调整粒子颜色和大小
-            const distanceRatio = (distance - this.width / 2 - 12) / (flameLength * 0.9);
-            const alpha = (Math.sin(time * 1.5 + i) + 1) * particleIntensity * (1 - distanceRatio * 0.6);
-            
-            // Boss粒子大小更大
-            const size = (3 + Math.random() * 4) * particleSizeMultiplier * (1 - distanceRatio * 0.4);
-            
-            // 冰之姬火焰粒子颜色 - 青蓝色主调，根据距离渐变
-            let red, green, blue;
-            if (distanceRatio < 0.25) {
-                // 近处：钢蓝色
-                red = 70 + distanceRatio * 60;   // 70到130
-                green = 130 + distanceRatio * 50; // 130到180
-                blue = 180 + distanceRatio * 75; // 180到255
-            } else if (distanceRatio < 0.6) {
-                // 中间：青色
-                red = 0 + (distanceRatio - 0.25) * 72;  // 0到72
-                green = 180 + (distanceRatio - 0.25) * 75; // 180到255
-                blue = 255; // 保持255
-            } else {
-                // 远处：青白色
-                red = 72 + (distanceRatio - 0.6) * 183;   // 72到255
-                green = 255; // 保持255
-                blue = 255; // 保持255
-            }
-            
-            ctx.fillStyle = `rgba(${red}, ${green}, ${blue}, ${alpha})`;
-            ctx.fillRect(x - size/2, y - size/2, size, size);
-            
-            // 添加一些白色高温粒子（核心区域）
-            if (Math.random() < 0.3 && distanceRatio < 0.3) {
-                ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.9})`;
-                const whiteSize = size * 0.6;
-                ctx.fillRect(x - whiteSize/2, y - whiteSize/2, whiteSize, whiteSize);
-            }
-            
-            // 冰之姬专属：青蓝色月光效果（远距离粒子）
-            if (Math.random() < 0.15 && distanceRatio > 0.7) {
-                ctx.fillStyle = `rgba(70, 130, 180, ${alpha * 0.4})`;
-                const moonSize = size * 1.5;
-                ctx.fillRect(x - moonSize/2, y - moonSize/2, moonSize, moonSize);
-            }
+            const ox = cx + Math.cos(thrusterAngle) * startDistance + Math.cos(perpAngle) * offsetPerp;
+            const oy = cy + Math.sin(thrusterAngle) * startDistance + Math.sin(perpAngle) * offsetPerp;
+            drawJetFlame(ctx, {
+                originX: ox,
+                originY: oy,
+                angle: thrusterAngle,
+                length, width,
+                intensity,
+                scheme: 'azure',
+                spawnEmbers: true,
+                emberDensity: dodging ? 0.9 : 0.5,
+                id: i + (dodging ? 30 : 0)
+            });
         }
     }
 
