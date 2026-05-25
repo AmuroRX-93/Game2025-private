@@ -77,10 +77,20 @@ class Bullet extends GameObject {
     }
     
     draw(ctx) {
-        super.draw(ctx);
-        
-        // 绘制子弹轨迹
-        ctx.fillStyle = 'rgba(255, 215, 0, 0.3)';
-        ctx.fillRect(this.x - 1, this.y - 1, 6, 6);
+        // Multi-layer glowing tracer (replaces flat 4px gold square).
+        if (typeof drawTracer === 'function') {
+            drawTracer(ctx, {
+                x: this.x + this.width / 2,
+                y: this.y + this.height / 2,
+                vx: this.vx,
+                vy: this.vy,
+                length: 22,
+                width: 3.2,
+                scheme: 'gold',
+                alpha: 1
+            });
+        } else {
+            super.draw(ctx);
+        }
     }
-} 
+}

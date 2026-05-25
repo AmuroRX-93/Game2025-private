@@ -631,12 +631,22 @@ class Game {
 
         // 移除了基于时间的记分系统，现在分数完全基于造成的伤害
         updateUI();
+
+        // Boss FX system tick (particles, flashes, screen shake decay)
+        if (typeof bossFX !== 'undefined') bossFX.update();
     }
 
     draw() {
-        // 清空画布 - 灰色背景
-        this.ctx.fillStyle = '#404040';
-        this.ctx.fillRect(0, 0, GAME_CONFIG.WIDTH, GAME_CONFIG.HEIGHT);
+        // HUD-style background: dark with animated grid + vignette + scanlines
+        const inMenuOrModal = gameState.showGuide || gameState.showModeSelection ||
+            gameState.showLevelSelection || gameState.showWeaponConfig ||
+            gameState.showMechCustomization;
+        if (inMenuOrModal) {
+            uiDrawGridBackground(this.ctx, GAME_CONFIG.WIDTH, GAME_CONFIG.HEIGHT);
+        } else {
+            this.ctx.fillStyle = UI_THEME.color.bgDeep;
+            this.ctx.fillRect(0, 0, GAME_CONFIG.WIDTH, GAME_CONFIG.HEIGHT);
+        }
 
         // 显示游戏简介界面
         if (gameState.showGuide) {
@@ -670,6 +680,8 @@ class Game {
 
         // 绘制游戏世界（try-catch 防止单个错误导致整个UI消失）
         try {
+        // Apply screen shake (offset world transform). Will be popped by postDraw.
+        if (typeof bossFX !== 'undefined') bossFX.preDraw(this.ctx);
         // 绘制玩家
         if (this.player) {
             this.player.draw(this.ctx);
@@ -764,6 +776,8 @@ class Game {
         
         // 绘制回旋镖命中特效
         this.drawBoomerangHitEffects();
+        // FX overlay (particles, flashes, shockwaves) on top of world; pops shake.
+        if (typeof bossFX !== 'undefined') bossFX.postDraw(this.ctx);
         } catch (e) {
             console.error('游戏绘制错误:', e);
             this.ctx.restore();
@@ -799,98 +813,86 @@ class Game {
     }
 
     drawModeSelection() {
-        // 在方法末尾设置按钮，这里先不清除
-        
-        // 移除了"选择游戏模式"标题
-        
-        // Boss战模式按钮（现在是唯一选项）
-        const bossButtonWidth = 400;
-        const bossButtonHeight = 100;
-        const bossButtonX = GAME_CONFIG.WIDTH / 2 - bossButtonWidth / 2;
-        const bossButtonY = GAME_CONFIG.HEIGHT / 2 - 80;
-        
-        // 绘制Boss战模式按钮
-        this.ctx.fillStyle = 'rgba(255, 68, 68, 0.8)';
-        this.ctx.fillRect(bossButtonX, bossButtonY, bossButtonWidth, bossButtonHeight);
-        
-        this.ctx.strokeStyle = GAME_MODES.BOSS_BATTLE.color;
-        this.ctx.lineWidth = 3;
-        this.ctx.strokeRect(bossButtonX, bossButtonY, bossButtonWidth, bossButtonHeight);
-        
-        // Boss战模式文字
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = '32px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText(t('menu.startBoss'), bossButtonX + bossButtonWidth / 2, bossButtonY + 45);
-        
-        this.ctx.font = '16px Arial';
-        this.ctx.fillText(t('menu.startBossDesc'), bossButtonX + bossButtonWidth / 2, bossButtonY + 75);
-        
-        // 定制机甲按钮
-        const customButtonWidth = 400;
-        const customButtonHeight = 100;
-        const customButtonX = GAME_CONFIG.WIDTH / 2 - customButtonWidth / 2;
-        const customButtonY = GAME_CONFIG.HEIGHT / 2 + 40;
-        
-        // 绘制定制机甲按钮
-        this.ctx.fillStyle = 'rgba(68, 68, 255, 0.8)';
-        this.ctx.fillRect(customButtonX, customButtonY, customButtonWidth, customButtonHeight);
-        
-        this.ctx.strokeStyle = '#4169E1';
-        this.ctx.lineWidth = 3;
-        this.ctx.strokeRect(customButtonX, customButtonY, customButtonWidth, customButtonHeight);
-        
-        // 定制机甲文字
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = '28px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText(t('menu.customizeMech'), customButtonX + customButtonWidth / 2, customButtonY + 35);
-        
-        this.ctx.font = '14px Arial';
-        this.ctx.fillText(t('menu.customizeDesc'), customButtonX + customButtonWidth / 2, customButtonY + 65);
-        
-        // 游戏简介按钮
-        const guideButtonWidth = 400;
-        const guideButtonHeight = 60;
-        const guideButtonX = GAME_CONFIG.WIDTH / 2 - guideButtonWidth / 2;
-        const guideButtonY = GAME_CONFIG.HEIGHT / 2 + 160;
-        
-        this.ctx.fillStyle = 'rgba(100, 100, 100, 0.6)';
-        this.ctx.fillRect(guideButtonX, guideButtonY, guideButtonWidth, guideButtonHeight);
-        this.ctx.strokeStyle = '#AAAAAA';
-        this.ctx.lineWidth = 2;
-        this.ctx.strokeRect(guideButtonX, guideButtonY, guideButtonWidth, guideButtonHeight);
-        
-        this.ctx.fillStyle = '#DDDDDD';
-        this.ctx.font = '22px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText(t('menu.guide'), guideButtonX + guideButtonWidth / 2, guideButtonY + 38);
-        
-        // Language toggle button (top-right)
-        const langBtnW = 80;
+        const W = GAME_CONFIG.WIDTH;
+        const H = GAME_CONFIG.HEIGHT;
+        const ctx = this.ctx;
+
+        // Screen frame markers (4 corners)
+        uiDrawScreenFrame(ctx, W, H);
+
+        // Status header bar (top-left)
+        ctx.save();
+        ctx.fillStyle = UI_THEME.color.primary;
+        ctx.font = `13px ${UI_THEME.font.mono}`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('// SYSTEM ONLINE', 50, 38);
+        ctx.fillStyle = UI_THEME.color.textSecondary;
+        ctx.fillText('STATUS: STANDBY  //  PILOT: AUTHORIZED', 50, 58);
+        ctx.restore();
+
+        // Title block
+        const titleY = H * 0.22;
+        uiDrawTitle(ctx, W / 2, titleY, 'MECH COMBAT', 'TACTICAL OPERATIONS TERMINAL');
+
+        // Buttons stack
+        const btnW = 460;
+        const btnH = 96;
+        const btnX = W / 2 - btnW / 2;
+        const gap = 22;
+        let by = H / 2 - 40;
+
+        // Boss battle button
+        this.bossButton = uiDrawButton(ctx, btnX, by, btnW, btnH, t('menu.startBoss'), {
+            accentColor: UI_THEME.color.danger,
+            subLabel: t('menu.startBossDesc'),
+            labelFont: `bold 26px ${UI_THEME.font.display}`,
+            labelLetterSpacing: 2
+        });
+
+        // Customize mech button
+        by += btnH + gap;
+        this.customButton = uiDrawButton(ctx, btnX, by, btnW, btnH, t('menu.customizeMech'), {
+            accentColor: UI_THEME.color.primary,
+            subLabel: t('menu.customizeDesc'),
+            labelFont: `bold 24px ${UI_THEME.font.display}`,
+            labelLetterSpacing: 2
+        });
+
+        // Guide button (smaller, secondary)
+        by += btnH + gap;
+        const guideH = 56;
+        this.guideButton = uiDrawButton(ctx, btnX, by, btnW, guideH, t('menu.guide'), {
+            accentColor: UI_THEME.color.textSecondary,
+            labelFont: `18px ${UI_THEME.font.display}`,
+            labelLetterSpacing: 3,
+            chamfer: 10
+        });
+
+        // Language toggle (top-right)
+        const langBtnW = 90;
         const langBtnH = 36;
-        const langBtnX = GAME_CONFIG.WIDTH - langBtnW - 20;
-        const langBtnY = 20;
-        
-        this.ctx.fillStyle = 'rgba(255,255,255,0.15)';
-        this.ctx.fillRect(langBtnX, langBtnY, langBtnW, langBtnH);
-        this.ctx.strokeStyle = '#AAAAAA';
-        this.ctx.lineWidth = 1;
-        this.ctx.strokeRect(langBtnX, langBtnY, langBtnW, langBtnH);
-        
-        this.ctx.fillStyle = '#FFFFFF';
-        this.ctx.font = 'bold 16px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText(t('ui.langToggle'), langBtnX + langBtnW / 2, langBtnY + 24);
-        
-        this.langButton = { x: langBtnX, y: langBtnY, width: langBtnW, height: langBtnH };
-        
-        // 存储按钮位置供点击检测使用
-        this.bossButton = { x: bossButtonX, y: bossButtonY, width: bossButtonWidth, height: bossButtonHeight };
-        this.customButton = { x: customButtonX, y: customButtonY, width: customButtonWidth, height: customButtonHeight };
-        this.guideButton = { x: guideButtonX, y: guideButtonY, width: guideButtonWidth, height: guideButtonHeight };
-        
-        // 清除其他界面的按钮
+        const langBtnX = W - langBtnW - 30;
+        const langBtnY = 24;
+        this.langButton = uiDrawButton(ctx, langBtnX, langBtnY, langBtnW, langBtnH, t('ui.langToggle'), {
+            accentColor: UI_THEME.color.primary,
+            labelFont: `bold 14px ${UI_THEME.font.mono}`,
+            chamfer: 6
+        });
+
+        // Footer hint
+        ctx.save();
+        ctx.fillStyle = UI_THEME.color.textMuted;
+        ctx.font = `11px ${UI_THEME.font.mono}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('// SELECT OPERATION TO PROCEED', W / 2, H - 40);
+        ctx.restore();
+
+        // Light scanlines overlay for retro CRT feel
+        uiDrawScanlines(ctx, W, H);
+
+        // Clear stale buttons from other screens
         this.trainingButton = null;
         this.backButton = null;
         this.mainMenuButton = null;
@@ -899,143 +901,172 @@ class Game {
 
     drawLevelSelection() {
         this.pauseButton = null;
-        
-        this.ctx.fillStyle = '#2D1B69';
-        this.ctx.fillRect(0, 0, GAME_CONFIG.WIDTH, GAME_CONFIG.HEIGHT);
-        
+        const W = GAME_CONFIG.WIDTH;
+        const H = GAME_CONFIG.HEIGHT;
+        const ctx = this.ctx;
+
         const scrollY = gameState.levelScrollOffset || 0;
-        
-        // Scrollable content area (clip to avoid drawing over the fixed header)
         const headerHeight = 160;
-        this.ctx.save();
-        this.ctx.beginPath();
-        this.ctx.rect(0, headerHeight, GAME_CONFIG.WIDTH, GAME_CONFIG.HEIGHT - headerHeight);
-        this.ctx.clip();
-        
+
+        // Scrollable content area
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, headerHeight, W, H - headerHeight);
+        ctx.clip();
+
         const levels = Object.values(BOSS_LEVELS);
-        const buttonWidth = 500;
-        const buttonHeight = 120;
-        const buttonSpacing = 140;
+        const buttonWidth = 540;
+        const buttonHeight = 124;
+        const buttonSpacing = 144;
         const startY = 200;
-        
+
         this.levelButtons = [];
-        
+
         levels.forEach((level, index) => {
-            const buttonX = GAME_CONFIG.WIDTH / 2 - buttonWidth / 2;
+            const buttonX = W / 2 - buttonWidth / 2;
             const buttonY = startY + index * buttonSpacing - scrollY;
-            
-            if (buttonY + buttonHeight < headerHeight || buttonY > GAME_CONFIG.HEIGHT) return;
-            
+
+            if (buttonY + buttonHeight < headerHeight || buttonY > H) return;
+
+            const rect = { x: buttonX, y: buttonY, width: buttonWidth, height: buttonHeight };
+            const hovered = level.unlocked && uiIsHovered(rect);
+            const accent = level.unlocked ? UI_THEME.color.danger : UI_THEME.color.textMuted;
+
+            uiDrawPanel(ctx, buttonX, buttonY, buttonWidth, buttonHeight, {
+                chamfer: 16,
+                fill: {
+                    from: level.unlocked
+                        ? (hovered ? 'rgba(40, 12, 16, 0.95)' : 'rgba(20, 8, 12, 0.85)')
+                        : 'rgba(15, 18, 22, 0.7)',
+                    to: level.unlocked
+                        ? (hovered ? 'rgba(60, 16, 22, 0.95)' : 'rgba(28, 10, 14, 0.85)')
+                        : 'rgba(20, 24, 28, 0.7)'
+                },
+                stroke: accent,
+                strokeWidth: hovered ? 2.5 : 1.5,
+                glow: hovered,
+                glowColor: UI_THEME.color.dangerGlow
+            });
+
+            // Left status strip with level number
+            ctx.save();
+            ctx.fillStyle = accent;
+            ctx.fillRect(buttonX + 8, buttonY + 16, 4, buttonHeight - 32);
+
+            ctx.fillStyle = level.unlocked ? UI_THEME.color.textSecondary : UI_THEME.color.textMuted;
+            ctx.font = `12px ${UI_THEME.font.mono}`;
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
+            ctx.fillText(`OP.${String(index + 1).padStart(2, '0')}`, buttonX + 26, buttonY + 16);
+            ctx.restore();
+
             if (level.unlocked) {
-                this.ctx.fillStyle = 'rgba(139, 0, 0, 0.8)';
+                // Boss name
+                ctx.save();
+                ctx.fillStyle = UI_THEME.color.textPrimary;
+                ctx.font = `bold 26px ${UI_THEME.font.display}`;
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'top';
+                if (hovered) {
+                    ctx.shadowColor = UI_THEME.color.dangerGlow;
+                    ctx.shadowBlur = 10;
+                }
+                ctx.fillText(t('boss.' + level.id), buttonX + 26, buttonY + 36);
+                ctx.restore();
+
+                // Description
+                ctx.save();
+                ctx.fillStyle = UI_THEME.color.textSecondary;
+                ctx.font = `13px ${UI_THEME.font.body}`;
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'top';
+                ctx.fillText(t('bossDesc.' + level.id), buttonX + 26, buttonY + 70);
+                ctx.restore();
+
+                // Difficulty badge (right side)
+                const diffText = t('menu.difficulty') + '★'.repeat(level.difficulty);
+                ctx.save();
+                ctx.fillStyle = UI_THEME.color.warning;
+                ctx.font = `13px ${UI_THEME.font.mono}`;
+                ctx.textAlign = 'right';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(diffText, buttonX + buttonWidth - 24, buttonY + buttonHeight - 22);
+                ctx.restore();
+
+                // Engage indicator (right edge)
+                ctx.save();
+                ctx.fillStyle = hovered ? UI_THEME.color.danger : UI_THEME.color.dangerDim;
+                ctx.font = `bold 14px ${UI_THEME.font.mono}`;
+                ctx.textAlign = 'right';
+                ctx.textBaseline = 'top';
+                ctx.fillText('▶ ENGAGE', buttonX + buttonWidth - 24, buttonY + 22);
+                ctx.restore();
+
+                this.levelButtons[index] = { ...rect, levelId: level.id };
             } else {
-                this.ctx.fillStyle = 'rgba(60, 60, 60, 0.8)';
-            }
-            
-            this.ctx.fillRect(buttonX, buttonY, buttonWidth, buttonHeight);
-            
-            this.ctx.strokeStyle = level.unlocked ? '#FF0000' : '#666666';
-            this.ctx.lineWidth = 3;
-            this.ctx.strokeRect(buttonX, buttonY, buttonWidth, buttonHeight);
-            
-            if (level.unlocked) {
-                this.ctx.fillStyle = 'white';
-                this.ctx.font = '28px Arial';
-                this.ctx.textAlign = 'center';
-                this.ctx.fillText(t('boss.' + level.id), buttonX + buttonWidth / 2, buttonY + 40);
-                
-                this.ctx.font = '16px Arial';
-                this.ctx.fillStyle = '#DDDDDD';
-                this.ctx.fillText(t('bossDesc.' + level.id), buttonX + buttonWidth / 2, buttonY + 70);
-                
-                this.ctx.font = '14px Arial';
-                this.ctx.fillStyle = '#FFAA00';
-                this.ctx.fillText(t('menu.difficulty') + '★'.repeat(level.difficulty), buttonX + buttonWidth / 2, buttonY + 95);
-            } else {
-                this.ctx.fillStyle = '#999999';
-                this.ctx.font = '24px Arial';
-                this.ctx.textAlign = 'center';
-                this.ctx.fillText(t('menu.locked'), buttonX + buttonWidth / 2, buttonY + 60);
-            }
-            
-            if (level.unlocked) {
-                this.levelButtons[index] = { 
-                    x: buttonX, 
-                    y: buttonY, 
-                    width: buttonWidth, 
-                    height: buttonHeight,
-                    levelId: level.id
-                };
+                ctx.save();
+                ctx.fillStyle = UI_THEME.color.textMuted;
+                ctx.font = `bold 22px ${UI_THEME.font.display}`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(t('menu.locked'), buttonX + buttonWidth / 2, buttonY + buttonHeight / 2);
+                ctx.restore();
             }
         });
-        
-        this.ctx.restore();
-        
-        // Fixed header background (drawn on top so scroll content doesn't bleed through)
-        this.ctx.fillStyle = '#2D1B69';
-        this.ctx.fillRect(0, 0, GAME_CONFIG.WIDTH, headerHeight);
-        
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = '36px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText(t('menu.selectLevel'), GAME_CONFIG.WIDTH / 2, 100);
-        
-        this.ctx.font = '18px Arial';
-        this.ctx.fillStyle = '#CCCCCC';
-        this.ctx.fillText(t('menu.bossModeSub'), GAME_CONFIG.WIDTH / 2, 140);
-        
+
+        ctx.restore();
+
+        // Fixed header (drawn on top of scroll content)
+        ctx.save();
+        ctx.fillStyle = UI_THEME.color.bgDeep;
+        ctx.fillRect(0, 0, W, headerHeight);
+        // Header bottom divider
+        ctx.strokeStyle = UI_THEME.color.primaryDim;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(40, headerHeight - 1);
+        ctx.lineTo(W - 40, headerHeight - 1);
+        ctx.stroke();
+        ctx.restore();
+
+        // Title
+        uiDrawTitle(ctx, W / 2, 70, t('menu.selectLevel'), t('menu.bossModeSub'), {
+            mainFont: `bold 38px ${UI_THEME.font.display}`,
+            subFont: `13px ${UI_THEME.font.mono}`
+        });
+
         // Scroll indicators
         const contentHeight = startY + levels.length * buttonSpacing;
-        const maxScroll = Math.max(0, contentHeight - GAME_CONFIG.HEIGHT + 60);
+        const maxScroll = Math.max(0, contentHeight - H + 60);
         if (maxScroll > 0) {
-            const trackX = GAME_CONFIG.WIDTH - 16;
+            const trackX = W - 18;
             const trackTop = headerHeight + 10;
-            const trackHeight = GAME_CONFIG.HEIGHT - headerHeight - 20;
-            
-            this.ctx.fillStyle = 'rgba(255,255,255,0.1)';
-            this.ctx.fillRect(trackX, trackTop, 8, trackHeight);
-            
-            const thumbRatio = (GAME_CONFIG.HEIGHT - headerHeight) / contentHeight;
+            const trackHeight = H - headerHeight - 20;
+
+            ctx.fillStyle = 'rgba(0, 230, 200, 0.08)';
+            ctx.fillRect(trackX, trackTop, 4, trackHeight);
+
+            const thumbRatio = (H - headerHeight) / contentHeight;
             const thumbHeight = Math.max(30, trackHeight * thumbRatio);
             const thumbY = trackTop + (scrollY / maxScroll) * (trackHeight - thumbHeight);
-            
-            this.ctx.fillStyle = 'rgba(255,255,255,0.4)';
-            this.ctx.fillRect(trackX, thumbY, 8, thumbHeight);
-            
-            if (scrollY > 5) {
-                this.ctx.fillStyle = 'rgba(255,255,255,0.5)';
-                this.ctx.font = '20px Arial';
-                this.ctx.textAlign = 'center';
-                this.ctx.fillText('▲', GAME_CONFIG.WIDTH / 2, headerHeight + 20);
-            }
-            if (scrollY < maxScroll - 5) {
-                this.ctx.fillStyle = 'rgba(255,255,255,0.5)';
-                this.ctx.font = '20px Arial';
-                this.ctx.textAlign = 'center';
-                this.ctx.fillText('▼', GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT - 10);
-            }
+
+            ctx.fillStyle = UI_THEME.color.primary;
+            ctx.fillRect(trackX, thumbY, 4, thumbHeight);
         }
-        
-        // Fixed back button
-        const backButtonWidth = 120;
-        const backButtonHeight = 50;
-        const backButtonX = 50;
-        const backButtonY = 50;
-        
-        this.ctx.fillStyle = 'rgba(100, 100, 100, 0.8)';
-        this.ctx.fillRect(backButtonX, backButtonY, backButtonWidth, backButtonHeight);
-        
-        this.ctx.strokeStyle = '#FFFFFF';
-        this.ctx.lineWidth = 2;
-        this.ctx.strokeRect(backButtonX, backButtonY, backButtonWidth, backButtonHeight);
-        
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = '18px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText(t('menu.back'), backButtonX + backButtonWidth / 2, backButtonY + 32);
-        
-        this.backButton = { x: backButtonX, y: backButtonY, width: backButtonWidth, height: backButtonHeight };
-        
+
+        // Back button (top-left)
+        const backW = 130;
+        const backH = 44;
+        this.backButton = uiDrawButton(ctx, 40, 50, backW, backH, t('menu.backArrow'), {
+            accentColor: UI_THEME.color.textSecondary,
+            labelFont: `bold 14px ${UI_THEME.font.mono}`,
+            chamfer: 8
+        });
+
+        // Frame markers + scanlines
+        uiDrawScreenFrame(ctx, W, H);
+        uiDrawScanlines(ctx, W, H);
+
         this.bossButton = null;
         this.trainingButton = null;
         this.customButton = null;
@@ -1044,268 +1075,263 @@ class Game {
     }
 
     drawWeaponConfig() {
-        // 清除不需要的按钮状态
         this.pauseButton = null;
-        
-        // 绘制武器配置界面
-        this.ctx.fillStyle = '#6B46C1';
-        this.ctx.fillRect(0, 0, GAME_CONFIG.WIDTH, GAME_CONFIG.HEIGHT);
-        
-        // 选择的游戏模式提示
+        const W = GAME_CONFIG.WIDTH;
+        const H = GAME_CONFIG.HEIGHT;
+        const ctx = this.ctx;
+
+        // Header status line
         const currentMode = GAME_MODES[gameState.selectedGameMode];
-        this.ctx.fillStyle = currentMode.color;
-        this.ctx.font = '18px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText(t('cfg.selected', t('mode.' + gameState.selectedGameMode)), GAME_CONFIG.WIDTH / 2, 50);
-        
+        ctx.save();
+        ctx.fillStyle = UI_THEME.color.primary;
+        ctx.font = `12px ${UI_THEME.font.mono}`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('// LOADOUT CONFIGURATION', 50, 38);
+        ctx.fillStyle = currentMode.color;
+        ctx.fillText(t('cfg.selected', t('mode.' + gameState.selectedGameMode)).toUpperCase(), 50, 58);
+        ctx.restore();
+
+        // Title
+        uiDrawTitle(ctx, W / 2, 95, 'WEAPON CONFIG', t('cfg.configHint'), {
+            mainFont: `bold 36px ${UI_THEME.font.display}`,
+            subFont: `12px ${UI_THEME.font.mono}`
+        });
+
         const { weaponOptions, shoulderWeaponOptions, hiddenAbilityOptions } = this.getWeaponOptions();
-        
-        // 五个武器槽位配置
+
         const weaponSlots = [
-            { 
-                key: 'leftHand', 
-                name: t('cfg.leftHand'), 
-                keyHint: t('cfg.leftKey'), 
-                color: '#4169E1',
-                options: weaponOptions,
-                currentValue: gameState.weaponConfig.leftHand
-            },
-            { 
-                key: 'rightHand', 
-                name: t('cfg.rightHand'), 
-                keyHint: t('cfg.rightKey'), 
-                color: '#ff6b6b',
-                options: weaponOptions,
-                currentValue: gameState.weaponConfig.rightHand
-            },
-            { 
-                key: 'leftShoulder', 
-                name: t('cfg.leftShoulder'), 
-                keyHint: t('cfg.qKey'), 
-                color: '#FF4444',
-                options: shoulderWeaponOptions,
-                currentValue: gameState.weaponConfig.leftShoulder
-            },
-            { 
-                key: 'rightShoulder', 
-                name: t('cfg.rightShoulder'), 
-                keyHint: t('cfg.eKey'), 
-                color: '#FF8800',
-                options: shoulderWeaponOptions,
-                currentValue: gameState.weaponConfig.rightShoulder
-            },
-            { 
-                key: 'hiddenAbility', 
-                name: t('cfg.hiddenAbility'), 
-                keyHint: t('cfg.shiftKey'), 
-                color: '#00FFFF',
-                options: hiddenAbilityOptions,
-                currentValue: gameState.weaponConfig.hiddenAbility
-            }
+            { key: 'leftHand', name: t('cfg.leftHand'), keyHint: t('cfg.leftKey'), color: UI_THEME.color.primary, options: weaponOptions, currentValue: gameState.weaponConfig.leftHand },
+            { key: 'rightHand', name: t('cfg.rightHand'), keyHint: t('cfg.rightKey'), color: '#ff7575', options: weaponOptions, currentValue: gameState.weaponConfig.rightHand },
+            { key: 'leftShoulder', name: t('cfg.leftShoulder'), keyHint: t('cfg.qKey'), color: UI_THEME.color.danger, options: shoulderWeaponOptions, currentValue: gameState.weaponConfig.leftShoulder },
+            { key: 'rightShoulder', name: t('cfg.rightShoulder'), keyHint: t('cfg.eKey'), color: UI_THEME.color.accent, options: shoulderWeaponOptions, currentValue: gameState.weaponConfig.rightShoulder },
+            { key: 'hiddenAbility', name: t('cfg.hiddenAbility'), keyHint: t('cfg.shiftKey'), color: '#7df9ff', options: hiddenAbilityOptions, currentValue: gameState.weaponConfig.hiddenAbility }
         ];
-        
-        // 计算按钮布局
-        const centerX = GAME_CONFIG.WIDTH / 2;
-        const centerY = GAME_CONFIG.HEIGHT / 2;
-        const buttonWidth = 200;
-        const buttonHeight = 80;
-        const buttonSpacing = 220;
-        
-        // 绘制五个武器槽位按钮
+
+        const slotW = 200;
+        const slotH = 130;
+        const totalW = slotW * 5 + 14 * 4;
+        const startX = (W - totalW) / 2;
+        const startY = H / 2 - 90;
+
         this.weaponSlotButtons = [];
-        
+
         weaponSlots.forEach((slot, index) => {
-            const x = centerX + (index - 2) * buttonSpacing; // 居中布局，index-2让中间按钮在中心
-            const y = centerY - 50;
-            
-            // 获取当前选中的武器名称
+            const x = startX + index * (slotW + 14);
+            const y = startY;
             const currentWeapon = slot.options.find(w => w.type === slot.currentValue);
             const displayName = currentWeapon ? currentWeapon.name : t('cfg.none');
-            
-            // 绘制按钮背景
-            this.ctx.fillStyle = slot.color;
-            this.ctx.fillRect(x - buttonWidth/2, y, buttonWidth, buttonHeight);
-            
-            // 绘制按钮边框
-            this.ctx.strokeStyle = 'white';
-            this.ctx.lineWidth = 3;
-            this.ctx.strokeRect(x - buttonWidth/2, y, buttonWidth, buttonHeight);
-            
-            // 绘制槽位标题
-            this.ctx.fillStyle = 'white';
-            this.ctx.font = 'bold 16px Arial';
-        this.ctx.textAlign = 'center';
-            this.ctx.fillText(slot.name, x, y + 20);
-            this.ctx.fillText(slot.keyHint, x, y + 40);
-            
-            // 绘制当前武器名称
-            this.ctx.font = '14px Arial';
-            this.ctx.fillText(displayName, x, y + 60);
-            
-            // 存储按钮位置供点击检测使用
+            const rect = { x, y, width: slotW, height: slotH };
+            const hovered = uiIsHovered(rect);
+
+            uiDrawPanel(ctx, x, y, slotW, slotH, {
+                chamfer: 12,
+                fill: { from: 'rgba(8, 14, 20, 0.9)', to: 'rgba(14, 22, 30, 0.9)' },
+                stroke: slot.color,
+                strokeWidth: hovered ? 2.5 : 1.5,
+                glow: hovered,
+                glowColor: slot.color
+            });
+
+            // Slot ID + key hint header
+            ctx.save();
+            ctx.fillStyle = slot.color;
+            ctx.font = `11px ${UI_THEME.font.mono}`;
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
+            ctx.fillText(`SLOT.0${index + 1}`, x + 14, y + 12);
+            ctx.textAlign = 'right';
+            ctx.fillStyle = UI_THEME.color.textMuted;
+            ctx.fillText(slot.keyHint, x + slotW - 14, y + 12);
+            ctx.restore();
+
+            // Divider
+            ctx.save();
+            ctx.strokeStyle = slot.color;
+            ctx.globalAlpha = 0.4;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(x + 14, y + 32);
+            ctx.lineTo(x + slotW - 14, y + 32);
+            ctx.stroke();
+            ctx.restore();
+
+            // Slot name
+            ctx.save();
+            ctx.fillStyle = UI_THEME.color.textPrimary;
+            ctx.font = `bold 16px ${UI_THEME.font.display}`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(slot.name, x + slotW / 2, y + 52);
+            ctx.restore();
+
+            // Equipped weapon
+            ctx.save();
+            ctx.fillStyle = currentWeapon ? slot.color : UI_THEME.color.textMuted;
+            ctx.font = `14px ${UI_THEME.font.body}`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            wrapAndDrawText(ctx, displayName, x + slotW / 2, y + 86, slotW - 24, 18);
+            ctx.restore();
+
+            // Cycle indicator
+            ctx.save();
+            ctx.fillStyle = UI_THEME.color.textMuted;
+            ctx.font = `10px ${UI_THEME.font.mono}`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText('◀ CLICK TO CYCLE ▶', x + slotW / 2, y + slotH - 10);
+            ctx.restore();
+
             this.weaponSlotButtons.push({
-                x: x - buttonWidth/2,
-                y: y,
-                width: buttonWidth,
-                height: buttonHeight,
-                slotKey: slot.key,
-                options: slot.options
+                x, y, width: slotW, height: slotH,
+                slotKey: slot.key, options: slot.options
             });
         });
-        
-        // 当前配置显示
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = '20px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText(t('cfg.currentConfig'), centerX, centerY + 100);
-        
-        // 显示所有槽位的配置
-        weaponSlots.forEach((slot, index) => {
-            const currentWeapon = slot.options.find(w => w.type === slot.currentValue);
-            const displayName = currentWeapon ? currentWeapon.name : t('cfg.none');
-        
-        this.ctx.fillStyle = 'white';
-            this.ctx.font = '16px Arial';
-            this.ctx.fillText(`${slot.name}: ${displayName}`, centerX + (index - 2) * buttonSpacing, centerY + 130);
-        });
-        
-        // 无敌模式开关
-        const toggleWidth = 200;
-        const toggleHeight = 40;
-        const toggleX = centerX - toggleWidth / 2;
-        const toggleY = centerY + 160;
+
+        // Invincible toggle
+        const toggleW = 220;
+        const toggleH = 44;
+        const toggleX = W / 2 - toggleW / 2;
+        const toggleY = startY + slotH + 40;
         const invOn = gameState.invincibleMode;
-        
-        this.ctx.fillStyle = invOn ? 'rgba(255, 215, 0, 0.8)' : 'rgba(100, 100, 100, 0.6)';
-        this.ctx.fillRect(toggleX, toggleY, toggleWidth, toggleHeight);
-        this.ctx.strokeStyle = invOn ? '#FFD700' : '#666666';
-        this.ctx.lineWidth = 2;
-        this.ctx.strokeRect(toggleX, toggleY, toggleWidth, toggleHeight);
-        
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = 'bold 16px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText(invOn ? t('cfg.invincibleOn') : t('cfg.invincibleOff'), centerX, toggleY + 26);
-        
-        this.invincibleToggleButton = {
-            x: toggleX, y: toggleY, width: toggleWidth, height: toggleHeight
-        };
-        
-        // 开始游戏按钮
-        const startButtonWidth = 200;
-        const startButtonHeight = 50;
-        const startButtonX = centerX - startButtonWidth / 2;
-        const startButtonY = centerY + 220;
-        
-        this.ctx.fillStyle = 'rgba(0, 255, 0, 0.8)';
-        this.ctx.fillRect(startButtonX, startButtonY, startButtonWidth, startButtonHeight);
-        this.ctx.strokeStyle = '#00FF00';
-        this.ctx.lineWidth = 3;
-        this.ctx.strokeRect(startButtonX, startButtonY, startButtonWidth, startButtonHeight);
-        
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = 'bold 20px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText(t('cfg.startGame'), centerX, startButtonY + 32);
-        
-        // 存储开始游戏按钮位置
-        this.startGameButton = {
-            x: startButtonX,
-            y: startButtonY,
-            width: startButtonWidth,
-            height: startButtonHeight
-        };
-        
-        // 底部提示
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = '16px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText(t('cfg.configHint'), centerX, GAME_CONFIG.HEIGHT - 60);
-        
-        // 返回按钮
+        this.invincibleToggleButton = uiDrawButton(ctx, toggleX, toggleY, toggleW, toggleH,
+            invOn ? t('cfg.invincibleOn') : t('cfg.invincibleOff'), {
+                accentColor: invOn ? UI_THEME.color.warning : UI_THEME.color.textMuted,
+                labelFont: `bold 14px ${UI_THEME.font.mono}`,
+                chamfer: 8
+            });
+
+        // Start game button
+        const startW = 280;
+        const startH = 60;
+        const startBX = W / 2 - startW / 2;
+        const startBY = toggleY + toggleH + 24;
+        this.startGameButton = uiDrawButton(ctx, startBX, startBY, startW, startH, t('cfg.startGame'), {
+            accentColor: UI_THEME.color.success,
+            labelFont: `bold 22px ${UI_THEME.font.display}`,
+            labelLetterSpacing: 3,
+            chamfer: 12
+        });
+
+        // Frame + scanlines
+        uiDrawScreenFrame(ctx, W, H);
+        uiDrawScanlines(ctx, W, H);
+
+        // Back button
         this.drawBackButton();
     }
 
     drawMechCustomization() {
         this.pauseButton = null;
-        
-        this.ctx.fillStyle = '#6B46C1';
-        this.ctx.fillRect(0, 0, GAME_CONFIG.WIDTH, GAME_CONFIG.HEIGHT);
-        
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = 'bold 36px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText(t('menu.customizeMech'), GAME_CONFIG.WIDTH / 2, 50);
-        
+        const W = GAME_CONFIG.WIDTH;
+        const H = GAME_CONFIG.HEIGHT;
+        const ctx = this.ctx;
+
+        // Header
+        ctx.save();
+        ctx.fillStyle = UI_THEME.color.primary;
+        ctx.font = `12px ${UI_THEME.font.mono}`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('// MECH CUSTOMIZATION', 50, 38);
+        ctx.fillStyle = UI_THEME.color.textSecondary;
+        ctx.fillText('PERSISTENT LOADOUT // PERSISTS BETWEEN MISSIONS', 50, 58);
+        ctx.restore();
+
+        uiDrawTitle(ctx, W / 2, 95, t('menu.customizeMech'), t('cfg.customHint'), {
+            mainFont: `bold 36px ${UI_THEME.font.display}`,
+            subFont: `12px ${UI_THEME.font.mono}`
+        });
+
         const { weaponOptions, shoulderWeaponOptions, hiddenAbilityOptions } = this.getWeaponOptions();
-        
+
         const weaponSlots = [
-            { key: 'leftHand', name: t('cfg.leftHand'), keyHint: t('cfg.leftKey'), color: '#4169E1', options: weaponOptions },
-            { key: 'rightHand', name: t('cfg.rightHand'), keyHint: t('cfg.rightKey'), color: '#ff6b6b', options: weaponOptions },
-            { key: 'leftShoulder', name: t('cfg.leftShoulder'), keyHint: t('cfg.qKey'), color: '#FF4444', options: shoulderWeaponOptions },
-            { key: 'rightShoulder', name: t('cfg.rightShoulder'), keyHint: t('cfg.eKey'), color: '#FF8800', options: shoulderWeaponOptions },
-            { key: 'hiddenAbility', name: t('cfg.hiddenAbility'), keyHint: t('cfg.shiftKey'), color: '#00FFFF', options: hiddenAbilityOptions }
+            { key: 'leftHand', name: t('cfg.leftHand'), keyHint: t('cfg.leftKey'), color: UI_THEME.color.primary, options: weaponOptions },
+            { key: 'rightHand', name: t('cfg.rightHand'), keyHint: t('cfg.rightKey'), color: '#ff7575', options: weaponOptions },
+            { key: 'leftShoulder', name: t('cfg.leftShoulder'), keyHint: t('cfg.qKey'), color: UI_THEME.color.danger, options: shoulderWeaponOptions },
+            { key: 'rightShoulder', name: t('cfg.rightShoulder'), keyHint: t('cfg.eKey'), color: UI_THEME.color.accent, options: shoulderWeaponOptions },
+            { key: 'hiddenAbility', name: t('cfg.hiddenAbility'), keyHint: t('cfg.shiftKey'), color: '#7df9ff', options: hiddenAbilityOptions }
         ];
-        
-        const centerX = GAME_CONFIG.WIDTH / 2;
-        const centerY = GAME_CONFIG.HEIGHT / 2;
-        const buttonWidth = 200;
-        const buttonHeight = 80;
-        const buttonSpacing = 220;
-        
+
+        const slotW = 200;
+        const slotH = 130;
+        const totalW = slotW * 5 + 14 * 4;
+        const startX = (W - totalW) / 2;
+        const startY = H / 2 - 70;
+
         this.mechCustomSlotButtons = [];
-        
+
         weaponSlots.forEach((slot, index) => {
-            const x = centerX + (index - 2) * buttonSpacing;
-            const y = centerY - 50;
-            
+            const x = startX + index * (slotW + 14);
+            const y = startY;
             const currentWeapon = slot.options.find(w => w.type === gameState.weaponConfig[slot.key]);
             const displayName = currentWeapon ? currentWeapon.name : t('cfg.none');
-            
-            this.ctx.fillStyle = slot.color;
-            this.ctx.fillRect(x - buttonWidth/2, y, buttonWidth, buttonHeight);
-            
-            this.ctx.strokeStyle = 'white';
-            this.ctx.lineWidth = 3;
-            this.ctx.strokeRect(x - buttonWidth/2, y, buttonWidth, buttonHeight);
-            
-            this.ctx.fillStyle = 'white';
-            this.ctx.font = 'bold 16px Arial';
-            this.ctx.textAlign = 'center';
-            this.ctx.fillText(slot.name, x, y + 20);
-            this.ctx.fillText(slot.keyHint, x, y + 40);
-            
-            this.ctx.font = '14px Arial';
-            this.ctx.fillText(displayName, x, y + 60);
-            
+            const rect = { x, y, width: slotW, height: slotH };
+            const hovered = uiIsHovered(rect);
+
+            uiDrawPanel(ctx, x, y, slotW, slotH, {
+                chamfer: 12,
+                fill: { from: 'rgba(8, 14, 20, 0.9)', to: 'rgba(14, 22, 30, 0.9)' },
+                stroke: slot.color,
+                strokeWidth: hovered ? 2.5 : 1.5,
+                glow: hovered,
+                glowColor: slot.color
+            });
+
+            ctx.save();
+            ctx.fillStyle = slot.color;
+            ctx.font = `11px ${UI_THEME.font.mono}`;
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
+            ctx.fillText(`SLOT.0${index + 1}`, x + 14, y + 12);
+            ctx.textAlign = 'right';
+            ctx.fillStyle = UI_THEME.color.textMuted;
+            ctx.fillText(slot.keyHint, x + slotW - 14, y + 12);
+            ctx.restore();
+
+            ctx.save();
+            ctx.strokeStyle = slot.color;
+            ctx.globalAlpha = 0.4;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(x + 14, y + 32);
+            ctx.lineTo(x + slotW - 14, y + 32);
+            ctx.stroke();
+            ctx.restore();
+
+            ctx.save();
+            ctx.fillStyle = UI_THEME.color.textPrimary;
+            ctx.font = `bold 16px ${UI_THEME.font.display}`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(slot.name, x + slotW / 2, y + 52);
+            ctx.restore();
+
+            ctx.save();
+            ctx.fillStyle = currentWeapon ? slot.color : UI_THEME.color.textMuted;
+            ctx.font = `14px ${UI_THEME.font.body}`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            wrapAndDrawText(ctx, displayName, x + slotW / 2, y + 86, slotW - 24, 18);
+            ctx.restore();
+
+            ctx.save();
+            ctx.fillStyle = UI_THEME.color.textMuted;
+            ctx.font = `10px ${UI_THEME.font.mono}`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText('◀ CLICK TO CYCLE ▶', x + slotW / 2, y + slotH - 10);
+            ctx.restore();
+
             this.mechCustomSlotButtons.push({
-                x: x - buttonWidth/2,
-                y: y,
-                width: buttonWidth,
-                height: buttonHeight,
-                slotKey: slot.key,
-                options: slot.options
+                x, y, width: slotW, height: slotH,
+                slotKey: slot.key, options: slot.options
             });
         });
-        
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = '20px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText(t('cfg.currentConfig'), centerX, centerY + 100);
-        
-        weaponSlots.forEach((slot, index) => {
-            const currentWeapon = slot.options.find(w => w.type === gameState.weaponConfig[slot.key]);
-            const displayName = currentWeapon ? currentWeapon.name : t('cfg.none');
-            this.ctx.fillStyle = 'white';
-            this.ctx.font = '16px Arial';
-            this.ctx.fillText(`${slot.name}: ${displayName}`, centerX + (index - 2) * buttonSpacing, centerY + 130);
-        });
-        
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = '16px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText(t('cfg.customHint'), centerX, GAME_CONFIG.HEIGHT - 60);
-        
+
+        uiDrawScreenFrame(ctx, W, H);
+        uiDrawScanlines(ctx, W, H);
         this.drawBackButton();
     }
 
@@ -1317,122 +1343,219 @@ class Game {
             return;
         }
 
-        // 绘制并更新爆炸效果
+        const now = Date.now();
+        const ctx = this.ctx;
+
         for (let i = this.explosions.length - 1; i >= 0; i--) {
             const explosion = this.explosions[i];
-            const elapsed = Date.now() - explosion.startTime;
-            const progress = elapsed / explosion.duration;
+            // First-frame initialization: spawn physics particles + shockwave + flash + shake
+            if (!explosion._initialized) {
+                this._initExplosionFX(explosion);
+                explosion._initialized = true;
+            }
 
-            if (progress >= 1) {
-                // 爆炸动画结束，移除
+            // Stretch the visual lifetime so the tail lingers.
+            // The original `duration` controls the main blast; we add a fade tail.
+            const mainDuration = explosion.duration || 500;
+            const tailDuration = Math.floor(mainDuration * 1.6); // smoke / glow fade
+            const totalDuration = mainDuration + tailDuration;
+            const elapsed = now - explosion.startTime;
+
+            if (elapsed >= totalDuration) {
                 this.explosions.splice(i, 1);
                 continue;
             }
 
-            // 根据导弹类型选择爆炸颜色
-            const isBoss = explosion.isBossMissile;
-            const isSuper = explosion.isSuperMissile;
-            
-            let outerColor, innerColor, centerColor, particleColor;
-            
-            if (isSuper) {
-                // 超级导弹：紫色主题
-                outerColor = '#4B0082';  // 深紫色
-                innerColor = '#9370DB';  // 中紫色
-                centerColor = '#FFFFFF'; // 白色中心
-                particleColor = '#8A2BE2'; // 蓝紫色
-            } else if (isBoss) {
-                // Boss导弹：红色主题
-                outerColor = '#8B0000';  // 暗红色
-                innerColor = '#DC143C';  // 深红色
-                centerColor = '#FF0000'; // 亮红色
-                particleColor = '#B22222'; // 火砖红
-            } else {
-                // 普通导弹：橙色主题
-                outerColor = '#FF4500';  // 橙红色
-                innerColor = '#FFD700';  // 金黄色
-                centerColor = '#FFFFFF'; // 白色
-                particleColor = '#FF6600'; // 橙色
-            }
+            // Two-phase progress: blast (0..1) then tail (0..1)
+            const blastT = Math.min(1, elapsed / mainDuration);
+            const tailT = elapsed > mainDuration
+                ? (elapsed - mainDuration) / tailDuration
+                : 0;
 
-            // 绘制爆炸效果
-            this.ctx.save();
-            
-            // 透明度从1到0
-            const alpha = 1 - progress;
-            this.ctx.globalAlpha = alpha;
-
-            // 爆炸半径从0增长到最大
+            // Color palette by missile type
+            const palette = this._explosionPalette(explosion);
             const maxRadius = explosion.explosionRadius || 80;
-            const currentRadius = progress * maxRadius;
 
-            // 外层爆炸环
-            this.ctx.strokeStyle = outerColor;
-            this.ctx.lineWidth = isSuper ? 8 : 6; // 超级导弹线条更粗
-            this.ctx.beginPath();
-            this.ctx.arc(explosion.x, explosion.y, currentRadius, 0, Math.PI * 2);
-            this.ctx.stroke();
+            // Eased blast scale: punchy out, slow settle
+            const scale = blastT < 1
+                ? 1 - Math.pow(1 - blastT, 3) // easeOutCubic
+                : 1;
+            const r = maxRadius * scale;
 
-            // 内层爆炸环
-            this.ctx.strokeStyle = innerColor;
-            this.ctx.lineWidth = isSuper ? 6 : 4; // 超级导弹线条更粗
-            this.ctx.beginPath();
-            this.ctx.arc(explosion.x, explosion.y, currentRadius * 0.6, 0, Math.PI * 2);
-            this.ctx.stroke();
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
 
-            // 中心闪光
-            if (progress < 0.3) {
-                this.ctx.fillStyle = centerColor;
-                this.ctx.beginPath();
-                this.ctx.arc(explosion.x, explosion.y, currentRadius * 0.3, 0, Math.PI * 2);
-                this.ctx.fill();
+            // Layer 1: outer fireball (radial gradient, fading with tail)
+            const fireballAlpha = (1 - blastT * 0.4) * (1 - tailT) * 0.85;
+            if (fireballAlpha > 0.01) {
+                const grad = ctx.createRadialGradient(
+                    explosion.x, explosion.y, r * 0.05,
+                    explosion.x, explosion.y, r
+                );
+                grad.addColorStop(0, palette.core);
+                grad.addColorStop(0.35, palette.inner);
+                grad.addColorStop(0.75, palette.outer);
+                grad.addColorStop(1, palette.transparent);
+                ctx.globalAlpha = fireballAlpha;
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.arc(explosion.x, explosion.y, r, 0, Math.PI * 2);
+                ctx.fill();
             }
 
-            // Boss导弹额外的血红色波纹效果
-            if (isBoss && progress < 0.6) {
-                this.ctx.strokeStyle = '#FF4444';
-                this.ctx.lineWidth = 2;
-                this.ctx.setLineDash([5, 5]); // 虚线效果
-                this.ctx.beginPath();
-                this.ctx.arc(explosion.x, explosion.y, currentRadius * 1.2, 0, Math.PI * 2);
-                this.ctx.stroke();
-                this.ctx.setLineDash([]); // 重置虚线
+            // Layer 2: white-hot core flash (very brief, only first 30% of blast)
+            if (blastT < 0.35) {
+                const flashT = blastT / 0.35;
+                const flashAlpha = (1 - flashT) * 0.95;
+                const flashR = r * (0.15 + flashT * 0.25);
+                const fg = ctx.createRadialGradient(
+                    explosion.x, explosion.y, 0,
+                    explosion.x, explosion.y, flashR
+                );
+                fg.addColorStop(0, '#ffffff');
+                fg.addColorStop(0.4, palette.core);
+                fg.addColorStop(1, palette.transparent);
+                ctx.globalAlpha = flashAlpha;
+                ctx.fillStyle = fg;
+                ctx.beginPath();
+                ctx.arc(explosion.x, explosion.y, flashR, 0, Math.PI * 2);
+                ctx.fill();
             }
 
-            // 超级导弹额外的紫色扩散波纹效果
-            if (isSuper && progress < 0.8) {
-                this.ctx.strokeStyle = '#9370DB';
-                this.ctx.lineWidth = 3;
-                this.ctx.setLineDash([8, 4]); // 虚线效果
-                this.ctx.beginPath();
-                this.ctx.arc(explosion.x, explosion.y, currentRadius * 1.5, 0, Math.PI * 2);
-                this.ctx.stroke();
-                this.ctx.setLineDash([]); // 重置虚线
-                
-                // 第二层扩散波纹
-                this.ctx.strokeStyle = '#8A2BE2';
-                this.ctx.lineWidth = 2;
-                this.ctx.setLineDash([12, 6]); // 更长的虚线
-                this.ctx.beginPath();
-                this.ctx.arc(explosion.x, explosion.y, currentRadius * 2.0, 0, Math.PI * 2);
-                this.ctx.stroke();
-                this.ctx.setLineDash([]); // 重置虚线
+            // Layer 3: expanding ring (impact wavefront)
+            if (blastT < 0.8) {
+                const ringT = blastT / 0.8;
+                const ringR = maxRadius * (0.4 + ringT * 0.85);
+                const ringAlpha = (1 - ringT) * 0.85;
+                ctx.globalAlpha = ringAlpha;
+                ctx.strokeStyle = palette.ringHot;
+                ctx.lineWidth = 4 + (1 - ringT) * 4;
+                ctx.beginPath();
+                ctx.arc(explosion.x, explosion.y, ringR, 0, Math.PI * 2);
+                ctx.stroke();
             }
 
-            // 爆炸粒子
-            const particleCount = isSuper ? 20 : 12; // 超级导弹更多粒子
-            for (let j = 0; j < particleCount; j++) {
-                const angle = (Math.PI * 2 / particleCount) * j;
-                const distance = currentRadius * 0.8;
-                const particleX = explosion.x + Math.cos(angle) * distance;
-                const particleY = explosion.y + Math.sin(angle) * distance;
-
-                this.ctx.fillStyle = particleColor;
-                this.ctx.fillRect(particleX - 2, particleY - 2, 4, 4);
+            // Layer 4: lingering smoke / heat shimmer (the "tail" that prevents poof)
+            if (tailT > 0) {
+                const smokeR = r * (1 + tailT * 0.4);
+                const smokeAlpha = (1 - tailT) * (1 - tailT) * 0.45; // quadratic fade
+                const sg = ctx.createRadialGradient(
+                    explosion.x, explosion.y, 0,
+                    explosion.x, explosion.y, smokeR
+                );
+                sg.addColorStop(0, palette.smoke);
+                sg.addColorStop(0.7, palette.smokeFade);
+                sg.addColorStop(1, palette.transparent);
+                ctx.globalAlpha = smokeAlpha;
+                ctx.fillStyle = sg;
+                ctx.beginPath();
+                ctx.arc(explosion.x, explosion.y, smokeR, 0, Math.PI * 2);
+                ctx.fill();
             }
 
-            this.ctx.restore();
+            ctx.restore();
         }
+    }
+
+    // Color palette per explosion type
+    _explosionPalette(explosion) {
+        if (explosion.isSuperMissile) {
+            return {
+                core: '#ffffff',
+                inner: '#d8a0ff',
+                outer: '#7a30c8',
+                ringHot: '#c896ff',
+                smoke: 'rgba(120, 60, 180, 0.6)',
+                smokeFade: 'rgba(60, 20, 100, 0.2)',
+                transparent: 'rgba(50, 0, 100, 0)',
+                particleColors: ['#ffffff', '#d8a0ff', '#9370DB', '#7a30c8'],
+                shake: 12,
+                shakeMs: 240
+            };
+        } else if (explosion.isBossMissile) {
+            return {
+                core: '#ffffff',
+                inner: '#ffb060',
+                outer: '#c52020',
+                ringHot: '#ff7050',
+                smoke: 'rgba(140, 30, 20, 0.55)',
+                smokeFade: 'rgba(60, 10, 5, 0.15)',
+                transparent: 'rgba(80, 0, 0, 0)',
+                particleColors: ['#ffffff', '#ffd070', '#ff7030', '#b21010'],
+                shake: 6,
+                shakeMs: 160
+            };
+        } else {
+            return {
+                core: '#ffffff',
+                inner: '#ffe080',
+                outer: '#ff5520',
+                ringHot: '#ffb060',
+                smoke: 'rgba(140, 80, 30, 0.5)',
+                smokeFade: 'rgba(80, 40, 10, 0.15)',
+                transparent: 'rgba(80, 30, 0, 0)',
+                particleColors: ['#ffffff', '#ffe080', '#ff8030', '#c54010'],
+                shake: 5,
+                shakeMs: 140
+            };
+        }
+    }
+
+    // Spawn physics particles + shockwave + screen shake the moment the explosion is born.
+    _initExplosionFX(explosion) {
+        if (typeof bossFX === 'undefined') return;
+        const palette = this._explosionPalette(explosion);
+        const r = explosion.explosionRadius || 80;
+        const isLarge = explosion.isSuperMissile;
+        const sizeMul = isLarge ? 1.8 : 1.0;
+
+        // Hot debris — fast, short-lived white/yellow shards
+        for (let k = 0; k < (isLarge ? 28 : 18); k++) {
+            const ang = Math.random() * Math.PI * 2;
+            const speed = (5 + Math.random() * 9) * sizeMul;
+            bossFX.particles.push({
+                x: explosion.x, y: explosion.y,
+                vx: Math.cos(ang) * speed,
+                vy: Math.sin(ang) * speed,
+                size: 2 + Math.random() * 3,
+                color: palette.particleColors[Math.floor(Math.random() * 2)],
+                lifeMs: 380 + Math.random() * 220,
+                gravity: 0.05,
+                drag: 0.92,
+                alpha: 1,
+                startedAt: Date.now()
+            });
+        }
+        // Slower embers — longer life, color drifts to dark
+        for (let k = 0; k < (isLarge ? 22 : 14); k++) {
+            const ang = Math.random() * Math.PI * 2;
+            const speed = (1.5 + Math.random() * 4.5) * sizeMul;
+            bossFX.particles.push({
+                x: explosion.x, y: explosion.y,
+                vx: Math.cos(ang) * speed,
+                vy: Math.sin(ang) * speed,
+                size: 3 + Math.random() * 4,
+                color: palette.particleColors[2 + Math.floor(Math.random() * 2)],
+                lifeMs: 700 + Math.random() * 500,
+                gravity: 0.02,
+                drag: 0.95,
+                alpha: 0.85,
+                startedAt: Date.now()
+            });
+        }
+        // Shockwave ring (separate from the in-explosion ring; flies further out)
+        bossFX.addShockwave(
+            explosion.x, explosion.y,
+            r * 0.5, r * 1.9,
+            palette.ringHot,
+            isLarge ? 700 : 450,
+            isLarge ? 5 : 3,
+            0.7
+        );
+        // Punch flash (very short, additive, sells the impact)
+        bossFX.addFlash(explosion.x, explosion.y, r * 0.7, palette.core, 180, 0.9);
+        // Screen shake
+        bossFX.addShake(palette.shake * sizeMul, palette.shakeMs);
     }
     
     drawSpinSlashEffects() {
@@ -1612,202 +1735,216 @@ class Game {
 
     drawGameUI() {
         if (!this.player) return;
-        
-        // 绘制机甲信息
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = '16px Arial';
-        this.ctx.textAlign = 'left';
-        this.ctx.fillText(t('hud.mech', t('mech.' + this.player.mechType)), 10, 25);
-        
-        // 生命值显示
-        this.ctx.fillStyle = 'white';
-        this.ctx.fillText(t('hud.health'), 10, 245);
-        
-        // 生命条背景
-        const healthBarX = 90;
-        const healthBarY = 230;
-        const healthBarWidth = 200;
-        const healthBarHeight = 15;
-        
-        this.ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
-        this.ctx.fillRect(healthBarX, healthBarY, healthBarWidth, healthBarHeight);
-        
-        // 生命条
-        const healthPercentage = this.player.health / this.player.maxHealth;
-        const currentHealthWidth = healthBarWidth * healthPercentage;
-        
-        // 根据生命值比例改变颜色
-        if (healthPercentage > 0.6) {
-            this.ctx.fillStyle = '#00FF00';
-        } else if (healthPercentage > 0.3) {
-            this.ctx.fillStyle = '#FFD700';
-        } else {
-            this.ctx.fillStyle = '#FF0000';
+        const ctx = this.ctx;
+        const W = GAME_CONFIG.WIDTH;
+
+        // ---------- LEFT: Mech status panel ----------
+        const panelX = 14;
+        const panelY = 14;
+        const panelW = 320;
+        const panelH = 252;
+
+        uiDrawPanel(ctx, panelX, panelY, panelW, panelH, {
+            chamfer: 10,
+            fill: { from: 'rgba(6, 12, 16, 0.78)', to: 'rgba(10, 18, 24, 0.78)' },
+            stroke: UI_THEME.color.primaryDim,
+            strokeWidth: 1
+        });
+
+        // Panel header: mech name
+        ctx.save();
+        ctx.fillStyle = UI_THEME.color.primary;
+        ctx.font = `11px ${UI_THEME.font.mono}`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('// PILOT STATUS', panelX + 14, panelY + 16);
+
+        ctx.fillStyle = UI_THEME.color.textPrimary;
+        ctx.font = `bold 16px ${UI_THEME.font.display}`;
+        ctx.fillText(t('hud.mech', t('mech.' + this.player.mechType)), panelX + 14, panelY + 36);
+
+        // Divider
+        ctx.strokeStyle = UI_THEME.color.primaryDim;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(panelX + 14, panelY + 50);
+        ctx.lineTo(panelX + panelW - 14, panelY + 50);
+        ctx.stroke();
+        ctx.restore();
+
+        // ---------- HP bar (top of panel) ----------
+        const hpBarX = panelX + 14;
+        const hpBarY = panelY + 64;
+        const hpBarW = panelW - 28;
+        const hpBarH = 18;
+        const hpPct = Math.max(0, this.player.health / this.player.maxHealth);
+        let hpColor = UI_THEME.color.success;
+        if (hpPct <= 0.3) hpColor = UI_THEME.color.danger;
+        else if (hpPct <= 0.6) hpColor = UI_THEME.color.warning;
+
+        ctx.save();
+        ctx.fillStyle = UI_THEME.color.textSecondary;
+        ctx.font = `11px ${UI_THEME.font.mono}`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText('HP', hpBarX, hpBarY - 2);
+        ctx.textAlign = 'right';
+        ctx.fillStyle = hpColor;
+        ctx.fillText(`${this.player.health} / ${this.player.maxHealth}`, hpBarX + hpBarW, hpBarY - 2);
+        ctx.restore();
+
+        // HP bar background + fill (segmented)
+        ctx.save();
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+        ctx.fillRect(hpBarX, hpBarY, hpBarW, hpBarH);
+        ctx.fillStyle = hpColor;
+        if (hpPct < 0.3) {
+            const pulse = 0.6 + 0.4 * Math.sin(Date.now() / 150);
+            ctx.globalAlpha = pulse;
         }
-        
-        this.ctx.fillRect(healthBarX, healthBarY, currentHealthWidth, healthBarHeight);
-        
-        // 生命条边框
-        this.ctx.strokeStyle = 'white';
-        this.ctx.lineWidth = 1;
-        this.ctx.strokeRect(healthBarX, healthBarY, healthBarWidth, healthBarHeight);
-        
-        // 生命值数字
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = '14px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText(`${this.player.health}/${this.player.maxHealth}`, healthBarX + healthBarWidth/2, healthBarY + healthBarHeight/2 + 4);
-        
-        // 无敌状态显示
+        ctx.fillRect(hpBarX, hpBarY, hpBarW * hpPct, hpBarH);
+        ctx.globalAlpha = 1;
+        // Segment ticks
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
+        ctx.lineWidth = 1;
+        for (let i = 1; i < 10; i++) {
+            const sx = hpBarX + (hpBarW / 10) * i;
+            ctx.beginPath();
+            ctx.moveTo(sx, hpBarY);
+            ctx.lineTo(sx, hpBarY + hpBarH);
+            ctx.stroke();
+        }
+        // Border
+        ctx.strokeStyle = hpColor;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(hpBarX, hpBarY, hpBarW, hpBarH);
+        ctx.restore();
+
+        // Invincible badge under HP bar
         if (this.player.isInvincible) {
-            this.ctx.fillStyle = '#FFD700';
-            this.ctx.font = 'bold 18px Arial';
-            this.ctx.textAlign = 'left';
-            this.ctx.fillText(t('hud.invincible'), 10, 270);
+            ctx.save();
+            ctx.fillStyle = UI_THEME.color.warning;
+            ctx.font = `bold 11px ${UI_THEME.font.mono}`;
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'top';
+            ctx.fillText('● ' + t('hud.invincible'), hpBarX + hpBarW, hpBarY + hpBarH + 4);
+            ctx.restore();
         }
-        
-        // 左手武器状态 (左键)
+
+        // ---------- Weapon / utility rows ----------
+        const rowStartY = panelY + 100;
+        const rowH = 18;
+        const labelX = panelX + 14;
+        const statusX = panelX + 78;
+        let row = 0;
+
+        const drawRow = (key, label, status, isActive) => {
+            const y = rowStartY + row * rowH;
+            row++;
+            // Key cap
+            ctx.save();
+            ctx.fillStyle = isActive ? UI_THEME.color.primary : UI_THEME.color.textMuted;
+            ctx.font = `bold 11px ${UI_THEME.font.mono}`;
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(key, labelX, y + rowH / 2);
+            // Label/status text
+            ctx.fillStyle = isActive ? UI_THEME.color.textPrimary : UI_THEME.color.textMuted;
+            ctx.font = `12px ${UI_THEME.font.body}`;
+            ctx.fillText(label, labelX + 28, y + rowH / 2);
+            // Status (right-aligned)
+            ctx.fillStyle = status.color || UI_THEME.color.textSecondary;
+            ctx.font = `11px ${UI_THEME.font.mono}`;
+            ctx.textAlign = 'right';
+            ctx.fillText(status.text, panelX + panelW - 14, y + rowH / 2);
+            ctx.restore();
+        };
+
+        // Helper: build display text for a weapon
+        const weaponStatus = (weapon, fallbackKey) => {
+            if (!weapon) return { text: t(fallbackKey), color: UI_THEME.color.textMuted };
+            if (!this.player.canAttack()) return { text: t('hud.dodgeLimit'), color: UI_THEME.color.warning };
+            const s = weapon.getStatus();
+            return { text: `${t('weapon.' + weapon.type)} · ${s.text}`, color: s.color };
+        };
+
         const leftWeapon = this.player.getLeftHandWeapon();
-        this.ctx.fillStyle = 'white';
-        this.ctx.fillText(t('hud.leftKey'), 10, 45);
-        
-        if (leftWeapon) {
-            if (!this.player.canAttack()) {
-                this.ctx.fillStyle = '#CC6666';
-                this.ctx.fillText(`${t('weapon.' + leftWeapon.type)}: ${t('hud.dodgeLimit')}`, 90, 45);
-            } else {
-                const leftStatus = leftWeapon.getStatus();
-                this.ctx.fillStyle = leftStatus.color;
-                this.ctx.fillText(`${t('weapon.' + leftWeapon.type)}: ${leftStatus.text}`, 90, 45);
-            }
-        } else {
-            this.ctx.fillStyle = '#666666';
-            this.ctx.fillText(t('hud.noWeapon'), 90, 45);
-        }
-        
-        // 右手武器状态 (右键)
+        drawRow('LMB', t('hud.leftKey').replace(/[:：]/g, '').trim(), weaponStatus(leftWeapon, 'hud.noWeapon'), !!leftWeapon);
+
         const rightWeapon = this.player.getRightHandWeapon();
-        this.ctx.fillStyle = 'white';
-        this.ctx.fillText(t('hud.rightKey'), 10, 85);
-        
-        if (rightWeapon) {
-            if (!this.player.canAttack()) {
-                this.ctx.fillStyle = '#CC6666';
-                this.ctx.fillText(`${t('weapon.' + rightWeapon.type)}: ${t('hud.dodgeLimit')}`, 90, 85);
-            } else {
-                const rightStatus = rightWeapon.getStatus();
-                this.ctx.fillStyle = rightStatus.color;
-                this.ctx.fillText(`${t('weapon.' + rightWeapon.type)}: ${rightStatus.text}`, 90, 85);
-            }
-        } else {
-            this.ctx.fillStyle = '#666666';
-            this.ctx.fillText(t('hud.noWeapon'), 90, 85);
-        }
-        
-        // 闪避状态 (空格键)
+        drawRow('RMB', t('hud.rightKey').replace(/[:：]/g, '').trim(), weaponStatus(rightWeapon, 'hud.noWeapon'), !!rightWeapon);
+
+        const leftShoulder = this.player.getLeftShoulderWeapon();
+        drawRow('Q', t('hud.qKey').replace(/[:：]/g, '').trim(), weaponStatus(leftShoulder, 'hud.noLeftShoulder'), !!leftShoulder);
+
+        const rightShoulder = this.player.getRightShoulderWeapon();
+        drawRow('E', t('hud.eKey').replace(/[:：]/g, '').trim(), weaponStatus(rightShoulder, 'hud.noRightShoulder'), !!rightShoulder);
+
+        const hidden = this.player.getHiddenAbilityWeapon();
+        drawRow('SHIFT', t('hud.shiftKey').replace(/[:：]/g, '').trim(), weaponStatus(hidden, 'hud.noHidden'), !!hidden);
+
+        // Dodge
         const dodgeStatus = this.player.getDodgeStatus();
-        this.ctx.fillStyle = 'white';
-        this.ctx.fillText(t('hud.dodgeKey'), 10, 105);
-        this.ctx.fillStyle = dodgeStatus.color;
-        this.ctx.fillText(t('hud.dodge', dodgeStatus.text), 90, 105);
-        
-        // 锁定模式 (F键切换)
-        this.ctx.fillStyle = 'white';
-        this.ctx.fillText(t('hud.lockKey'), 10, 125);
-        const lockModeText = this.player.getLockModeText();
-        this.ctx.fillStyle = gameState.lockMode === 'manual' ? '#FFD700' : 'white';
-        this.ctx.fillText(t('hud.lockMode', lockModeText), 90, 125);
-        
-        // 隐藏机能状态 (Shift键)
-        const hiddenAbility = this.player.getHiddenAbilityWeapon();
-        this.ctx.fillStyle = 'white';
-        this.ctx.fillText(t('hud.shiftKey'), 10, 145);
-        
-        if (hiddenAbility) {
-            const hiddenStatus = hiddenAbility.getStatus();
-            this.ctx.fillStyle = hiddenStatus.color;
-            this.ctx.fillText(`${t('weapon.' + hiddenAbility.type)}: ${hiddenStatus.text}`, 90, 145);
-        } else {
-            this.ctx.fillStyle = '#666666';
-            this.ctx.fillText(t('hud.noHidden'), 90, 145);
-        }
-        
-        // 硬锁模式下的C键提示
+        drawRow('SPACE', t('hud.dodgeKey').replace(/[:：]/g, '').trim(),
+            { text: dodgeStatus.text, color: dodgeStatus.color }, true);
+
+        // Lock mode
+        const lockText = this.player.getLockModeText();
+        drawRow('F', t('hud.lockKey').replace(/[:：]/g, '').trim(),
+            { text: lockText, color: gameState.lockMode === 'manual' ? UI_THEME.color.warning : UI_THEME.color.primary },
+            true);
+
+        // Hard-lock target switch hint
         if (gameState.lockMode === 'hard') {
-            this.ctx.fillStyle = 'white';
-            this.ctx.fillText(t('hud.cKey'), 10, 165);
-            this.ctx.fillStyle = '#87CEEB';
-            this.ctx.fillText(t('hud.switchTarget'), 90, 165);
+            drawRow('C', t('hud.cKey').replace(/[:：]/g, '').trim(),
+                { text: t('hud.switchTarget'), color: '#87CEEB' }, true);
         }
-        
-        // 左肩武器状态 (Q键)
-        const leftShoulderWeapon = this.player.getLeftShoulderWeapon();
-        this.ctx.fillStyle = 'white';
-        this.ctx.fillText(t('hud.qKey'), 10, 185);
-        
-        if (leftShoulderWeapon) {
-            const leftShoulderStatus = leftShoulderWeapon.getStatus();
-            this.ctx.fillStyle = leftShoulderStatus.color;
-            this.ctx.fillText(`${t('weapon.' + leftShoulderWeapon.type)}: ${leftShoulderStatus.text}`, 90, 185);
-        } else {
-            this.ctx.fillStyle = '#666666';
-            this.ctx.fillText(t('hud.noLeftShoulder'), 90, 185);
-        }
-        
-        // 右肩武器状态 (E键)
-        const rightShoulderWeapon = this.player.getRightShoulderWeapon();
-        this.ctx.fillStyle = 'white';
-        this.ctx.fillText(t('hud.eKey'), 10, 205);
-        
-        if (rightShoulderWeapon) {
-            const rightShoulderStatus = rightShoulderWeapon.getStatus();
-            this.ctx.fillStyle = rightShoulderStatus.color;
-            this.ctx.fillText(`${t('weapon.' + rightShoulderWeapon.type)}: ${rightShoulderStatus.text}`, 90, 205);
-        } else {
-            this.ctx.fillStyle = '#666666';
-            this.ctx.fillText(t('hud.noRightShoulder'), 90, 205);
-        }
-        
-        // 维修包状态 (Control键)
-        this.ctx.fillStyle = 'white';
-        this.ctx.fillText(t('hud.ctrlKey'), 10, 225);
+
+        // Repair kit
         if (gameState.repairKits > 0) {
-            this.ctx.fillStyle = '#00FF00';
-            this.ctx.fillText(t('hud.repairKit', gameState.repairKits, gameState.maxRepairKits), 90, 225);
+            drawRow('CTRL', t('hud.ctrlKey').replace(/[:：]/g, '').trim(),
+                { text: `${gameState.repairKits} / ${gameState.maxRepairKits}`, color: UI_THEME.color.success }, true);
         } else {
-            this.ctx.fillStyle = '#FF6666';
-            this.ctx.fillText(t('hud.repairEmpty'), 90, 225);
+            drawRow('CTRL', t('hud.ctrlKey').replace(/[:：]/g, '').trim(),
+                { text: t('hud.repairEmpty'), color: UI_THEME.color.danger }, false);
         }
-        
-        // 根据游戏模式显示不同的统计信息
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = '14px Arial';
-        this.ctx.textAlign = 'right';
-        
-        // 显示当前游戏模式
+
+        // ---------- TOP-RIGHT: mode info ----------
+        const infoW = 240;
+        const infoH = 64;
+        const infoX = W - infoW - 14;
+        const infoY = 14;
+        uiDrawPanel(ctx, infoX, infoY, infoW, infoH, {
+            chamfer: 10,
+            fill: { from: 'rgba(6, 12, 16, 0.78)', to: 'rgba(10, 18, 24, 0.78)' },
+            stroke: UI_THEME.color.primaryDim,
+            strokeWidth: 1
+        });
+        ctx.save();
+        ctx.fillStyle = UI_THEME.color.primary;
+        ctx.font = `11px ${UI_THEME.font.mono}`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('// MISSION', infoX + 14, infoY + 16);
         const currentMode = GAME_MODES[gameState.selectedGameMode];
-        this.ctx.fillStyle = currentMode.color;
-        this.ctx.fillText(t('hud.mode', t('mode.' + gameState.selectedGameMode)), GAME_CONFIG.WIDTH - 10, 25);
-        
-        // Boss战模式：显示Boss击杀数
-            this.ctx.fillStyle = 'white';
-            this.ctx.fillText(t('hud.bossKills', gameState.bossKillCount), GAME_CONFIG.WIDTH - 10, 45);
-            
-        // Boss血条显示在屏幕上方中央
-            if (this.boss) {
+        ctx.fillStyle = currentMode.color;
+        ctx.font = `bold 14px ${UI_THEME.font.display}`;
+        ctx.fillText(t('hud.mode', t('mode.' + gameState.selectedGameMode)), infoX + 14, infoY + 36);
+        ctx.fillStyle = UI_THEME.color.textSecondary;
+        ctx.font = `11px ${UI_THEME.font.mono}`;
+        ctx.fillText(t('hud.bossKills', gameState.bossKillCount), infoX + 14, infoY + 52);
+        ctx.restore();
+
+        // Boss HP bar (top center)
+        if (this.boss) {
             this.drawBossHealthBar();
         }
-        
-        // 返回主菜单提示
 
-        
-        // 返回主菜单按钮
+        // Bottom-left buttons
         this.drawMainMenuButton();
-        
-        // 暂停按钮
         this.drawPauseButton();
-        
-        // 失明状态提示（在UI最上层）
+
+        // Blindness overlay
         if (gameState.playerBlinded) {
             this.drawBlindnessStatusText();
         }
@@ -1815,158 +1952,170 @@ class Game {
     
     drawBossHealthBar() {
         if (!this.boss) return;
-        
-        const healthBarWidth = 400;
-        const healthBarHeight = 20;
-        const x = (GAME_CONFIG.WIDTH - healthBarWidth) / 2;
-        const y = 30;
-        
-        // 血条背景
-        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        this.ctx.fillRect(x - 5, y - 5, healthBarWidth + 10, healthBarHeight + 10);
-        
-        // 血条边框
-        this.ctx.strokeStyle = '#FFFFFF';
-        this.ctx.lineWidth = 2;
-        this.ctx.strokeRect(x, y, healthBarWidth, healthBarHeight);
-        
-        // 血条填充
-        const healthPercentage = this.boss.health / this.boss.maxHealth;
-        const fillWidth = healthBarWidth * healthPercentage;
-        
-        // 血条颜色根据血量变化
-        if (healthPercentage > 0.6) {
-            this.ctx.fillStyle = '#FF4444'; // 血红色
-        } else if (healthPercentage > 0.3) {
-            this.ctx.fillStyle = '#FF8844'; // 橙红色
-        } else {
-            this.ctx.fillStyle = '#FF0000'; // 深红色
-        }
-        
-        this.ctx.fillRect(x, y, fillWidth, healthBarHeight);
-        
-        // 血条文字 - 根据Boss类型显示不同名字
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = 'bold 16px Arial';
-        this.ctx.textAlign = 'center';
+        const ctx = this.ctx;
+        const W = GAME_CONFIG.WIDTH;
+
+        const barW = 480;
+        const barH = 22;
+        const x = (W - barW) / 2;
+        const y = 32;
+
+        // Boss name (above bar)
         let bossName = t('boss.CRIMSON_KING');
-        if (this.boss instanceof SublimeMoon) {
-            bossName = t('boss.SUBLIME_MOON');
-        } else if (this.boss instanceof StarDevourer) {
-            bossName = t('boss.STAR_DEVOURER');
-        } else if (this.boss instanceof UglyEmperor) {
-            bossName = t('boss.UGLY_EMPEROR');
-        }
-        // 确保血量显示不为负数
+        if (this.boss instanceof SublimeMoon) bossName = t('boss.SUBLIME_MOON');
+        else if (this.boss instanceof StarDevourer) bossName = t('boss.STAR_DEVOURER');
+        else if (this.boss instanceof UglyEmperor) bossName = t('boss.UGLY_EMPEROR');
+
+        ctx.save();
+        ctx.fillStyle = UI_THEME.color.danger;
+        ctx.font = `11px ${UI_THEME.font.mono}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText('// HOSTILE TARGET', W / 2, y - 16);
+
+        ctx.fillStyle = UI_THEME.color.textPrimary;
+        ctx.font = `bold 18px ${UI_THEME.font.display}`;
+        ctx.shadowColor = UI_THEME.color.dangerGlow;
+        ctx.shadowBlur = 10;
+        ctx.fillText(bossName, W / 2, y - 2);
+        ctx.restore();
+
+        const hpPct = Math.max(0, this.boss.health / this.boss.maxHealth);
         const displayHealth = Math.max(0, this.boss.health);
-        this.ctx.fillText(`${bossName} - ${displayHealth}/${this.boss.maxHealth}`, GAME_CONFIG.WIDTH / 2, y + healthBarHeight + 20);
-        
-        // 绘制噬星者失明技能状态
+
+        // Bar BG
+        ctx.save();
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.fillRect(x, y, barW, barH);
+
+        // Fill
+        let fillColor = UI_THEME.color.danger;
+        if (hpPct < 0.3) fillColor = '#ff8a3d';
+        const grad = ctx.createLinearGradient(x, y, x + barW, y);
+        grad.addColorStop(0, fillColor);
+        grad.addColorStop(1, '#ff7575');
+        ctx.fillStyle = grad;
+        ctx.fillRect(x, y, barW * hpPct, barH);
+
+        // Segment ticks
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
+        ctx.lineWidth = 1;
+        for (let i = 1; i < 20; i++) {
+            const sx = x + (barW / 20) * i;
+            ctx.beginPath();
+            ctx.moveTo(sx, y);
+            ctx.lineTo(sx, y + barH);
+            ctx.stroke();
+        }
+
+        // Border + corner brackets
+        ctx.strokeStyle = UI_THEME.color.danger;
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(x, y, barW, barH);
+        ctx.restore();
+        uiDrawCornerBrackets(ctx, x, y, barW, barH, { size: 10, offset: 4, color: UI_THEME.color.danger, lineWidth: 1.5 });
+
+        // HP number under bar
+        ctx.save();
+        ctx.fillStyle = UI_THEME.color.textPrimary;
+        ctx.font = `13px ${UI_THEME.font.mono}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText(`HP ${displayHealth} / ${this.boss.maxHealth}`, W / 2, y + barH + 6);
+        ctx.restore();
+
+        // StarDevourer special status
         if (this.boss instanceof StarDevourer && this.boss.blindnessSkill) {
             const skill = this.boss.blindnessSkill;
-            const params = this.boss.getBlindnessParams(); // 获取当前阶段参数
+            const params = this.boss.getBlindnessParams();
             const now = Date.now();
-            
+
             let statusText = '';
-            let statusColor = '#ffffff';
-            
+            let statusColor = UI_THEME.color.textPrimary;
+
             if (skill.isActive) {
                 const remaining = Math.max(0, params.duration - (now - skill.startTime));
-                const remainingSeconds = (remaining / 1000).toFixed(1);
-                statusText = t('boss.blindActive', remainingSeconds);
-                statusColor = '#8B00FF';
+                statusText = t('boss.blindActive', (remaining / 1000).toFixed(1));
+                statusColor = '#b066ff';
             } else if (!skill.unlocked) {
                 const damageTaken = this.boss.maxHealth - this.boss.health;
                 const damageNeeded = 50 - damageTaken;
                 if (damageNeeded > 0) {
                     statusText = t('boss.blindUnlockNeed', damageNeeded);
-                    statusColor = '#aaaaaa';
+                    statusColor = UI_THEME.color.textMuted;
                 } else {
                     statusText = t('boss.blindUnlocked');
-                    statusColor = '#ffff00';
+                    statusColor = UI_THEME.color.warning;
                 }
             } else {
-                const cooldownRemaining = Math.max(0, params.cooldown - (now - skill.lastUse));
-                if (cooldownRemaining > 0) {
-                    const cooldownSeconds = (cooldownRemaining / 1000).toFixed(1);
-                    const phaseInfo = this.boss.phaseTwo.activated ? t('boss.phase2label') : t('boss.phase1');
-                    statusText = t('boss.blindCooldown', cooldownSeconds, phaseInfo);
+                const cd = Math.max(0, params.cooldown - (now - skill.lastUse));
+                const phaseInfo = this.boss.phaseTwo.activated ? t('boss.phase2label') : t('boss.phase1');
+                if (cd > 0) {
+                    statusText = t('boss.blindCooldown', (cd / 1000).toFixed(1), phaseInfo);
                     statusColor = '#ff8888';
                 } else {
-                    const phaseInfo = this.boss.phaseTwo.activated ? t('boss.phase2label') : t('boss.phase1');
                     statusText = t('boss.blindReady', phaseInfo);
-                    statusColor = '#88ff88';
+                    statusColor = UI_THEME.color.success;
                 }
             }
-            
-            this.ctx.fillStyle = statusColor;
-            this.ctx.font = '14px Arial';
-            this.ctx.textAlign = 'center';
-            this.ctx.fillText(statusText, GAME_CONFIG.WIDTH / 2, y + healthBarHeight + 40);
-            
-            // 绘制二阶段状态
+
+            ctx.save();
+            ctx.fillStyle = statusColor;
+            ctx.font = `12px ${UI_THEME.font.mono}`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillText(statusText, W / 2, y + barH + 24);
+            ctx.restore();
+
             if (this.boss.phaseTwo) {
                 let phaseText = '';
-                let phaseColor = '#ffffff';
-                
+                let phaseColor = UI_THEME.color.textPrimary;
+
                 if (this.boss.phaseTwo.activated) {
-                    // 检查是否在检测范围内
                     const withinRange = this.boss.isWithinDetectionRange();
                     const distance = Math.floor(this.boss.getDistanceToPlayer());
                     const maxRange = this.boss.phaseTwo.detectionRange;
-                    
                     if (withinRange) {
                         phaseText = t('boss.phase2Visible', distance, maxRange);
-                        phaseColor = '#00ff00';
+                        phaseColor = UI_THEME.color.success;
                     } else {
                         phaseText = t('boss.phase2Cloaked', distance, maxRange);
-                        phaseColor = '#ff0000';
+                        phaseColor = UI_THEME.color.danger;
                     }
                 } else {
-                    const currentHealth = this.boss.health;
                     const triggerHealth = this.boss.phaseTwo.triggerHealth;
-                    if (currentHealth > triggerHealth) {
-                        const damageNeeded = currentHealth - triggerHealth;
+                    if (this.boss.health > triggerHealth) {
+                        const damageNeeded = this.boss.health - triggerHealth;
                         phaseText = t('boss.phase2Trigger', damageNeeded);
-                        phaseColor = '#ffaa00'; // 橙色提示
+                        phaseColor = UI_THEME.color.accent;
                     }
                 }
-                
+
                 if (phaseText) {
-                    this.ctx.fillStyle = phaseColor;
-                    this.ctx.font = 'bold 14px Arial';
-                    this.ctx.fillText(phaseText, GAME_CONFIG.WIDTH / 2, y + healthBarHeight + 60);
+                    ctx.save();
+                    ctx.fillStyle = phaseColor;
+                    ctx.font = `bold 12px ${UI_THEME.font.mono}`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'top';
+                    ctx.fillText(phaseText, W / 2, y + barH + 42);
+                    ctx.restore();
                 }
             }
         }
-        
-        // 重置文字对齐方式
-        this.ctx.textAlign = 'left';
+
+        ctx.textAlign = 'left';
     }
-    
+
     drawPauseButton() {
-        const buttonWidth = 80;
-        const buttonHeight = 40;
-        const buttonX = GAME_CONFIG.WIDTH - buttonWidth - 20;
-        const buttonY = 20;
-        
-        // 绘制按钮背景
-        this.ctx.fillStyle = 'rgba(255, 255, 0, 0.8)';
-        this.ctx.fillRect(buttonX, buttonY, buttonWidth, buttonHeight);
-        
-        // 绘制按钮边框
-        this.ctx.strokeStyle = '#FFD700';
-        this.ctx.lineWidth = 2;
-        this.ctx.strokeRect(buttonX, buttonY, buttonWidth, buttonHeight);
-        
-        // 绘制按钮文字
-        this.ctx.fillStyle = 'black';
-        this.ctx.font = 'bold 16px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText(t('ui.pauseBtn'), buttonX + buttonWidth / 2, buttonY + buttonHeight / 2 + 6);
-        
-        // 存储按钮位置供点击检测使用
-        this.pauseButton = { x: buttonX, y: buttonY, width: buttonWidth, height: buttonHeight };
+        const W = 88;
+        const H = 36;
+        const X = GAME_CONFIG.WIDTH - W - 14;
+        const Y = 90;
+        this.pauseButton = uiDrawButton(this.ctx, X, Y, W, H, t('ui.pauseBtn'), {
+            accentColor: UI_THEME.color.warning,
+            labelFont: `bold 13px ${UI_THEME.font.mono}`,
+            chamfer: 6
+        });
     }
     
     getGuideData() {
@@ -1977,212 +2126,208 @@ class Game {
         const W = GAME_CONFIG.WIDTH;
         const H = GAME_CONFIG.HEIGHT;
         const ctx = this.ctx;
-        
-        ctx.fillStyle = '#111118';
-        ctx.fillRect(0, 0, W, H);
-        
+
+        // Top status header
+        ctx.save();
+        ctx.fillStyle = UI_THEME.color.primary;
+        ctx.font = `12px ${UI_THEME.font.mono}`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('// FIELD MANUAL', 50, 32);
+        ctx.restore();
+
         this.guideButtons = [];
-        
+
         if (!gameState.guideCategory) {
-            // 主目录
-            ctx.fillStyle = 'white';
-            ctx.font = 'bold 32px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText(t('menu.guide'), W / 2, 55);
-            
+            // Main catalog
+            uiDrawTitle(ctx, W / 2, 70, t('menu.guide'), 'TACTICAL DATABASE', {
+                mainFont: `bold 32px ${UI_THEME.font.display}`,
+                subFont: `12px ${UI_THEME.font.mono}`
+            });
+
             const categories = this.getGuideData();
-            const btnW = 360;
-            const btnH = 55;
-            const startY = 100;
+            const btnW = 420;
+            const btnH = 56;
+            const startY = 150;
             const gap = 12;
-            
+
             categories.forEach((cat, i) => {
                 const bx = W / 2 - btnW / 2;
                 const by = startY + i * (btnH + gap);
-                
-                ctx.fillStyle = 'rgba(255,255,255,0.08)';
-                ctx.fillRect(bx, by, btnW, btnH);
-                ctx.strokeStyle = cat.color;
-                ctx.lineWidth = 2;
-                ctx.strokeRect(bx, by, btnW, btnH);
-                
-                ctx.fillStyle = cat.color;
-                ctx.font = 'bold 20px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText(cat.name, W / 2, by + 35);
-                
-                this.guideButtons.push({ x: bx, y: by, width: btnW, height: btnH, action: 'category', id: cat.id });
+                const rect = uiDrawButton(ctx, bx, by, btnW, btnH, cat.name, {
+                    accentColor: cat.color,
+                    labelFont: `bold 18px ${UI_THEME.font.display}`,
+                    labelLetterSpacing: 1,
+                    chamfer: 8
+                });
+                // Index marker on the right
+                ctx.save();
+                ctx.fillStyle = UI_THEME.color.textMuted;
+                ctx.font = `11px ${UI_THEME.font.mono}`;
+                ctx.textAlign = 'right';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(`SEC.0${i + 1} ▶`, bx + btnW - 16, by + btnH / 2);
+                ctx.restore();
+                this.guideButtons.push({ ...rect, action: 'category', id: cat.id });
             });
-            
-            // 返回按钮
+
             this._drawGuideBackButton(t('menu.backToMenu'));
-            
+
         } else if (gameState.guideSubItem === null) {
             const categories = this.getGuideData();
             const cat = categories.find(c => c.id === gameState.guideCategory);
             if (!cat) return;
-            
+
+            // Section title with accent strip
+            ctx.save();
             ctx.fillStyle = cat.color;
-            ctx.font = 'bold 28px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText(cat.name, W / 2, 50);
-            
+            ctx.fillRect(W / 2 - 240, 56, 4, 28);
+            ctx.fillStyle = cat.color;
+            ctx.font = `bold 26px ${UI_THEME.font.display}`;
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            if (cat.color) {
+                ctx.shadowColor = cat.color;
+                ctx.shadowBlur = 10;
+            }
+            ctx.fillText(cat.name, W / 2 - 224, 70);
+            ctx.restore();
+
             if (cat.content) {
-                // 纯文字页面（操作说明、状态效果）
-                const startY = 85;
+                // Text page (scrollable)
+                const startY = 110;
                 const lineH = 26;
-                ctx.font = '16px Arial';
-                ctx.textAlign = 'left';
                 const textX = W / 2 - 240;
-                
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'top';
+
                 cat.content.forEach((line, i) => {
                     const y = startY + i * lineH - gameState.guideScrollOffset;
-                    if (y < 65 || y > H - 60) return;
+                    if (y < 95 || y > H - 70) return;
                     if (line.startsWith('【')) {
-                        ctx.fillStyle = '#FFFFFF';
-                        ctx.font = 'bold 16px Arial';
+                        ctx.fillStyle = UI_THEME.color.textPrimary;
+                        ctx.font = `bold 16px ${UI_THEME.font.display}`;
                     } else if (line.startsWith('—')) {
                         ctx.fillStyle = cat.color;
-                        ctx.font = 'bold 16px Arial';
+                        ctx.font = `bold 15px ${UI_THEME.font.body}`;
                     } else {
-                        ctx.fillStyle = '#CCCCCC';
-                        ctx.font = '16px Arial';
+                        ctx.fillStyle = UI_THEME.color.textSecondary;
+                        ctx.font = `15px ${UI_THEME.font.body}`;
                     }
                     ctx.fillText(line, textX, y);
                 });
             } else if (cat.items) {
-                // 子项目列表
-                const btnW = 360;
+                // Sub-item list
+                const btnW = 420;
                 const btnH = 50;
-                const startY = 80;
+                const startY = 110;
                 const gap = 10;
-                
+
                 cat.items.forEach((item, i) => {
                     const bx = W / 2 - btnW / 2;
                     const by = startY + i * (btnH + gap);
-                    
-                    ctx.fillStyle = 'rgba(255,255,255,0.06)';
-                    ctx.fillRect(bx, by, btnW, btnH);
-                    ctx.strokeStyle = item.color;
-                    ctx.lineWidth = 1.5;
-                    ctx.strokeRect(bx, by, btnW, btnH);
-                    
-                    ctx.fillStyle = item.color;
-                    ctx.font = 'bold 18px Arial';
-                    ctx.textAlign = 'center';
-                    ctx.fillText(item.name, W / 2, by + 32);
-                    
-                    this.guideButtons.push({ x: bx, y: by, width: btnW, height: btnH, action: 'subitem', index: i });
+                    const rect = uiDrawButton(ctx, bx, by, btnW, btnH, item.name, {
+                        accentColor: item.color,
+                        labelFont: `bold 16px ${UI_THEME.font.display}`,
+                        chamfer: 8
+                    });
+                    ctx.save();
+                    ctx.fillStyle = UI_THEME.color.textMuted;
+                    ctx.font = `11px ${UI_THEME.font.mono}`;
+                    ctx.textAlign = 'right';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(`#${String(i + 1).padStart(2, '0')} ▶`, bx + btnW - 16, by + btnH / 2);
+                    ctx.restore();
+                    this.guideButtons.push({ ...rect, action: 'subitem', index: i });
                 });
             }
-            
+
             this._drawGuideBackButton(t('menu.backToCatalog'));
-            
+
         } else {
-            // 子项目详情
+            // Sub-item detail
             const categories = this.getGuideData();
             const cat = categories.find(c => c.id === gameState.guideCategory);
             if (!cat || !cat.items) return;
             const item = cat.items[gameState.guideSubItem];
             if (!item) return;
-            
+
+            ctx.save();
             ctx.fillStyle = item.color;
-            ctx.font = 'bold 26px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText(item.name, W / 2, 50);
-            
-            const startY = 85;
-            const lineH = 26;
+            ctx.fillRect(W / 2 - 240, 56, 4, 28);
+            ctx.fillStyle = item.color;
+            ctx.font = `bold 24px ${UI_THEME.font.display}`;
             ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            if (item.color) {
+                ctx.shadowColor = item.color;
+                ctx.shadowBlur = 10;
+            }
+            ctx.fillText(item.name, W / 2 - 224, 70);
+            ctx.restore();
+
+            const startY = 110;
+            const lineH = 26;
             const textX = W / 2 - 240;
-            
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
+
             item.lines.forEach((line, i) => {
                 const y = startY + i * lineH - gameState.guideScrollOffset;
-                if (y < 65 || y > H - 60) return;
-                if (line === '') {
-                    return;
-                } else if (line.startsWith('—')) {
+                if (y < 95 || y > H - 70) return;
+                if (line === '') return;
+                if (line.startsWith('—')) {
                     ctx.fillStyle = item.color;
-                    ctx.font = 'bold 16px Arial';
+                    ctx.font = `bold 15px ${UI_THEME.font.body}`;
                 } else {
-                    ctx.fillStyle = '#CCCCCC';
-                    ctx.font = '16px Arial';
+                    ctx.fillStyle = UI_THEME.color.textSecondary;
+                    ctx.font = `15px ${UI_THEME.font.body}`;
                 }
                 ctx.fillText(line, textX, y);
             });
-            
+
             this._drawGuideBackButton(t('menu.backTo', cat.name));
         }
+
+        // Frame + scanlines on top
+        uiDrawScreenFrame(ctx, W, H);
+        uiDrawScanlines(ctx, W, H);
     }
-    
+
     _drawGuideBackButton(text) {
-        const btnW = 140;
-        const btnH = 36;
-        const bx = 40;
-        const by = GAME_CONFIG.HEIGHT - 55;
-        
-        this.ctx.fillStyle = 'rgba(255,255,255,0.1)';
-        this.ctx.fillRect(bx, by, btnW, btnH);
-        this.ctx.strokeStyle = '#888888';
-        this.ctx.lineWidth = 1;
-        this.ctx.strokeRect(bx, by, btnW, btnH);
-        
-        this.ctx.fillStyle = '#CCCCCC';
-        this.ctx.font = '15px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText(text, bx + btnW / 2, by + 24);
-        
-        this.guideBackBtn = { x: bx, y: by, width: btnW, height: btnH };
+        const W = 160;
+        const H = 40;
+        const X = 40;
+        const Y = GAME_CONFIG.HEIGHT - 60;
+        this.guideBackBtn = uiDrawButton(this.ctx, X, Y, W, H, text, {
+            accentColor: UI_THEME.color.textSecondary,
+            labelFont: `13px ${UI_THEME.font.mono}`,
+            chamfer: 8
+        });
     }
     
     drawBackButton() {
-        const buttonWidth = 120;
-        const buttonHeight = 40;
-        const buttonX = 50;
-        const buttonY = GAME_CONFIG.HEIGHT - 60;
-        
-        // 绘制按钮背景
-        this.ctx.fillStyle = 'rgba(255, 165, 0, 0.8)';
-        this.ctx.fillRect(buttonX, buttonY, buttonWidth, buttonHeight);
-        
-        // 绘制按钮边框
-        this.ctx.strokeStyle = '#FFD700';
-        this.ctx.lineWidth = 2;
-        this.ctx.strokeRect(buttonX, buttonY, buttonWidth, buttonHeight);
-        
-        // 绘制按钮文字
-        this.ctx.fillStyle = 'black';
-        this.ctx.font = 'bold 16px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText(t('menu.backArrow'), buttonX + buttonWidth / 2, buttonY + buttonHeight / 2 + 6);
-        
-        // 存储按钮位置供点击检测使用
-        this.backButton = { x: buttonX, y: buttonY, width: buttonWidth, height: buttonHeight };
+        const W = 130;
+        const H = 44;
+        const X = 40;
+        const Y = GAME_CONFIG.HEIGHT - 64;
+        this.backButton = uiDrawButton(this.ctx, X, Y, W, H, t('menu.backArrow'), {
+            accentColor: UI_THEME.color.textSecondary,
+            labelFont: `bold 14px ${UI_THEME.font.mono}`,
+            chamfer: 8
+        });
     }
     
     drawMainMenuButton() {
-        const buttonWidth = 120;
-        const buttonHeight = 40;
-        const buttonX = 50;
-        const buttonY = GAME_CONFIG.HEIGHT - 100;
-        
-        // 绘制按钮背景
-        this.ctx.fillStyle = 'rgba(255, 0, 0, 0.8)';
-        this.ctx.fillRect(buttonX, buttonY, buttonWidth, buttonHeight);
-        
-        // 绘制按钮边框
-        this.ctx.strokeStyle = '#FF4444';
-        this.ctx.lineWidth = 2;
-        this.ctx.strokeRect(buttonX, buttonY, buttonWidth, buttonHeight);
-        
-        // 绘制按钮文字
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = 'bold 16px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText(t('menu.mainMenu'), buttonX + buttonWidth / 2, buttonY + buttonHeight / 2 + 6);
-        
-        // 存储按钮位置供点击检测使用
-        this.mainMenuButton = { x: buttonX, y: buttonY, width: buttonWidth, height: buttonHeight };
+        const W = 130;
+        const H = 40;
+        const X = 14;
+        const Y = GAME_CONFIG.HEIGHT - H - 14;
+        this.mainMenuButton = uiDrawButton(this.ctx, X, Y, W, H, t('menu.mainMenu'), {
+            accentColor: UI_THEME.color.danger,
+            labelFont: `bold 13px ${UI_THEME.font.mono}`,
+            chamfer: 8
+        });
     }
     
     drawCrosshair() {
@@ -2417,62 +2562,133 @@ class Game {
     }
 
     drawPauseScreen() {
-        // 清除不需要的按钮状态
         this.backButton = null;
         this.pauseButton = null;
-        
-        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        this.ctx.fillRect(0, 0, GAME_CONFIG.WIDTH, GAME_CONFIG.HEIGHT);
+        const W = GAME_CONFIG.WIDTH;
+        const H = GAME_CONFIG.HEIGHT;
+        const ctx = this.ctx;
 
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = '48px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText(t('ui.paused'), GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 - 60);
+        // Dim overlay
+        ctx.fillStyle = 'rgba(2, 6, 10, 0.78)';
+        ctx.fillRect(0, 0, W, H);
+        uiDrawScanlines(ctx, W, H, { spacing: 4 });
 
-        this.ctx.font = '18px Arial';
-        this.ctx.fillText(t('ui.pauseHint'), GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 - 20);
-        
-        // 返回主菜单按钮
-        const buttonWidth = 150;
-        const buttonHeight = 50;
-        const buttonX = GAME_CONFIG.WIDTH / 2 - buttonWidth / 2;
-        const buttonY = GAME_CONFIG.HEIGHT / 2 + 20;
-        
-        this.ctx.fillStyle = 'rgba(255, 0, 0, 0.8)';
-        this.ctx.fillRect(buttonX, buttonY, buttonWidth, buttonHeight);
-        
-        this.ctx.strokeStyle = '#FF4444';
-        this.ctx.lineWidth = 2;
-        this.ctx.strokeRect(buttonX, buttonY, buttonWidth, buttonHeight);
-        
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = 'bold 18px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText(t('menu.backToMenu'), buttonX + buttonWidth / 2, buttonY + buttonHeight / 2 + 6);
-        
-        this.mainMenuButton = { x: buttonX, y: buttonY, width: buttonWidth, height: buttonHeight };
+        // Center modal panel
+        const panelW = 460;
+        const panelH = 280;
+        const panelX = W / 2 - panelW / 2;
+        const panelY = H / 2 - panelH / 2;
+
+        uiDrawPanel(ctx, panelX, panelY, panelW, panelH, {
+            chamfer: 18,
+            fill: { from: 'rgba(8, 16, 22, 0.95)', to: 'rgba(4, 10, 14, 0.95)' },
+            stroke: UI_THEME.color.primary,
+            strokeWidth: 2,
+            glow: true
+        });
+        uiDrawCornerBrackets(ctx, panelX, panelY, panelW, panelH);
+
+        // Status header inside panel
+        ctx.save();
+        ctx.fillStyle = UI_THEME.color.primary;
+        ctx.font = `12px ${UI_THEME.font.mono}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('// SYSTEM HALTED', W / 2, panelY + 38);
+        ctx.restore();
+
+        // Title
+        ctx.save();
+        ctx.fillStyle = UI_THEME.color.textPrimary;
+        ctx.font = `bold 48px ${UI_THEME.font.display}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.shadowColor = UI_THEME.color.primaryGlow;
+        ctx.shadowBlur = 16;
+        ctx.fillText(t('ui.paused'), W / 2, panelY + 90);
+        ctx.restore();
+
+        // Hint
+        ctx.save();
+        ctx.fillStyle = UI_THEME.color.textSecondary;
+        ctx.font = `14px ${UI_THEME.font.mono}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(t('ui.pauseHint'), W / 2, panelY + 140);
+        ctx.restore();
+
+        // Return-to-menu button
+        const btnW = 220;
+        const btnH = 52;
+        const btnX = W / 2 - btnW / 2;
+        const btnY = panelY + panelH - btnH - 28;
+        this.mainMenuButton = uiDrawButton(ctx, btnX, btnY, btnW, btnH, t('menu.backToMenu'), {
+            accentColor: UI_THEME.color.danger,
+            labelFont: `bold 16px ${UI_THEME.font.display}`,
+            labelLetterSpacing: 2,
+            chamfer: 10
+        });
     }
 
     drawGameOver() {
-        // 清除不需要的按钮状态
         this.backButton = null;
         this.pauseButton = null;
         this.mainMenuButton = null;
-        
-        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-        this.ctx.fillRect(0, 0, GAME_CONFIG.WIDTH, GAME_CONFIG.HEIGHT);
+        const W = GAME_CONFIG.WIDTH;
+        const H = GAME_CONFIG.HEIGHT;
+        const ctx = this.ctx;
 
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = '48px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText(t('ui.gameOver'), GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 - 80);
+        ctx.fillStyle = 'rgba(2, 4, 6, 0.88)';
+        ctx.fillRect(0, 0, W, H);
 
-        this.ctx.font = '24px Arial';
-        this.ctx.fillText(t('ui.totalDamage', Math.floor(gameState.totalDamage)), GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 - 30);
+        // Red warning side stripes
+        ctx.save();
+        ctx.fillStyle = UI_THEME.color.dangerDim;
+        ctx.fillRect(0, H / 2 - 130, W, 2);
+        ctx.fillRect(0, H / 2 + 90, W, 2);
+        ctx.restore();
 
-        this.ctx.font = '20px Arial';
-        this.ctx.fillStyle = '#888888';
-        this.ctx.fillText(t('ui.spaceReturn'), GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 + 30);
+        uiDrawScanlines(ctx, W, H, { spacing: 4 });
+
+        // Status code
+        ctx.save();
+        ctx.fillStyle = UI_THEME.color.danger;
+        ctx.font = `13px ${UI_THEME.font.mono}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('// CRITICAL FAILURE - SIGNAL LOST', W / 2, H / 2 - 160);
+        ctx.restore();
+
+        // Big title
+        ctx.save();
+        ctx.fillStyle = UI_THEME.color.danger;
+        ctx.font = `bold 72px ${UI_THEME.font.display}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.shadowColor = UI_THEME.color.dangerGlow;
+        ctx.shadowBlur = 24;
+        ctx.fillText(t('ui.gameOver'), W / 2, H / 2 - 80);
+        ctx.restore();
+
+        // Damage
+        ctx.save();
+        ctx.fillStyle = UI_THEME.color.textPrimary;
+        ctx.font = `22px ${UI_THEME.font.mono}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(t('ui.totalDamage', Math.floor(gameState.totalDamage)), W / 2, H / 2 - 10);
+        ctx.restore();
+
+        // Hint
+        ctx.save();
+        ctx.fillStyle = UI_THEME.color.textSecondary;
+        ctx.font = `14px ${UI_THEME.font.mono}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(t('ui.spaceReturn'), W / 2, H / 2 + 60);
+        ctx.restore();
+
+        uiDrawScreenFrame(ctx, W, H, { color: UI_THEME.color.dangerDim });
     }
     
     drawBlindnessEffect() {
@@ -2504,34 +2720,59 @@ class Game {
     }
 
     drawVictoryScreen() {
-        // 绘制半透明黑色背景
-        this.ctx.save();
-        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
-        this.ctx.fillRect(0, 0, GAME_CONFIG.WIDTH, GAME_CONFIG.HEIGHT);
-        
-        // 绘制胜利标题（更大更明显）
-        this.ctx.fillStyle = '#FFD700'; // 金色
-        this.ctx.font = 'bold 72px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText(t('ui.victory'), GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 - 120);
-        
-        // 绘制击败的Boss名称
-        this.ctx.fillStyle = '#FFFFFF';
-        this.ctx.font = 'bold 36px Arial';
+        const W = GAME_CONFIG.WIDTH;
+        const H = GAME_CONFIG.HEIGHT;
+        const ctx = this.ctx;
+
+        ctx.save();
+        ctx.fillStyle = 'rgba(2, 6, 10, 0.92)';
+        ctx.fillRect(0, 0, W, H);
+
+        // Subtle gold-tinted scanlines
+        uiDrawScanlines(ctx, W, H, { spacing: 4, color: 'rgba(255, 215, 0, 0.04)' });
+
+        // Status header
+        ctx.fillStyle = UI_THEME.color.success;
+        ctx.font = `13px ${UI_THEME.font.mono}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('// MISSION COMPLETE - TARGET NEUTRALIZED', W / 2, H / 2 - 200);
+
+        // VICTORY title (gold + glow)
+        ctx.fillStyle = '#FFD54F';
+        ctx.font = `bold 78px ${UI_THEME.font.display}`;
+        ctx.shadowColor = 'rgba(255, 213, 79, 0.6)';
+        ctx.shadowBlur = 28;
+        ctx.fillText(t('ui.victory'), W / 2, H / 2 - 110);
+
+        // Accent bar
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = '#FFD54F';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(W / 2 - 160, H / 2 - 60);
+        ctx.lineTo(W / 2 + 160, H / 2 - 60);
+        ctx.stroke();
+
+        // Defeated boss
+        ctx.fillStyle = UI_THEME.color.textPrimary;
+        ctx.font = `bold 32px ${UI_THEME.font.display}`;
         const victoryBossDisplay = t('boss.' + gameState.victoryBossLevel) || gameState.victoryBossName;
-        this.ctx.fillText(t('ui.defeated', victoryBossDisplay), GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 - 40);
-        
-        // 绘制分数
-        this.ctx.font = '28px Arial';
-        this.ctx.fillStyle = '#CCCCCC';
-        this.ctx.fillText(t('ui.finalScore', gameState.score), GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 + 20);
-        
-        // 绘制返回提示
-        this.ctx.font = '20px Arial';
-        this.ctx.fillStyle = '#888888';
-        this.ctx.fillText(t('ui.spaceReturn'), GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 + 80);
-        
-        this.ctx.restore();
+        ctx.fillText(t('ui.defeated', victoryBossDisplay), W / 2, H / 2 - 20);
+
+        // Score
+        ctx.fillStyle = UI_THEME.color.primary;
+        ctx.font = `24px ${UI_THEME.font.mono}`;
+        ctx.fillText(t('ui.finalScore', gameState.score), W / 2, H / 2 + 30);
+
+        // Hint
+        ctx.fillStyle = UI_THEME.color.textSecondary;
+        ctx.font = `14px ${UI_THEME.font.mono}`;
+        ctx.fillText(t('ui.spaceReturn'), W / 2, H / 2 + 100);
+
+        ctx.restore();
+
+        uiDrawScreenFrame(ctx, W, H, { color: 'rgba(255, 213, 79, 0.4)' });
     }
 
     gameLoop() {

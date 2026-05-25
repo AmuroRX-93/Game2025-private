@@ -112,56 +112,93 @@ class SwordSlash {
     draw(ctx) {
         const elapsed = Date.now() - this.startTime;
         const progress = elapsed / this.duration;
-        
         if (progress >= 1) return;
-        
-        const playerCenterX = this.playerX + 15;
-        const playerCenterY = this.playerY + 15;
-        
-        // 绘制刀光轨迹（半透明白光）
-        const angleRad = this.currentAngle * Math.PI / 180;
-        const endX = playerCenterX + Math.cos(angleRad) * this.range;
-        const endY = playerCenterY + Math.sin(angleRad) * this.range;
-        
-        // 刀光主体
-        ctx.strokeStyle = `rgba(255, 255, 255, ${0.9 - progress * 0.5})`;
-        ctx.lineWidth = this.slashWidth;
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        ctx.moveTo(playerCenterX, playerCenterY);
-        ctx.lineTo(endX, endY);
-        ctx.stroke();
-        
-        // 刀光外光晕
-        ctx.strokeStyle = `rgba(255, 255, 0, ${0.6 - progress * 0.4})`;
-        ctx.lineWidth = this.slashWidth + 4;
-        ctx.beginPath();
-        ctx.moveTo(playerCenterX, playerCenterY);
-        ctx.lineTo(endX, endY);
-        ctx.stroke();
-        
-        // 绘制已扫过的轨迹（淡化效果）
-        const trailIntensity = 0.3 - progress * 0.2;
-        if (trailIntensity > 0) {
-            const startAngle = this.playerDirection - 90;
-            const currentAngleRange = this.currentAngle - startAngle;
-            const steps = Math.floor(currentAngleRange / 5); // 每5度一段
-            
-            for (let i = 0; i < steps; i++) {
-                const trailAngle = startAngle + (i * 5);
-                const trailAngleRad = trailAngle * Math.PI / 180;
-                const trailEndX = playerCenterX + Math.cos(trailAngleRad) * this.range;
-                const trailEndY = playerCenterY + Math.sin(trailAngleRad) * this.range;
-                
-                const alpha = trailIntensity * (1 - i / steps);
-                ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.moveTo(playerCenterX, playerCenterY);
-                ctx.lineTo(trailEndX, trailEndY);
-                ctx.stroke();
-            }
+
+        const cx = this.playerX + 15;
+        const cy = this.playerY + 15;
+        const startAngleRad = (this.playerDirection - 90) * Math.PI / 180;
+        const currentAngleRad = this.currentAngle * Math.PI / 180;
+        const tipX = cx + Math.cos(currentAngleRad) * this.range;
+        const tipY = cy + Math.sin(currentAngleRad) * this.range;
+
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+
+        // 1) Filled sweep fan behind the blade (soft white afterimage)
+        const sweepAlpha = (0.18 - progress * 0.12);
+        if (sweepAlpha > 0) {
+            const fanGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, this.range);
+            fanGrad.addColorStop(0, `rgba(255,255,255,${sweepAlpha * 1.4})`);
+            fanGrad.addColorStop(0.6, `rgba(255,240,180,${sweepAlpha * 0.8})`);
+            fanGrad.addColorStop(1, 'rgba(255,200,100,0)');
+            ctx.fillStyle = fanGrad;
+            ctx.beginPath();
+            ctx.moveTo(cx, cy);
+            ctx.arc(cx, cy, this.range, startAngleRad, currentAngleRad);
+            ctx.closePath();
+            ctx.fill();
         }
+
+        // 2) Curved blade arc trail (uses drawSlashArc helper if available)
+        const arcRadius = this.range * 0.85;
+        if (typeof drawSlashArc === 'function') {
+            drawSlashArc(ctx, {
+                x: cx, y: cy,
+                radius: arcRadius,
+                startAngle: startAngleRad,
+                endAngle: currentAngleRad,
+                thickness: this.slashWidth + 2,
+                scheme: 'white',
+                alpha: 1,
+                progress: progress * 0.7
+            });
+        }
+
+        // 3) Current blade body (thick glowing line from center to tip, multi-layer)
+        const bladeAlpha = 1 - progress * 0.6;
+        // Outer halo
+        ctx.strokeStyle = `rgba(255,210,80,${0.35 * bladeAlpha})`;
+        ctx.lineWidth = this.slashWidth + 10;
+        ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(tipX, tipY); ctx.stroke();
+        // Mid
+        ctx.strokeStyle = `rgba(255,240,160,${0.7 * bladeAlpha})`;
+        ctx.lineWidth = this.slashWidth + 3;
+        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(tipX, tipY); ctx.stroke();
+        // Bright core
+        ctx.strokeStyle = `rgba(255,255,255,${bladeAlpha})`;
+        ctx.lineWidth = Math.max(2, this.slashWidth * 0.45);
+        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(tipX, tipY); ctx.stroke();
+
+        // 4) Bright tip energy ball
+        const tipPulse = 0.8 + 0.2 * Math.sin(elapsed * 0.05);
+        const tipR = (this.slashWidth * 1.3) * tipPulse;
+        const tipGrad = ctx.createRadialGradient(tipX, tipY, 0, tipX, tipY, tipR * 2);
+        tipGrad.addColorStop(0, `rgba(255,255,255,${bladeAlpha})`);
+        tipGrad.addColorStop(0.5, `rgba(255,220,120,${bladeAlpha * 0.7})`);
+        tipGrad.addColorStop(1, 'rgba(255,160,40,0)');
+        ctx.fillStyle = tipGrad;
+        ctx.beginPath(); ctx.arc(tipX, tipY, tipR * 2, 0, Math.PI * 2); ctx.fill();
+
+        // 5) Spark particles flying off the blade tip (via bossFX if available)
+        if (typeof bossFX !== 'undefined' && Math.random() < 0.55 && progress < 0.95) {
+            const sp = 2 + Math.random() * 3;
+            const ang = currentAngleRad + (Math.random() - 0.5) * 1.4;
+            bossFX.particles.push({
+                x: tipX, y: tipY,
+                vx: Math.cos(ang) * sp,
+                vy: Math.sin(ang) * sp,
+                size: 1.2 + Math.random() * 1.6,
+                color: Math.random() < 0.5 ? '#ffffff' : '#ffd060',
+                lifeMs: 220 + Math.random() * 200,
+                gravity: 0,
+                drag: 0.9,
+                alpha: 0.9,
+                startedAt: Date.now()
+            });
+        }
+
+        ctx.restore();
     }
 }
 
@@ -276,60 +313,81 @@ class MoonlightSlash {
 
         const cx = this.playerX + 15;
         const cy = this.playerY + 15;
-        const angleRad = this.currentAngle * Math.PI / 180;
-        const endX = cx + Math.cos(angleRad) * this.range;
-        const endY = cy + Math.sin(angleRad) * this.range;
-
-        ctx.save();
-
-        // 已扫过区域的月光面
         const startAngleRad = (this.playerDirection - 90) * Math.PI / 180;
         const currentAngleRad = this.currentAngle * Math.PI / 180;
+        const endX = cx + Math.cos(currentAngleRad) * this.range;
+        const endY = cy + Math.sin(currentAngleRad) * this.range;
+        const bladeAlpha = 1 - progress * 0.4;
+
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+
+        // 1) Wide moonlight sweep fan (cool blue afterimage)
+        const sweepAlpha = 0.22 * (1 - progress * 0.3);
+        const fanGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, this.range);
+        fanGrad.addColorStop(0, `rgba(200,230,255,${sweepAlpha * 1.4})`);
+        fanGrad.addColorStop(0.55, `rgba(120,180,255,${sweepAlpha})`);
+        fanGrad.addColorStop(1, 'rgba(40,100,200,0)');
+        ctx.fillStyle = fanGrad;
         ctx.beginPath();
         ctx.moveTo(cx, cy);
         ctx.arc(cx, cy, this.range, startAngleRad, currentAngleRad);
         ctx.closePath();
-        const sweepAlpha = 0.08 * (1 - progress * 0.5);
-        ctx.fillStyle = `rgba(180, 220, 255, ${sweepAlpha})`;
         ctx.fill();
 
-        // 光刃主体
-        const gradient = ctx.createLinearGradient(cx, cy, endX, endY);
-        gradient.addColorStop(0, `rgba(200, 230, 255, ${0.95 - progress * 0.3})`);
-        gradient.addColorStop(0.6, `rgba(140, 200, 255, ${0.8 - progress * 0.3})`);
-        gradient.addColorStop(1, `rgba(80, 160, 255, ${0.5 - progress * 0.2})`);
-        ctx.strokeStyle = gradient;
-        ctx.lineWidth = this.slashWidth;
+        // 2) Curved blade arc trail at outer edge
+        if (typeof drawSlashArc === 'function') {
+            drawSlashArc(ctx, {
+                x: cx, y: cy,
+                radius: this.range * 0.9,
+                startAngle: startAngleRad,
+                endAngle: currentAngleRad,
+                thickness: this.slashWidth + 4,
+                scheme: 'azure',
+                alpha: 1,
+                progress: progress * 0.6
+            });
+        }
+
+        // 3) Multi-layer glowing blade body
+        // Outer halo
+        ctx.strokeStyle = `rgba(80,160,255,${0.45 * bladeAlpha})`;
+        ctx.lineWidth = this.slashWidth + 18;
         ctx.lineCap = 'round';
-        ctx.shadowColor = '#88CCFF';
-        ctx.shadowBlur = 25;
-        ctx.beginPath();
-        ctx.moveTo(cx, cy);
-        ctx.lineTo(endX, endY);
-        ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(endX, endY); ctx.stroke();
+        // Mid
+        ctx.strokeStyle = `rgba(160,210,255,${0.85 * bladeAlpha})`;
+        ctx.lineWidth = this.slashWidth + 6;
+        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(endX, endY); ctx.stroke();
+        // Inner
+        ctx.strokeStyle = `rgba(220,240,255,${bladeAlpha})`;
+        ctx.lineWidth = this.slashWidth;
+        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(endX, endY); ctx.stroke();
+        // Bright core
+        ctx.strokeStyle = `rgba(255,255,255,${bladeAlpha})`;
+        ctx.lineWidth = this.slashWidth * 0.4;
+        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(endX, endY); ctx.stroke();
 
-        // 外层光晕
-        ctx.strokeStyle = `rgba(140, 200, 255, ${0.4 - progress * 0.2})`;
-        ctx.lineWidth = this.slashWidth + 12;
-        ctx.shadowBlur = 40;
-        ctx.beginPath();
-        ctx.moveTo(cx, cy);
-        ctx.lineTo(endX, endY);
-        ctx.stroke();
-
-        // 刃尖光球
+        // 4) Tip energy orb
         const tipPulse = 0.7 + 0.3 * Math.sin(elapsed * 0.02);
-        ctx.beginPath();
-        ctx.arc(endX, endY, 8 + 4 * tipPulse, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(200, 240, 255, ${0.7 * tipPulse})`;
-        ctx.fill();
+        const tipR = (this.slashWidth * 1.5) * tipPulse;
+        const tipGrad = ctx.createRadialGradient(endX, endY, 0, endX, endY, tipR * 2);
+        tipGrad.addColorStop(0, `rgba(255,255,255,${bladeAlpha})`);
+        tipGrad.addColorStop(0.5, `rgba(180,220,255,${bladeAlpha * 0.7})`);
+        tipGrad.addColorStop(1, 'rgba(40,120,220,0)');
+        ctx.fillStyle = tipGrad;
+        ctx.beginPath(); ctx.arc(endX, endY, tipR * 2, 0, Math.PI * 2); ctx.fill();
 
-        // 粒子
-        ctx.shadowBlur = 0;
+        // 5) Float particles
         for (const p of this.particles) {
-            ctx.globalAlpha = p.life * 0.6;
-            ctx.fillStyle = p.color;
-            ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+            ctx.globalAlpha = p.life * 0.85;
+            const pGrad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size * 2);
+            pGrad.addColorStop(0, p.color);
+            pGrad.addColorStop(1, 'rgba(80,160,240,0)');
+            ctx.fillStyle = pGrad;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size * 2, 0, Math.PI * 2);
+            ctx.fill();
         }
 
         ctx.restore();

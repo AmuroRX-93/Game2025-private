@@ -269,10 +269,25 @@ class SublimeMoon extends GameObject {
         this.hitIndicators = []; // 存储多个受击提示
         this.hitIndicatorDuration = 600; // 受击提示持续时间：0.6秒
         
-        // 新的AI系统
-        this.aiMode = 'normal'; // AI模式：'normal', 'dash_attack', 'teleport_slash', 'boomerang_form'
-        this.aiCooldown = 3000; // AI行动冷却时间
-        this.lastAiAction = 0; // 上次AI行动时间
+        // === New utility-based AI ===
+        // Movement FSM: 'reposition' | 'orbit' | 'retreat' | 'hold'
+        this.movementState = 'orbit';
+        this.movementStateTimer = 0;
+        this.lastMovementUpdate = Date.now();
+        this.idealDistance = 240;
+        this.minDistance = 140;
+        this.maxDistance = 360;
+        this.orbitDirection = Math.random() < 0.5 ? 1 : -1;
+        // Combat FSM
+        this.combatPhase = 'idle';      // idle | commit | recover
+        this.activeMove = null;
+        this.combatRecoverUntil = 0;
+        this.aiMemory = createBossAIMemory();
+        this.telegraphs = [];
+        this.firstDecisionAt = (this.spawnTime || Date.now()) + 500;
+        this.movesTable = this._buildMovesTable();
+        // Legacy field kept (some draw code still references aiMode)
+        this.aiMode = 'normal';
         
         // 闪避突进系统
         this.dashCount = 0; // 当前突进次数
@@ -1122,12 +1137,12 @@ class SublimeMoon extends GameObject {
     }
 
     update() {
-        // 检查硬直状态
+        const now = Date.now();
+        // Stun handling
         if (this.stunned) {
-            if (Date.now() >= this.stunEndTime) {
+            if (now >= this.stunEndTime) {
                 this.stunned = false;
             } else {
-                // 硬直期间不能移动和行动
                 this.vx = 0;
                 this.vy = 0;
                 super.update();
@@ -1135,39 +1150,457 @@ class SublimeMoon extends GameObject {
                 return;
             }
         }
-        
-        // 检查是否被长枪扎穿
+        // Impale handling
         if (this.isImpaled && this.impaledBy) {
-            // 被扎穿时不能自主移动，跟随长枪移动
-            // 速度会由长枪武器控制
             super.update();
             this.checkBounds();
             return;
         }
-        
-        // 冰之姬保持静止，只在特定情况下瞬移
-        this.vx = 0;
-        this.vy = 0;
-        
+
+        // Boomerang form fully takes over body + locomotion
+        if (this.isBoomerangForm) {
+            this.updateBoomerangForm();
+            this.tryHeal();
+            super.update();
+            this.checkBounds();
+            return;
+        }
+
+        // Dodge first (cheap reflex layer)
+        this.checkBulletDodge();
+        this.checkDodge();
+        this.updateDodge();
+
+        // Movement FSM picks vx/vy unless we're committed to a positional move
+        if (this.combatPhase !== 'commit' || !this.activeMove || !this.activeMove.controlsMovement) {
+            this.updateMovementAI();
+        }
+
+        // Combat FSM picks/executes attack moves
+        this.updateCombatAI();
+
         this.tryHeal();
-        
-        // 检查回旋斩攻击
-        this.checkSpinSlashAttack();
-        
-        // 检查瞬移攻击
-        this.checkTeleportAttack();
-        
-        // 检查分身召唤（分身会发射追踪弹）
-        this.checkCloneSummon();
-        
-        // 检查导弹瞬移
-        this.checkMissileTeleport();
-        
-        // 检查子弹瞬移
-        this.checkBulletTeleport();
 
         super.update();
         this.checkBounds();
+    }
+
+    // === Movement FSM ========================================================
+    // SublimeMoon stays mostly stationary but now actively repositions to keep
+    // the player in her optimal crescent-bullet ring (170-310px).
+    updateMovementAI() {
+        if (!game.player) {
+            this.vx = 0; this.vy = 0; return;
+        }
+        const now = Date.now();
+        const dt = Math.min(0.05, (now - this.lastMovementUpdate) / 1000);
+        this.lastMovementUpdate = now;
+
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const tc = (typeof getBossTargetCenter === 'function')
+            ? getBossTargetCenter(cx, cy) : null;
+        const px = tc ? tc.x : (game.player.x + game.player.width / 2);
+        const py = tc ? tc.y : (game.player.y + game.player.height / 2);
+        const dx = px - cx;
+        const dy = py - cy;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const toPlayer = Math.atan2(dy, dx);
+
+        // State transitions
+        this.movementStateTimer -= dt;
+        if (this.movementStateTimer <= 0) {
+            if (dist < this.minDistance) {
+                this.movementState = 'retreat';
+                this.movementStateTimer = 0.6 + Math.random() * 0.4;
+            } else if (dist > this.maxDistance) {
+                this.movementState = 'reposition';
+                this.movementStateTimer = 0.7 + Math.random() * 0.4;
+            } else {
+                if (Math.random() < 0.2) this.orbitDirection *= -1;
+                this.movementState = (Math.random() < 0.7) ? 'orbit' : 'hold';
+                this.movementStateTimer = 1.2 + Math.random() * 1.2;
+            }
+        }
+
+        let moveAngle = 0;
+        let moveSpeed = 0;
+        switch (this.movementState) {
+            case 'orbit': {
+                const perp = toPlayer + (Math.PI / 2) * this.orbitDirection;
+                const distErr = dist - this.idealDistance;
+                const w = Math.min(Math.abs(distErr) / 120, 0.6);
+                const corr = distErr > 0 ? toPlayer : toPlayer + Math.PI;
+                moveAngle = perp * (1 - w) + corr * w;
+                moveSpeed = this.speed * 0.85;
+                break;
+            }
+            case 'retreat': {
+                moveAngle = toPlayer + Math.PI + (Math.random() - 0.5) * 0.4;
+                moveSpeed = this.speed * 1.1;
+                break;
+            }
+            case 'reposition': {
+                moveAngle = toPlayer + (Math.random() - 0.5) * 0.3;
+                moveSpeed = this.speed * 0.95;
+                break;
+            }
+            case 'hold':
+            default: {
+                moveAngle = 0;
+                moveSpeed = 0;
+                break;
+            }
+        }
+
+        // Boundary repulsion
+        const margin = 60;
+        let bx = 0, by = 0;
+        if (cx < margin) bx = (margin - cx) / margin;
+        else if (cx > GAME_CONFIG.WIDTH - margin) bx = (GAME_CONFIG.WIDTH - margin - cx) / margin;
+        if (cy < margin) by = (margin - cy) / margin;
+        else if (cy > GAME_CONFIG.HEIGHT - margin) by = (GAME_CONFIG.HEIGHT - margin - cy) / margin;
+
+        const targetVx = Math.cos(moveAngle) * moveSpeed + bx * this.speed * 1.2;
+        const targetVy = Math.sin(moveAngle) * moveSpeed + by * this.speed * 1.2;
+        // smoothly steer
+        this.vx += (targetVx - this.vx) * 0.18;
+        this.vy += (targetVy - this.vy) * 0.18;
+    }
+
+    // === Combat FSM (utility move selector) ==================================
+    updateCombatAI() {
+        if (!game.player) return;
+        const now = Date.now();
+
+        // Cheap reflex: instant defensive teleport on incoming threats
+        // (kept outside the FSM so it can interrupt our orbit smoothly)
+        if (this.combatPhase === 'idle') {
+            this.checkMissileTeleport();
+            this.checkBulletTeleport();
+        }
+
+        // Tick active move
+        if (this.combatPhase === 'commit' && this.activeMove) {
+            const m = this.activeMove;
+            if (m.tick) m.tick(this, now);
+            if (m.isDone(this, now)) {
+                if (m.onEnd) m.onEnd(this);
+                this.activeMove = null;
+                this.combatPhase = 'recover';
+                this.combatRecoverUntil = now + (m.recoveryMs || 200);
+            }
+            return;
+        }
+
+        if (this.combatPhase === 'recover') {
+            if (now >= this.combatRecoverUntil) {
+                this.combatPhase = 'idle';
+            } else {
+                return;
+            }
+        }
+
+        if (now < this.firstDecisionAt) return;
+        if (now - this.aiMemory.lastMoveTime < 280) return;
+
+        const ctx = buildBossAIContext(this);
+        const chosen = selectBossMove(this.movesTable, this.aiMemory, ctx);
+        if (!chosen) return;
+        commitBossMove(chosen, this.aiMemory, now);
+        const state = chosen.start(this, ctx);
+        if (!state) {
+            this.combatPhase = 'idle';
+            return;
+        }
+        this.activeMove = state;
+        this.combatPhase = 'commit';
+    }
+
+    _buildMovesTable() {
+        const boss = this;
+        return [
+            // ---- Move: Teleport-Strike (signature combo) -----------------
+            // Telegraph -> warp behind player -> spin slash. Strong vs ranged play.
+            {
+                id: 'teleportStrike',
+                cooldown: 4500,
+                canUse: (ctx) => ctx.dist > 110,
+                score: (ctx) => {
+                    let s = 1.2;
+                    if (ctx.dist > 260) s += 0.6; // closes range
+                    if (ctx.hpPct < 0.5) s += 0.2;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    // Telegraph at current location AND predicted destination
+                    const px = ctx.playerCX, py = ctx.playerCY;
+                    const dirRad = (ctx.player && typeof ctx.player.direction === 'number')
+                        ? ctx.player.direction * Math.PI / 180 : 0;
+                    const behindX = px + Math.cos(dirRad + Math.PI) * 110;
+                    const behindY = py + Math.sin(dirRad + Math.PI) * 110;
+                    b.telegraphs.push(createTelegraphAura(cx, cy, 30, 380, '#a0e0ff'));
+                    b.telegraphs.push(createTelegraphCircle(behindX, behindY, 50, 380, '#80d8ff'));
+                    bossFX.addFlash(cx, cy, 36, '#a0e0ff', 250, 0.8);
+                    return {
+                        startedAt: Date.now(),
+                        warpAt: Date.now() + 380,
+                        slashAt: Date.now() + 560,
+                        warped: false,
+                        slashed: false,
+                        recoveryMs: 280,
+                        controlsMovement: true,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            // freeze during telegraph
+                            if (now < st.warpAt) {
+                                b2.vx = 0; b2.vy = 0;
+                                return;
+                            }
+                            if (!st.warped) {
+                                b2.performTeleport();
+                                bossFX.addShockwave(b2.x + b2.width / 2, b2.y + b2.height / 2, 10, 80, '#a0e0ff', 360, 4, 0.6);
+                                st.warped = true;
+                            }
+                            if (!st.slashed && now >= st.slashAt) {
+                                b2.performSpinSlash();
+                                st.slashed = true;
+                            }
+                        },
+                        isDone: (b2, now) => now - b2.activeMove.startedAt >= 800
+                    };
+                }
+            },
+
+            // ---- Move: Crescent Fan (spread shot, mid range) -------------
+            {
+                id: 'crescentFan',
+                cooldown: 3500,
+                canUse: (ctx) => ctx.dist > 90 && ctx.dist < 480,
+                score: (ctx) => {
+                    let s = 1.0;
+                    if (ctx.dist > 160 && ctx.dist < 360) s += 0.7;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    b.telegraphs.push(createTelegraphArrow(
+                        cx, cy,
+                        cx + Math.cos(ctx.angleToPlayer) * 80,
+                        cy + Math.sin(ctx.angleToPlayer) * 80,
+                        320, '#a0e0ff'
+                    ));
+                    return {
+                        startedAt: Date.now(),
+                        fireAt: Date.now() + 320,
+                        fired: false,
+                        recoveryMs: 250,
+                        controlsMovement: false,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (!st.fired && now >= st.fireAt) {
+                                b2.fireCrescentBullets();
+                                bossFX.addFlash(b2.x + b2.width / 2, b2.y + b2.height / 2, 30, '#a0e0ff', 220, 0.9);
+                                st.fired = true;
+                            }
+                        },
+                        isDone: (b2, now) => now - b2.activeMove.startedAt >= 520
+                    };
+                }
+            },
+
+            // ---- Move: Triple Crescent Volley (HP < 70%) -----------------
+            // 3 fans in 0.6s — denies space.
+            {
+                id: 'tripleCrescent',
+                cooldown: 9000,
+                canUse: (ctx) => ctx.dist > 120 && ctx.dist < 460 && ctx.hpPct < 0.75,
+                score: (ctx) => {
+                    let s = 1.1;
+                    if (ctx.hpPct < 0.5) s += 0.6;
+                    if (ctx.hpPct < 0.3) s += 0.4;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    b.telegraphs.push(createTelegraphAura(cx, cy, 50, 500, '#80d8ff'));
+                    return {
+                        startedAt: Date.now(),
+                        nextFireAt: Date.now() + 500,
+                        firedCount: 0,
+                        target: 3,
+                        intervalMs: 250,
+                        recoveryMs: 350,
+                        controlsMovement: true,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (now < st.startedAt + 500) {
+                                b2.vx *= 0.85; b2.vy *= 0.85;
+                                return;
+                            }
+                            if (st.firedCount < st.target && now >= st.nextFireAt) {
+                                // bypass cooldown
+                                b2.lastCrescentBullet = 0;
+                                b2.fireCrescentBullets();
+                                bossFX.addFlash(b2.x + b2.width / 2, b2.y + b2.height / 2, 26, '#a0e0ff', 200, 0.8);
+                                st.firedCount++;
+                                st.nextFireAt += st.intervalMs;
+                            }
+                        },
+                        isDone: (b2, now) => b2.activeMove.firedCount >= b2.activeMove.target
+                    };
+                }
+            },
+
+            // ---- Move: Missile Lance (player-tracked frost missiles) -----
+            {
+                id: 'missileLance',
+                cooldown: 6500,
+                canUse: (ctx) => ctx.dist > 200 && (typeof boss.canLaunchMissiles === 'function' ? boss.canLaunchMissiles() : true),
+                score: (ctx) => {
+                    let s = 0.9;
+                    if (ctx.dist > 320) s += 0.6;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    b.telegraphs.push(createTelegraphAura(cx, cy, 36, 600, '#80c0ff'));
+                    return {
+                        startedAt: Date.now(),
+                        firedCount: 0,
+                        target: b.missilesPerSalvo || 4,
+                        nextFireAt: Date.now() + 600,
+                        intervalMs: b.launchDelay || 80,
+                        recoveryMs: 300,
+                        controlsMovement: false,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (now < st.startedAt + 600) return;
+                            while (st.firedCount < st.target && now >= st.nextFireAt) {
+                                if (typeof b2.fireBossMissile === 'function') b2.fireBossMissile();
+                                st.firedCount++;
+                                st.nextFireAt += st.intervalMs;
+                            }
+                        },
+                        isDone: (b2, now) => b2.activeMove.firedCount >= b2.activeMove.target
+                    };
+                }
+            },
+
+            // ---- Move: Boomerang Form (HP < 60% — full transformation) ---
+            {
+                id: 'boomerangForm',
+                cooldown: 18000,
+                canUse: (ctx) => ctx.hpPct < 0.6 && (typeof boss.canUseBoomerangAttack === 'function' ? boss.canUseBoomerangAttack() : true),
+                score: (ctx) => {
+                    let s = 0.8;
+                    if (ctx.hpPct < 0.45) s += 0.7;
+                    if (ctx.hpPct < 0.25) s += 0.5;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    if (typeof b.startBoomerangForm !== 'function') return null;
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    b.telegraphs.push(createTelegraphAura(cx, cy, 70, 600, '#60c0ff'));
+                    bossFX.addShockwave(cx, cy, 20, 140, '#80d0ff', 600, 5, 0.7);
+                    return {
+                        startedAt: Date.now(),
+                        triggered: false,
+                        recoveryMs: 200,
+                        controlsMovement: true,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (now < st.startedAt + 600) {
+                                b2.vx *= 0.7; b2.vy *= 0.7;
+                                return;
+                            }
+                            if (!st.triggered) {
+                                b2.startBoomerangForm();
+                                st.triggered = true;
+                            }
+                        },
+                        // The boomerang form runs as its own world-state branch
+                        // in update(); commit ends as soon as we trigger.
+                        isDone: (b2, now) => b2.activeMove.triggered
+                    };
+                }
+            },
+
+            // ---- Move: Clone Summon (zoning helpers) ---------------------
+            {
+                id: 'cloneSummon',
+                cooldown: 14000,
+                canUse: (ctx) => true,
+                score: (ctx) => {
+                    let s = 0.8;
+                    // Want fewer clones already alive
+                    const live = (game.iceClones && game.iceClones.length) || 0;
+                    if (live === 0) s += 0.7;
+                    if (live >= 3) s -= 0.6;
+                    if (ctx.hpPct < 0.7) s += 0.2;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    b.telegraphs.push(createTelegraphAura(cx, cy, 90, 500, '#60a0ff'));
+                    return {
+                        startedAt: Date.now(),
+                        summoned: false,
+                        recoveryMs: 350,
+                        controlsMovement: true,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (now < st.startedAt + 500) {
+                                b2.vx *= 0.6; b2.vy *= 0.6;
+                                return;
+                            }
+                            if (!st.summoned) {
+                                b2.summonClones();
+                                bossFX.addShockwave(b2.x + b2.width / 2, b2.y + b2.height / 2, 12, 120, '#a0c0ff', 500, 4, 0.6);
+                                st.summoned = true;
+                            }
+                        },
+                        isDone: (b2, now) => b2.activeMove.summoned
+                    };
+                }
+            },
+
+            // ---- Move: Defensive Spin (anti-melee reflex) ----------------
+            {
+                id: 'spinDefense',
+                cooldown: 1800,
+                canUse: (ctx) => ctx.dist < 90,
+                score: (ctx) => {
+                    let s = 0.6;
+                    if (ctx.dist < 70) s += 1.0;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    return {
+                        startedAt: Date.now(),
+                        recoveryMs: 200,
+                        controlsMovement: false,
+                        slashed: false,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (!st.slashed) {
+                                b2.lastSpinSlash = 0;
+                                b2.performSpinSlash();
+                                st.slashed = true;
+                            }
+                        },
+                        isDone: (b2, now) => now - b2.activeMove.startedAt >= 200
+                    };
+                }
+            }
+        ];
     }
     
     // 检查回旋斩攻击
@@ -1556,6 +1989,10 @@ class SublimeMoon extends GameObject {
     }
 
     draw(ctx) {
+        // Telegraphs render under boss body (above world)
+        if (this.telegraphs && this.telegraphs.length > 0 && typeof renderBossTelegraphs === 'function') {
+            renderBossTelegraphs(ctx, this.telegraphs);
+        }
         // 保存当前上下文
         ctx.save();
         

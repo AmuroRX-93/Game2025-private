@@ -810,164 +810,41 @@ class Player extends GameObject {
         this.drawHitIndicators(ctx);
     }
     
-    // 绘制推进器火焰效果 - 火箭风格多喷射口
+    // Thruster flames (multi-layer additive flame via shared drawJetFlame).
+    // Called inside the already-translated/rotated mech-local coordinate space.
     drawThrusterFlames(ctx) {
-        // 检查是否有移动
         const isMoving = this.vx !== 0 || this.vy !== 0;
         if (!isMoving) return;
-        
-        // 计算移动方向（相对于机甲本体坐标系）
+
         const moveAngle = Math.atan2(this.vy, this.vx);
-        const machRotation = this.direction * Math.PI / 180; // 机甲旋转角度
-        
-        // 火箭推进器参数（简化版本）
-        let thrusterCount, thrusterSpacing, flameLength, innerWidth, outerWidth;
-        
-        if (this.isDodging) {
-            // 闪避时的双推进器
-            thrusterCount = 2;
-            thrusterSpacing = 10;
-            flameLength = 45;
-            innerWidth = 6;
-            outerWidth = 12;
-        } else {
-            // 普通移动时的双推进器
-            thrusterCount = 2;
-            thrusterSpacing = 8;
-            flameLength = 25;
-            innerWidth = 4;
-            outerWidth = 8;
-        }
-        
-        // 计算推进器方向（相对于机甲本体）
-        const relativeAngle = moveAngle - machRotation + Math.PI;
-        
-        // 绘制多个并排的推进器喷射口
+        const machRotation = this.direction * Math.PI / 180;
+        // Direction the flame points (away from movement, in mech-local space)
+        const relAngle = moveAngle - machRotation + Math.PI;
+
+        const dodging = !!this.isDodging;
+        const intensity = dodging ? 1.0 : 0.65;
+        const length = dodging ? 52 : 30;
+        const width = dodging ? 16 : 11;
+        const thrusterCount = 2;
+        const thrusterSpacing = dodging ? 11 : 9;
+
+        const startDistance = this.width / 2 + 3;
+        const perpAngle = relAngle + Math.PI / 2;
         for (let i = 0; i < thrusterCount; i++) {
             const offsetPerp = (i - (thrusterCount - 1) / 2) * thrusterSpacing;
-            
-            // 计算垂直于推进方向的偏移
-            const perpAngle = relativeAngle + Math.PI / 2;
-            const offsetX = Math.cos(perpAngle) * offsetPerp;
-            const offsetY = Math.sin(perpAngle) * offsetPerp;
-            
-            // 推进器喷射口位置
-            const startDistance = this.width / 2 + 3;
-            const startX = Math.cos(relativeAngle) * startDistance + offsetX;
-            const startY = Math.sin(relativeAngle) * startDistance + offsetY;
-            
-            // 每个推进器的火焰长度有轻微随机变化
-            const currentFlameLength = flameLength + (Math.sin(Date.now() * 0.02 + i) * 5);
-            const endX = startX + Math.cos(relativeAngle) * currentFlameLength;
-            const endY = startY + Math.sin(relativeAngle) * currentFlameLength;
-            
-            // 绘制外层火焰（橙红色）
-            const outerGradient = ctx.createLinearGradient(startX, startY, endX, endY);
-            if (this.isDodging) {
-                // 闪避时更强烈的橙黄火焰
-                outerGradient.addColorStop(0, 'rgba(255, 100, 0, 0.9)');   // 强橙色
-                outerGradient.addColorStop(0.3, 'rgba(255, 150, 0, 0.8)'); // 亮橙色
-                outerGradient.addColorStop(0.7, 'rgba(255, 200, 100, 0.6)'); // 黄橙色
-                outerGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');   // 透明白
-            } else {
-                // 普通移动时的橙红火焰
-                outerGradient.addColorStop(0, 'rgba(255, 69, 0, 0.8)');    // 橙红色
-                outerGradient.addColorStop(0.4, 'rgba(255, 140, 0, 0.7)'); // 橙色
-                outerGradient.addColorStop(0.8, 'rgba(255, 215, 0, 0.5)'); // 金橙色
-                outerGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');   // 透明白
-            }
-            
-            ctx.strokeStyle = outerGradient;
-            ctx.lineWidth = outerWidth;
-            ctx.lineCap = 'round';
-            ctx.beginPath();
-            ctx.moveTo(startX, startY);
-            ctx.lineTo(endX, endY);
-            ctx.stroke();
-            
-            // 绘制内层火焰（白色/黄色核心）
-            const coreEndX = startX + Math.cos(relativeAngle) * (currentFlameLength * 0.7);
-            const coreEndY = startY + Math.sin(relativeAngle) * (currentFlameLength * 0.7);
-            
-            const innerGradient = ctx.createLinearGradient(startX, startY, coreEndX, coreEndY);
-            if (this.isDodging) {
-                // 闪避时的白色高温核心
-                innerGradient.addColorStop(0, 'rgba(255, 255, 255, 0.9)'); // 白色
-                innerGradient.addColorStop(0.5, 'rgba(255, 255, 200, 0.8)'); // 淡黄白
-                innerGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');   // 透明白
-            } else {
-                // 普通移动时的黄色核心
-                innerGradient.addColorStop(0, 'rgba(255, 255, 150, 0.8)'); // 淡黄色
-                innerGradient.addColorStop(0.6, 'rgba(255, 255, 200, 0.6)'); // 更淡黄
-                innerGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');   // 透明白
-            }
-            
-            ctx.strokeStyle = innerGradient;
-            ctx.lineWidth = innerWidth;
-            ctx.beginPath();
-            ctx.moveTo(startX, startY);
-            ctx.lineTo(coreEndX, coreEndY);
-            ctx.stroke();
-        }
-        
-        // 添加火焰粒子效果
-        this.drawRocketFlameParticles(ctx, moveAngle, machRotation, flameLength);
-    }
-    
-    // 绘制火箭火焰粒子效果
-    drawRocketFlameParticles(ctx, moveAngle, machRotation, flameLength) {
-        const particleCount = this.isDodging ? 25 : 15;
-        const time = Date.now() * 0.01; // 用于动画
-        
-        // 计算推进器方向
-        const relativeAngle = moveAngle - machRotation + Math.PI;
-        
-        for (let i = 0; i < particleCount; i++) {
-            // 粒子在火焰区域内随机分布
-            const spreadAngle = (Math.random() - 0.5) * 0.6; // 粒子散布角度
-            const particleAngle = relativeAngle + spreadAngle;
-            
-            // 粒子距离随机分布在火焰长度内
-            const distance = this.width / 2 + 8 + Math.random() * (flameLength * 0.8);
-            
-            // 计算粒子位置
-            const x = Math.cos(particleAngle) * distance;
-            const y = Math.sin(particleAngle) * distance;
-            
-            // 根据距离调整粒子颜色和大小
-            const distanceRatio = (distance - this.width / 2 - 8) / (flameLength * 0.8);
-            const alpha = (Math.sin(time * 2 + i) + 1) * 0.4 * (1 - distanceRatio * 0.7);
-            
-            // 粒子大小
-            const size = (2 + Math.random() * 2) * (1 - distanceRatio * 0.5);
-            
-            // 火焰粒子颜色 - 根据距离从橙色渐变到黄白色
-            let red, green, blue;
-            if (distanceRatio < 0.3) {
-                // 近处：橙红色
-                red = 255;
-                green = 100 + distanceRatio * 100;
-                blue = 0;
-            } else if (distanceRatio < 0.7) {
-                // 中间：橙黄色
-                red = 255;
-                green = 140 + distanceRatio * 80;
-                blue = distanceRatio * 100;
-            } else {
-                // 远处：黄白色
-                red = 255;
-                green = 255;
-                blue = 150 + distanceRatio * 105;
-            }
-            
-            ctx.fillStyle = `rgba(${red}, ${green}, ${blue}, ${alpha})`;
-            ctx.fillRect(x - size/2, y - size/2, size, size);
-            
-            // 添加一些白色高温粒子（核心区域）
-            if (Math.random() < 0.2 && distanceRatio < 0.4) {
-                ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.8})`;
-            ctx.fillRect(x - 1, y - 1, 2, 2);
-            }
+            const ox = Math.cos(relAngle) * startDistance + Math.cos(perpAngle) * offsetPerp;
+            const oy = Math.sin(relAngle) * startDistance + Math.sin(perpAngle) * offsetPerp;
+            drawJetFlame(ctx, {
+                originX: ox,
+                originY: oy,
+                angle: relAngle,
+                length, width,
+                intensity,
+                scheme: dodging ? 'orange' : 'orange',
+                spawnEmbers: true,
+                emberDensity: dodging ? 0.85 : 0.45,
+                id: i + (dodging ? 10 : 0)
+            });
         }
     }
     

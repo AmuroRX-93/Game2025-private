@@ -111,6 +111,22 @@ class UglyEmperor extends GameObject {
         };
         
         this.spawnTime = Date.now(); // 记录生成时间
+
+        // === New utility-based AI ===
+        this.movementState = 'orbit';   // orbit | retreat | reposition | hold
+        this.movementStateTimer = 0;
+        this.lastMovementUpdate = Date.now();
+        this.idealDistance = 280;
+        this.minDistance = 180;
+        this.maxDistance = 400;
+        this.orbitDirection = Math.random() < 0.5 ? 1 : -1;
+        this.combatPhase = 'idle';      // idle | commit | recover
+        this.activeMove = null;
+        this.combatRecoverUntil = 0;
+        this.aiMemory = createBossAIMemory();
+        this.telegraphs = [];
+        this.firstDecisionAt = this.spawnTime + 700;
+        this.movesTable = this._buildMovesTable();
     }
     
     // 更新扭曲效果
@@ -489,81 +505,161 @@ class UglyEmperor extends GameObject {
     
     update() {
         const now = Date.now();
-        
-        // 强制血量保护
-        if (this.health < 0) {
-            console.log('警告：血量被设置为负数，强制修正为0');
-            this.health = 0;
-        }
-        if (this.health > this.maxHealth) {
-            this.health = this.maxHealth;
-        }
-        
-        // 更新扭曲效果
+        if (this.health < 0) this.health = 0;
+        if (this.health > this.maxHealth) this.health = this.maxHealth;
+
         this.updateDistortionEffect();
-        
-        // 更新二阶段
         this.updatePhaseTwo();
-        
-        // 扎穿状态处理
+
         if (this.isImpaled) {
             super.update();
             this.checkBounds();
             return;
         }
-        
-        // 硬直状态处理
         if (this.stunned) {
             if (now >= this.stunEndTime) {
                 this.stunned = false;
             } else {
-                this.vx = 0;
-                this.vy = 0;
+                this.vx = 0; this.vy = 0;
                 super.update();
                 this.checkBounds();
                 return;
             }
         }
-        
-        // 闪避系统
+
+        // Reflex layer: dodge before AI thinking
         this.checkDodge();
         this.updateDodge();
-        
-        // 混沌弹幕系统
-        this.checkChaosBarrage();
-        
-        // 混沌传送系统
-        this.checkChaosTeleport();
+
+        // Always-on systems
         this.updateChaosTeleport();
-        
-        // 机雷系统
-        this.checkMinePlacement();
-        
-        // 燃烧瓶系统（二阶段）
-        this.checkMolotovThrow();
-        
-        // 光环伤害检查
         this.checkAuraDamage();
-        
         this.tryHeal();
-        
-        // 正常移动
-        if (!this.isDodging && !this.chaosTeleport.isTeleporting) {
-            if (now - this.lastDirectionChange > this.directionChangeInterval) {
-                this.setRandomDirection();
-                this.lastDirectionChange = now;
+
+        // Movement FSM (only when not committed to a positional move and not teleporting)
+        if (!this.chaosTeleport.isTeleporting &&
+            (this.combatPhase !== 'commit' || !this.activeMove || !this.activeMove.controlsMovement)) {
+            this.updateMovementAI();
+        } else if (this.chaosTeleport.isTeleporting) {
+            this.vx = 0; this.vy = 0;
+        }
+
+        // Combat FSM (utility move selector)
+        this.updateCombatAI();
+
+        super.update();
+        this.checkBounds();
+        this.updateHitIndicators();
+        this.updateThrusterParticles();
+    }
+
+    // === Movement FSM ========================================================
+    updateMovementAI() {
+        if (!game.player) { this.vx = 0; this.vy = 0; return; }
+        const now = Date.now();
+        const dt = Math.min(0.05, (now - this.lastMovementUpdate) / 1000);
+        this.lastMovementUpdate = now;
+
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const tc = (typeof getBossTargetCenter === 'function')
+            ? getBossTargetCenter(cx, cy) : null;
+        const px = tc ? tc.x : (game.player.x + game.player.width / 2);
+        const py = tc ? tc.y : (game.player.y + game.player.height / 2);
+        const dx = px - cx;
+        const dy = py - cy;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const toPlayer = Math.atan2(dy, dx);
+
+        this.movementStateTimer -= dt;
+        if (this.movementStateTimer <= 0) {
+            if (dist < this.minDistance) {
+                this.movementState = 'retreat';
+                this.movementStateTimer = 0.7 + Math.random() * 0.4;
+            } else if (dist > this.maxDistance) {
+                this.movementState = 'reposition';
+                this.movementStateTimer = 0.8 + Math.random() * 0.5;
+            } else {
+                if (Math.random() < 0.25) this.orbitDirection *= -1;
+                this.movementState = 'orbit';
+                this.movementStateTimer = 1.4 + Math.random() * 1.2;
             }
         }
-        
-        // 边界检查
-        this.checkBounds();
-        super.update();
-        
-        // 更新受击提示
-        this.updateHitIndicators();
-        
-        // 更新推进器粒子系统
-        this.updateThrusterParticles();
+
+        let moveAngle = 0;
+        let moveSpeed = 0;
+        switch (this.movementState) {
+            case 'orbit': {
+                const perp = toPlayer + (Math.PI / 2) * this.orbitDirection;
+                const distErr = dist - this.idealDistance;
+                const w = Math.min(Math.abs(distErr) / 140, 0.65);
+                const corr = distErr > 0 ? toPlayer : toPlayer + Math.PI;
+                moveAngle = perp * (1 - w) + corr * w;
+                // chaotic emperor: jitter the orbit a bit
+                moveAngle += (Math.random() - 0.5) * 0.15;
+                moveSpeed = this.speed * 0.85;
+                break;
+            }
+            case 'retreat': {
+                moveAngle = toPlayer + Math.PI + (Math.random() - 0.5) * 0.6;
+                moveSpeed = this.speed * 1.1;
+                break;
+            }
+            case 'reposition': {
+                moveAngle = toPlayer + (Math.random() - 0.5) * 0.5;
+                moveSpeed = this.speed * 0.95;
+                break;
+            }
+        }
+
+        // Boundary repulsion
+        const margin = 65;
+        let bx = 0, by = 0;
+        if (cx < margin) bx = (margin - cx) / margin;
+        else if (cx > GAME_CONFIG.WIDTH - margin) bx = (GAME_CONFIG.WIDTH - margin - cx) / margin;
+        if (cy < margin) by = (margin - cy) / margin;
+        else if (cy > GAME_CONFIG.HEIGHT - margin) by = (GAME_CONFIG.HEIGHT - margin - cy) / margin;
+
+        const targetVx = Math.cos(moveAngle) * moveSpeed + bx * this.speed * 1.3;
+        const targetVy = Math.sin(moveAngle) * moveSpeed + by * this.speed * 1.3;
+        this.vx += (targetVx - this.vx) * 0.16;
+        this.vy += (targetVy - this.vy) * 0.16;
+    }
+
+    // === Combat FSM ==========================================================
+    updateCombatAI() {
+        if (!game.player) return;
+        const now = Date.now();
+
+        if (this.combatPhase === 'commit' && this.activeMove) {
+            const m = this.activeMove;
+            if (m.tick) m.tick(this, now);
+            if (m.isDone(this, now)) {
+                if (m.onEnd) m.onEnd(this);
+                this.activeMove = null;
+                this.combatPhase = 'recover';
+                this.combatRecoverUntil = now + (m.recoveryMs || 250);
+            }
+            return;
+        }
+        if (this.combatPhase === 'recover') {
+            if (now >= this.combatRecoverUntil) {
+                this.combatPhase = 'idle';
+            } else {
+                return;
+            }
+        }
+        if (now < this.firstDecisionAt) return;
+        if (now - this.aiMemory.lastMoveTime < 320) return;
+
+        const ctx = buildBossAIContext(this);
+        const chosen = selectBossMove(this.movesTable, this.aiMemory, ctx);
+        if (!chosen) return;
+        commitBossMove(chosen, this.aiMemory, now);
+        const state = chosen.start(this, ctx);
+        if (!state) { this.combatPhase = 'idle'; return; }
+        this.activeMove = state;
+        this.combatPhase = 'commit';
     }
     
     checkBounds() {

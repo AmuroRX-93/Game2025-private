@@ -335,8 +335,13 @@ document.addEventListener('DOMContentLoaded', () => {
             // 总是检查是否点击了按钮（所有界面）
             if (game) {
                 const rect = canvas.getBoundingClientRect();
-                const mouseX = e.clientX - rect.left;
-                const mouseY = e.clientY - rect.top;
+                // Translate from CSS pixels into canvas buffer coordinates so that
+                // hit-testing stays correct even when the canvas is scaled by CSS,
+                // browser zoom, or HiDPI display.
+                const scaleX = canvas.width / rect.width;
+                const scaleY = canvas.height / rect.height;
+                const mouseX = (e.clientX - rect.left) * scaleX;
+                const mouseY = (e.clientY - rect.top) * scaleY;
                 
                 if (game.handleClick(mouseX, mouseY)) {
                     return; // 如果点击了按钮，不执行武器攻击
@@ -364,8 +369,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.addEventListener('mousemove', (e) => {
         const rect = game.canvas.getBoundingClientRect();
-        mouse.x = e.clientX - rect.left;
-        mouse.y = e.clientY - rect.top;
+        // Translate CSS pixels to canvas buffer coordinates (matches mousedown).
+        const scaleX = game.canvas.width / rect.width;
+        const scaleY = game.canvas.height / rect.height;
+        mouse.x = (e.clientX - rect.left) * scaleX;
+        mouse.y = (e.clientY - rect.top) * scaleY;
     });
 
     document.addEventListener('wheel', (e) => {

@@ -32,21 +32,12 @@ class Boss extends GameObject {
         this.stunned = false;
         this.stunEndTime = 0;
         
-        // Boss导弹系统
+        // Boss missile damage / shared params (used by salvo move below)
         this.missileDamage = 6;
-        this.missilesPerSalvo = 60;
         this.missileSpeed = 24;
-        this.launchDelay = 25;
-        this.missileCooldown = 500;
-        this.firstLaunchDelay = 300;
         this.spawnTime = Date.now();
-        this.lastLaunchCompleteTime = 0;
-        this.isLaunchingMissiles = false;
-        this.launchStartTime = 0;
-        this.missilesFired = 0;
-        this.hasLaunchedFirst = false;
         
-        // 受击提示系统
+        // Hit indicators
         this.hitIndicators = [];
         this.hitIndicatorDuration = 600;
         
@@ -63,14 +54,15 @@ class Boss extends GameObject {
         this.rushDuration = 0;
         this.rushTarget = null;
         
-        // 回血系统
-        this.healSystem = {
-            interval: 3000,
-            chance: 0.45,
-            minHeal: 6,
-            maxHeal: 20,
-            lastAttempt: Date.now()
-        };
+        // ----- Combat AI (utility move selector) -----
+        // Phase: 'idle' = free to pick a move; 'commit' = locked into a move; 'recover' = post-move stun
+        this.combatPhase = 'idle';
+        this.activeMove = null;       // currently executing move state
+        this.combatRecoverUntil = 0;
+        this.aiMemory = createBossAIMemory();
+        this.telegraphs = [];
+        this.firstDecisionAt = this.spawnTime + 600; // brief grace period after spawn
+        this.movesTable = this._buildMovesTable();
         
         this.setRandomDirection();
     }
@@ -354,96 +346,479 @@ class Boss extends GameObject {
         return Math.max(0.1, safetyScore); // 确保至少有10%的安全性
     }
     
-    // Boss导弹系统检查 - 基于时间的自动发射
-    checkMissileLaunch() {
-        if (!game.player || this.isLaunchingMissiles) return;
-        
+    // === Combat AI: utility-driven move selector ============================
+    
+    updateCombatAI() {
+        if (!game.player) return;
         const now = Date.now();
         
-        // 第一次发射：生成后0.3秒
-        if (!this.hasLaunchedFirst) {
-            if (now - this.spawnTime >= this.firstLaunchDelay) {
-                this.startMissileLaunch();
-                this.hasLaunchedFirst = true;
+        // Tick active move (commit phase)
+        if (this.combatPhase === 'commit' && this.activeMove) {
+            const m = this.activeMove;
+            if (m.tick) m.tick(this, now);
+            if (m.isDone(this, now)) {
+                if (m.onEnd) m.onEnd(this);
+                this.activeMove = null;
+                this.combatPhase = 'recover';
+                this.combatRecoverUntil = now + (m.recoveryMs || 250);
             }
             return;
         }
         
-        // 后续发射：上次发射完成后0.5秒
-        if (this.lastLaunchCompleteTime > 0) {
-            if (now - this.lastLaunchCompleteTime >= this.missileCooldown) {
-                this.startMissileLaunch();
+        // Recovery (post-move slowdown / vulnerability window)
+        if (this.combatPhase === 'recover') {
+            if (now >= this.combatRecoverUntil) {
+                this.combatPhase = 'idle';
+            } else {
+                return; // Stay in recovery; movement FSM repositions slowly
             }
         }
+        
+        // Idle: pick next move (after a small initial grace + spacing between picks)
+        if (now < this.firstDecisionAt) return;
+        if (now - this.aiMemory.lastMoveTime < 350) return;
+        
+        const ctx = buildBossAIContext(this);
+        const chosen = selectBossMove(this.movesTable, this.aiMemory, ctx);
+        if (!chosen) return;
+        
+        commitBossMove(chosen, this.aiMemory, now);
+        const state = chosen.start(this, ctx);
+        if (!state) {
+            // Move chose to abort silently
+            this.combatPhase = 'idle';
+            return;
+        }
+        this.activeMove = state;
+        this.combatPhase = 'commit';
     }
     
-    startMissileLaunch() {
-        this.isLaunchingMissiles = true;
-        this.launchStartTime = Date.now();
-        this.missilesFired = 0;
-    }
-    
-    fireBossMissile() {
-        if (!game.player) return;
-        
-        const bossCenterX = this.x + this.width / 2;
-        const bossCenterY = this.y + this.height / 2;
-        
-        // 从四个面发射导弹（上、下、左、右）
-        const directions = [
-            { x: 0, y: -1, name: 'top' },    // 上
-            { x: 0, y: 1, name: 'bottom' },  // 下
-            { x: -1, y: 0, name: 'left' },   // 左
-            { x: 1, y: 0, name: 'right' }    // 右
+    _buildMovesTable() {
+        const boss = this;
+        return [
+            // ---- Move 1: Salvo Volley (replacement for old missile spam) ----
+            // 24 missiles fanned at player over ~0.9s, telegraphed.
+            {
+                id: 'salvoVolley',
+                cooldown: 5500,
+                canUse: (ctx) => ctx.dist > 150,
+                score: (ctx) => {
+                    let s = 1.4;
+                    if (ctx.dist > 250 && ctx.dist < 600) s += 0.6;
+                    if (ctx.hpPct > 0.6) s += 0.2;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    const telegraphMs = 450;
+                    const fireMs = 900;
+                    const startedAt = Date.now();
+                    b.telegraphs.push(createTelegraphAura(
+                        b.x + b.width / 2, b.y + b.height / 2, b.width * 1.7,
+                        telegraphMs, '#ff4040'
+                    ));
+                    return {
+                        startedAt,
+                        telegraphMs,
+                        fireMs,
+                        totalMs: telegraphMs + fireMs,
+                        recoveryMs: 350,
+                        target: 24,
+                        fired: 0,
+                        nextFireAt: startedAt + telegraphMs,
+                        intervalMs: fireMs / 24,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (now < st.startedAt + st.telegraphMs) return;
+                            while (st.fired < st.target && now >= st.nextFireAt) {
+                                boss._fireSalvoMissile(st.fired);
+                                st.fired++;
+                                st.nextFireAt += st.intervalMs;
+                            }
+                        },
+                        isDone: (b2, now) => {
+                            const st = b2.activeMove;
+                            return st.fired >= st.target || now - st.startedAt >= st.totalMs;
+                        }
+                    };
+                }
+            },
+            // ---- Move 2: Cross Barrage ----
+            // Telegraphs 4 horizontal/vertical beams, then fires fast bullets along them.
+            {
+                id: 'crossBarrage',
+                cooldown: 7000,
+                canUse: (ctx) => true,
+                score: (ctx) => {
+                    let s = 1.1;
+                    if (ctx.dist < 250) s += 0.5; // good area-denial when player is close
+                    if (ctx.hpPct < 0.5) s += 0.4;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    const telegraphMs = 700;
+                    const fireMs = 600;
+                    const startedAt = Date.now();
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    const W = GAME_CONFIG.WIDTH;
+                    const H = GAME_CONFIG.HEIGHT;
+                    // 4 beams: up, down, left, right
+                    b.telegraphs.push(createTelegraphBeam(cx, cy, cx, 0, 16, telegraphMs, '#ff5555'));
+                    b.telegraphs.push(createTelegraphBeam(cx, cy, cx, H, 16, telegraphMs, '#ff5555'));
+                    b.telegraphs.push(createTelegraphBeam(cx, cy, 0, cy, 16, telegraphMs, '#ff5555'));
+                    b.telegraphs.push(createTelegraphBeam(cx, cy, W, cy, 16, telegraphMs, '#ff5555'));
+                    return {
+                        startedAt,
+                        telegraphMs,
+                        fireMs,
+                        totalMs: telegraphMs + fireMs,
+                        recoveryMs: 500,
+                        fired: false,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (!st.fired && now >= st.startedAt + st.telegraphMs) {
+                                boss._fireCrossBarrage();
+                                st.fired = true;
+                            }
+                        },
+                        isDone: (b2, now) => now - b2.activeMove.startedAt >= b2.activeMove.totalMs
+                    };
+                }
+            },
+            // ---- Move 3: Red Dash ----
+            // Telegraphs a red arrow, then dashes through player at high speed.
+            {
+                id: 'redDash',
+                cooldown: 4500,
+                canUse: (ctx) => ctx.dist > 120 && ctx.dist < 700,
+                score: (ctx) => {
+                    let s = 1.2;
+                    if (ctx.dist > 280 && ctx.dist < 500) s += 0.6;
+                    if (ctx.hpPct < 0.6) s += 0.3;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    const telegraphMs = 600;
+                    const dashMs = 380;
+                    const startedAt = Date.now();
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    // Aim slightly past the player so the dash flies through
+                    const overshoot = 80;
+                    const dirX = Math.cos(ctx.angleToPlayer);
+                    const dirY = Math.sin(ctx.angleToPlayer);
+                    const targetX = ctx.playerCX + dirX * overshoot;
+                    const targetY = ctx.playerCY + dirY * overshoot;
+                    b.telegraphs.push(createTelegraphArrow(cx, cy, targetX, targetY, telegraphMs, '#ff2020'));
+                    return {
+                        startedAt,
+                        telegraphMs,
+                        dashMs,
+                        totalMs: telegraphMs + dashMs,
+                        recoveryMs: 600,
+                        dirX,
+                        dirY,
+                        dashSpeed: 14, // px per frame
+                        launched: false,
+                        lastTrailAt: 0,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (now < st.startedAt + st.telegraphMs) {
+                                freezeBoss(b2);
+                                return;
+                            }
+                            // Dash phase
+                            b2.vx = st.dirX * st.dashSpeed;
+                            b2.vy = st.dirY * st.dashSpeed;
+                            const cx = b2.x + b2.width / 2;
+                            const cy = b2.y + b2.height / 2;
+                            // Launch instant: big shockwave + flash + heavy shake
+                            if (!st.launched) {
+                                st.launched = true;
+                                bossFX.addFlash(cx, cy, 110, '#ff2020', 360, 1.0);
+                                bossFX.addShockwave(cx, cy, 24, 200, '#ff2020', 520, 6, 0.85);
+                                bossFX.spawnBurst(cx, cy, 22, {
+                                    color: '#ff3030',
+                                    speedMin: 2.5, speedMax: 8,
+                                    sizeMin: 2, sizeMax: 4.5,
+                                    lifeMs: 520,
+                                    spreadAngle: Math.PI / 1.2,
+                                    baseAngle: Math.atan2(st.dirY, st.dirX) + Math.PI, // backwards spray
+                                    drag: 0.9
+                                });
+                                bossFX.addShake(8, 280);
+                            }
+                            // Continuous trail behind boss while dashing
+                            if (now - st.lastTrailAt > 30) {
+                                st.lastTrailAt = now;
+                                bossFX.spawnBurst(cx, cy, 4, {
+                                    color: '#ff5040',
+                                    speedMin: 0.5, speedMax: 2,
+                                    sizeMin: 2, sizeMax: 5,
+                                    lifeMs: 380,
+                                    spreadAngle: Math.PI / 2,
+                                    baseAngle: Math.atan2(st.dirY, st.dirX) + Math.PI,
+                                    drag: 0.86
+                                });
+                            }
+                        },
+                        isDone: (b2, now) => now - b2.activeMove.startedAt >= b2.activeMove.totalMs,
+                        onEnd: (b2) => {
+                            b2.vx *= 0.2; b2.vy *= 0.2;
+                            // Recovery puff
+                            const cx = b2.x + b2.width / 2;
+                            const cy = b2.y + b2.height / 2;
+                            bossFX.addShockwave(cx, cy, 10, 90, '#ff6040', 380, 3, 0.5);
+                        }
+                    };
+                }
+            },
+            // ---- Move 4: Homing Missile (small batch) ----
+            // 6 strong tracking missiles, slower interval, tracks player firmly.
+            {
+                id: 'homingMissile',
+                cooldown: 6500,
+                canUse: (ctx) => true,
+                score: (ctx) => {
+                    let s = 1.0;
+                    if (ctx.dist > 350) s += 0.5;
+                    if (ctx.hpPct < 0.7) s += 0.3;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    const telegraphMs = 350;
+                    const fireMs = 720;
+                    const startedAt = Date.now();
+                    b.telegraphs.push(createTelegraphAura(
+                        b.x + b.width / 2, b.y + b.height / 2, b.width * 1.3,
+                        telegraphMs, '#ff8030'
+                    ));
+                    return {
+                        startedAt,
+                        telegraphMs,
+                        fireMs,
+                        totalMs: telegraphMs + fireMs,
+                        recoveryMs: 300,
+                        target: 6,
+                        fired: 0,
+                        nextFireAt: startedAt + telegraphMs,
+                        intervalMs: 720 / 6,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (now < st.startedAt + st.telegraphMs) return;
+                            while (st.fired < st.target && now >= st.nextFireAt) {
+                                boss._fireHomingMissile(st.fired);
+                                st.fired++;
+                                st.nextFireAt += st.intervalMs;
+                            }
+                        },
+                        isDone: (b2, now) => {
+                            const st = b2.activeMove;
+                            return st.fired >= st.target || now - st.startedAt >= st.totalMs;
+                        }
+                    };
+                }
+            },
+            // ---- Move 5: Blood Surge (heal + brief armor) ----
+            // Only triggers when wounded; commits boss for ~1s with red aura, restores HP.
+            {
+                id: 'bloodSurge',
+                cooldown: 12000,
+                canUse: (ctx) => ctx.hpPct < 0.55 && ctx.dist > 220,
+                score: (ctx) => {
+                    let s = 0.5;
+                    s += (1 - ctx.hpPct) * 2.2; // hungrier when hurt
+                    if (ctx.dist > 350) s += 0.4;
+                    return s;
+                },
+                start: (b, ctx) => {
+                    if (b.health >= b.maxHealth) return null;
+                    const telegraphMs = 350;
+                    const surgeMs = 700;
+                    const startedAt = Date.now();
+                    const healAmount = Math.floor(b.maxHealth * 0.12); // heal 12% maxHP
+                    b.telegraphs.push(createTelegraphAura(
+                        b.x + b.width / 2, b.y + b.height / 2, b.width * 2.0,
+                        telegraphMs + surgeMs, '#aa0030'
+                    ));
+                    return {
+                        startedAt,
+                        telegraphMs,
+                        surgeMs,
+                        totalMs: telegraphMs + surgeMs,
+                        recoveryMs: 250,
+                        healAmount,
+                        healed: false,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            freezeBoss(b2);
+                            const cx = b2.x + b2.width / 2;
+                            const cy = b2.y + b2.height / 2;
+                            // Continuous blood mist rising during whole move
+                            if (!st.lastMistAt || now - st.lastMistAt > 60) {
+                                st.lastMistAt = now;
+                                bossFX.spawnBurst(cx, cy, 3, {
+                                    color: '#cc0030',
+                                    speedMin: 0.4, speedMax: 1.6,
+                                    sizeMin: 3, sizeMax: 6,
+                                    lifeMs: 900,
+                                    spreadAngle: Math.PI * 1.6,
+                                    baseAngle: -Math.PI / 2,
+                                    gravity: -0.06,
+                                    drag: 0.96
+                                });
+                            }
+                            if (!st.healed && now >= st.startedAt + st.telegraphMs) {
+                                const before = b2.health;
+                                b2.health = Math.min(b2.maxHealth, b2.health + st.healAmount);
+                                const gained = b2.health - before;
+                                if (gained > 0) b2._showHealIndicator(gained);
+                                st.healed = true;
+                                // Surge burst at heal moment
+                                bossFX.addFlash(cx, cy, 130, '#aa0030', 480, 1.0);
+                                bossFX.addShockwave(cx, cy, 20, 160, '#cc0040', 700, 5, 0.8);
+                                bossFX.spawnBurst(cx, cy, 28, {
+                                    color: '#ee2050',
+                                    speedMin: 1, speedMax: 4,
+                                    sizeMin: 2.5, sizeMax: 5,
+                                    lifeMs: 800,
+                                    spreadAngle: Math.PI * 2,
+                                    gravity: -0.08,
+                                    drag: 0.93
+                                });
+                                bossFX.addShake(3, 220);
+                            }
+                        },
+                        isDone: (b2, now) => now - b2.activeMove.startedAt >= b2.activeMove.totalMs
+                    };
+                }
+            }
         ];
-        
-        // 根据发射的导弹数量选择发射方向
-        const directionIndex = this.missilesFired % 4;
-        const direction = directions[directionIndex];
-        
-        // 计算导弹发射位置（从Boss边缘发射）
-        const launchDistance = this.width / 2 + 10;
-        const launchX = bossCenterX + direction.x * launchDistance;
-        const launchY = bossCenterY + direction.y * launchDistance;
-        
-        // 初始目标位置（直线飞行，不制导）
-        const initialTargetX = launchX + direction.x * 200; // 初始飞行200像素
-        const initialTargetY = launchY + direction.y * 200;
-        
-        // 创建Boss导弹（延迟制导）
-        const bossMissile = new Missile(launchX, launchY, initialTargetX, initialTargetY, this.missileDamage, this.missileSpeed);
-        bossMissile.isBossMissile = true; // 标记为Boss导弹
-        bossMissile.isBossMissileDelayed = true; // 标记为延迟制导的Boss导弹
-        bossMissile.delayStartTime = Date.now(); // 记录发射时间
-        bossMissile.delayDuration = 300; // 0.3秒延迟
-        bossMissile.guideRange = 600; // 制导范围600像素
-        
-        // 确保Boss导弹数组存在
-        if (!game.bossMissiles) {
-            game.bossMissiles = [];
-        }
-        
-        game.bossMissiles.push(bossMissile);
-        this.missilesFired++;
     }
     
-    updateMissileLaunch() {
-        if (!this.isLaunchingMissiles) return;
-        
-        const elapsed = Date.now() - this.launchStartTime;
-        const expectedMissiles = Math.floor(elapsed / this.launchDelay);
-        
-        // 发射到达时间的导弹
-        while (this.missilesFired < expectedMissiles && this.missilesFired < this.missilesPerSalvo) {
-            this.fireBossMissile();
+    // ----- Move execution helpers -----
+    
+    _fireSalvoMissile(index) {
+        if (!game.player) return;
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const playerCX = game.player.x + game.player.width / 2;
+        const playerCY = game.player.y + game.player.height / 2;
+        const baseAngle = Math.atan2(playerCY - cy, playerCX - cx);
+        const coneRad = Math.PI * 140 / 180;
+        const t = 24 > 1 ? index / (24 - 1) : 0.5;
+        const offset = (t - 0.5) * coneRad;
+        const angle = baseAngle + offset;
+        const launchDist = this.width / 2 + 10;
+        const launchX = cx + Math.cos(angle) * launchDist;
+        const launchY = cy + Math.sin(angle) * launchDist;
+        const initialTargetX = launchX + Math.cos(angle) * 200;
+        const initialTargetY = launchY + Math.sin(angle) * 200;
+        const m = new Missile(launchX, launchY, initialTargetX, initialTargetY, this.missileDamage, this.missileSpeed);
+        m.isBossMissile = true;
+        m.isBossMissileDelayed = true;
+        m.bossMissileType = 'salvo';
+        m.delayStartTime = Date.now();
+        m.delayDuration = 300;
+        m.guideRange = 600;
+        if (!game.bossMissiles) game.bossMissiles = [];
+        game.bossMissiles.push(m);
+
+        // VFX: muzzle puff in the launch direction
+        bossFX.spawnBurst(launchX, launchY, 5, {
+            color: '#ff4530',
+            speedMin: 1.5, speedMax: 4.5,
+            sizeMin: 1.5, sizeMax: 3.5,
+            lifeMs: 380,
+            spreadAngle: Math.PI / 3,
+            baseAngle: angle,
+            drag: 0.9
+        });
+        // Big impact for the first shot of the volley
+        if (index === 0) {
+            bossFX.addFlash(cx, cy, 90, '#ff3020', 320, 0.85);
+            bossFX.addShockwave(cx, cy, 30, 140, '#ff5040', 460, 4, 0.7);
+            bossFX.addShake(4, 200);
         }
-        
-        // 检查是否发射完所有导弹
-        if (this.missilesFired >= this.missilesPerSalvo) {
-            this.isLaunchingMissiles = false;
-            // 记录发射完成时间，用于计算下次发射
-            this.lastLaunchCompleteTime = Date.now();
+    }
+    
+    _fireHomingMissile(index) {
+        if (!game.player) return;
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const playerCX = game.player.x + game.player.width / 2;
+        const playerCY = game.player.y + game.player.height / 2;
+        const baseAngle = Math.atan2(playerCY - cy, playerCX - cx);
+        const coneRad = Math.PI * 60 / 180;
+        const t = 6 > 1 ? index / (6 - 1) : 0.5;
+        const angle = baseAngle + (t - 0.5) * coneRad;
+        const launchDist = this.width / 2 + 10;
+        const launchX = cx + Math.cos(angle) * launchDist;
+        const launchY = cy + Math.sin(angle) * launchDist;
+        const m = new Missile(launchX, launchY, playerCX, playerCY, this.missileDamage + 2, this.missileSpeed * 1.05);
+        m.isBossMissile = true;
+        m.isBossMissileDelayed = true;
+        m.bossMissileType = 'homing';
+        m.delayStartTime = Date.now();
+        m.delayDuration = 120;
+        m.guideRange = 800;
+        if (!game.bossMissiles) game.bossMissiles = [];
+        game.bossMissiles.push(m);
+
+        // VFX: orange muzzle puff
+        bossFX.spawnBurst(launchX, launchY, 6, {
+            color: '#ff8030',
+            speedMin: 1.5, speedMax: 4.5,
+            sizeMin: 1.5, sizeMax: 3,
+            lifeMs: 420,
+            spreadAngle: Math.PI / 4,
+            baseAngle: angle,
+            drag: 0.9
+        });
+        if (index === 0) {
+            bossFX.addFlash(cx, cy, 70, '#ff7020', 300, 0.8);
+            bossFX.addShockwave(cx, cy, 20, 100, '#ff8030', 420, 3, 0.6);
+            bossFX.addShake(3, 160);
         }
+    }
+    
+    _fireCrossBarrage() {
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const dirs = [
+            { x: 0, y: -1 }, { x: 0, y: 1 }, { x: -1, y: 0 }, { x: 1, y: 0 }
+        ];
+        const speed = 22;
+        for (const d of dirs) {
+            const launchX = cx + d.x * (this.width / 2 + 6);
+            const launchY = cy + d.y * (this.height / 2 + 6);
+            const targetX = launchX + d.x * 800;
+            const targetY = launchY + d.y * 800;
+            const m = new Missile(launchX, launchY, targetX, targetY, this.missileDamage, speed);
+            m.isBossMissile = true;
+            m.isBossMissileDelayed = false;
+            m.bossMissileType = 'cross';
+            m.guideRange = 0;
+            if (!game.bossMissiles) game.bossMissiles = [];
+            game.bossMissiles.push(m);
+
+            // Per-axis muzzle burst along the bullet's flight axis
+            const axisAngle = Math.atan2(d.y, d.x);
+            bossFX.spawnBurst(launchX, launchY, 14, {
+                color: '#ff5050',
+                speedMin: 2.5, speedMax: 7,
+                sizeMin: 2, sizeMax: 4,
+                lifeMs: 500,
+                spreadAngle: Math.PI / 5,
+                baseAngle: axisAngle,
+                drag: 0.92
+            });
+        }
+        // Center mega-flash + shockwave + heavy shake
+        bossFX.addFlash(cx, cy, 140, '#ff4040', 400, 1.0);
+        bossFX.addShockwave(cx, cy, 30, 220, '#ff4040', 600, 6, 0.85);
+        bossFX.addShockwave(cx, cy, 30, 320, '#ff8060', 850, 3, 0.4);
+        bossFX.addShake(7, 320);
     }
 
     updateAI() {
@@ -584,11 +959,10 @@ class Boss extends GameObject {
         this.checkMissileDodge();
         this.updateDodge();
         
-        this.checkMissileLaunch();
-        this.updateMissileLaunch();
-        this.tryHeal();
+        // Combat decision (utility-driven move selector + active move tick)
+        this.updateCombatAI();
         
-        if (!this.isDodging) {
+        if (!this.isDodging && this.combatPhase !== 'commit') {
             this.updateAI();
         }
 
@@ -600,17 +974,6 @@ class Boss extends GameObject {
 
         super.update();
         this.checkBounds();
-    }
-    
-    tryHeal() {
-        const now = Date.now();
-        const hs = this.healSystem;
-        if (now - hs.lastAttempt < hs.interval) return;
-        hs.lastAttempt = now;
-        if (this.health >= this.maxHealth) return;
-        if (Math.random() > hs.chance) return;
-        const amount = Math.floor(Math.random() * (hs.maxHeal - hs.minHeal + 1)) + hs.minHeal;
-        this.health = Math.min(this.maxHealth, this.health + amount);
     }
     
     // 被长枪扎穿 (Boss版本)
@@ -672,6 +1035,17 @@ class Boss extends GameObject {
         );
     }
     
+    // Floating green +HP text (used by bloodSurge move)
+    _showHealIndicator(amount) {
+        this.hitIndicators.push({
+            damage: amount,
+            startTime: Date.now(),
+            x: this.x + this.width / 2 + (Math.random() - 0.5) * 30,
+            y: this.y - 10,
+            isHeal: true
+        });
+    }
+    
     // 绘制受击提示
     drawHitIndicators(ctx) {
         const now = Date.now();
@@ -693,19 +1067,20 @@ class Boss extends GameObject {
             ctx.save();
             ctx.globalAlpha = alpha;
             
-            // 绘制红色的受击文字
-            ctx.fillStyle = '#FF0000';
+            // Heal indicators render in green; damage in red.
+            const isHeal = !!indicator.isHeal;
+            ctx.fillStyle = isHeal ? '#00ff66' : '#FF0000';
             ctx.font = 'bold 24px Arial';
             ctx.textAlign = 'center';
             ctx.strokeStyle = '#FFFFFF';
             ctx.lineWidth = 3;
             
             const displayY = indicator.y - offsetY;
-            const text = `HIT ${indicator.damage}`;
+            const text = isHeal ? `+${indicator.damage}` : `HIT ${indicator.damage}`;
             
             // 绘制文字描边（白色）
             ctx.strokeText(text, indicator.x, displayY);
-            // 绘制文字填充（红色）
+            // 绘制文字填充
             ctx.fillText(text, indicator.x, displayY);
             
             ctx.restore();
@@ -713,6 +1088,9 @@ class Boss extends GameObject {
     }
 
     draw(ctx) {
+        // Render active attack telegraphs UNDER the boss so the boss draws on top
+        renderBossTelegraphs(ctx, this.telegraphs);
+        
         // 绘制Boss主体（简单深红色大色块）
         ctx.fillStyle = this.color;
         ctx.fillRect(this.x, this.y, this.width, this.height);
@@ -795,176 +1173,40 @@ class Boss extends GameObject {
         }
     }
 
-    // 绘制Boss推进器火焰效果 - 血红之王专属火箭推进器
+    // Crimson King thruster: shared multi-layer additive jet flame.
+    // Boss is drawn in WORLD coordinates (no parent translate), so origin is absolute.
     drawThrusterFlames(ctx) {
-        // 检查是否有移动
         const isMoving = this.vx !== 0 || this.vy !== 0;
         if (!isMoving) return;
-        
-        // 计算移动方向
+
         const moveAngle = Math.atan2(this.vy, this.vx);
-        
-        // 血红之王火箭推进器参数（简化版本）
-        let thrusterCount, thrusterSpacing, flameLength, innerWidth, outerWidth;
-        
-        if (this.isDodging) {
-            // Boss闪避时的双推进器
-            thrusterCount = 2;
-            thrusterSpacing = 15;
-            flameLength = 80;
-            innerWidth = 10;
-            outerWidth = 20;
-        } else {
-            // Boss普通移动时的双推进器
-            thrusterCount = 2;
-            thrusterSpacing = 12;
-            flameLength = 50;
-            innerWidth = 6;
-            outerWidth = 12;
-        }
-        
-        // 计算推进器方向
-        const thrusterAngle = moveAngle + Math.PI; // 相反方向
-        
-        // 绘制多个巨大的并排推进器喷射口
+        const thrusterAngle = moveAngle + Math.PI; // flame points opposite movement
+        const dodging = !!this.isDodging;
+        const intensity = dodging ? 1.0 : 0.78;
+        const length = dodging ? 95 : 62;
+        const width = dodging ? 26 : 18;
+        const thrusterCount = 2;
+        const thrusterSpacing = dodging ? 18 : 14;
+
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const startDistance = this.width / 2 + 5;
+        const perpAngle = thrusterAngle + Math.PI / 2;
         for (let i = 0; i < thrusterCount; i++) {
             const offsetPerp = (i - (thrusterCount - 1) / 2) * thrusterSpacing;
-            
-            // 计算垂直于推进方向的偏移
-            const perpAngle = thrusterAngle + Math.PI / 2;
-            const offsetX = Math.cos(perpAngle) * offsetPerp;
-            const offsetY = Math.sin(perpAngle) * offsetPerp;
-            
-            // Boss推进器喷射口位置
-            const startDistance = this.width / 2 + 5;
-            const startX = this.x + this.width / 2 + Math.cos(thrusterAngle) * startDistance + offsetX;
-            const startY = this.y + this.height / 2 + Math.sin(thrusterAngle) * startDistance + offsetY;
-            
-            // 每个推进器的火焰长度有轻微变化（Boss的更加规律）
-            const currentFlameLength = flameLength + (Math.sin(Date.now() * 0.015 + i) * 8);
-            const endX = startX + Math.cos(thrusterAngle) * currentFlameLength;
-            const endY = startY + Math.sin(thrusterAngle) * currentFlameLength;
-            
-            // 绘制外层火焰（血红到橙红渐变）
-            const outerGradient = ctx.createLinearGradient(startX, startY, endX, endY);
-            if (this.isDodging) {
-                // Boss闪避时的炽热火焰
-                outerGradient.addColorStop(0, 'rgba(139, 0, 0, 1.0)');     // 血红色
-                outerGradient.addColorStop(0.2, 'rgba(200, 0, 0, 0.95)');  // 亮红色
-                outerGradient.addColorStop(0.5, 'rgba(255, 69, 0, 0.85)'); // 橙红色
-                outerGradient.addColorStop(0.8, 'rgba(255, 140, 0, 0.6)'); // 橙色
-                outerGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');   // 透明白
-            } else {
-                // Boss普通移动时的强烈火焰
-                outerGradient.addColorStop(0, 'rgba(120, 0, 0, 0.9)');     // 暗红色
-                outerGradient.addColorStop(0.3, 'rgba(180, 20, 0, 0.8)');  // 深红色
-                outerGradient.addColorStop(0.6, 'rgba(220, 50, 0, 0.7)');  // 深橙红
-                outerGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');   // 透明白
-            }
-            
-            ctx.strokeStyle = outerGradient;
-            ctx.lineWidth = outerWidth;
-            ctx.lineCap = 'round';
-            ctx.beginPath();
-            ctx.moveTo(startX, startY);
-            ctx.lineTo(endX, endY);
-            ctx.stroke();
-            
-            // 绘制内层火焰（白色/黄色高温核心）
-            const coreEndX = startX + Math.cos(thrusterAngle) * (currentFlameLength * 0.6);
-            const coreEndY = startY + Math.sin(thrusterAngle) * (currentFlameLength * 0.6);
-            
-            const innerGradient = ctx.createLinearGradient(startX, startY, coreEndX, coreEndY);
-            if (this.isDodging) {
-                // Boss闪避时的白热核心
-                innerGradient.addColorStop(0, 'rgba(255, 255, 255, 1.0)'); // 纯白色
-                innerGradient.addColorStop(0.4, 'rgba(255, 255, 150, 0.9)'); // 淡黄白
-                innerGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');   // 透明白
-            } else {
-                // Boss普通时的高温核心
-                innerGradient.addColorStop(0, 'rgba(255, 200, 100, 0.9)'); // 黄橙色
-                innerGradient.addColorStop(0.5, 'rgba(255, 255, 150, 0.7)'); // 淡黄色
-                innerGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');   // 透明白
-            }
-            
-            ctx.strokeStyle = innerGradient;
-            ctx.lineWidth = innerWidth;
-            ctx.beginPath();
-            ctx.moveTo(startX, startY);
-            ctx.lineTo(coreEndX, coreEndY);
-            ctx.stroke();
-        }
-        
-        // Boss专属火焰粒子效果
-        this.drawBossRocketFlameParticles(ctx, moveAngle, flameLength);
-    }
-    
-    // 绘制Boss火箭火焰粒子效果
-    drawBossRocketFlameParticles(ctx, moveAngle, flameLength) {
-        // 根据闪避状态调整粒子参数（Boss的粒子更多更强）
-        const particleCount = this.isDodging ? 40 : 25;
-        const particleIntensity = this.isDodging ? 0.7 : 0.5;
-        const particleSizeMultiplier = this.isDodging ? 1.5 : 1.0;
-        
-        const time = Date.now() * 0.01; // 用于动画
-        
-        // 计算推进器方向
-        const thrusterAngle = moveAngle + Math.PI;
-        
-        for (let i = 0; i < particleCount; i++) {
-            // Boss粒子在火焰区域内随机分布，范围更大
-            const spreadAngle = (Math.random() - 0.5) * 0.8; // Boss粒子散布角度更大
-            const particleAngle = thrusterAngle + spreadAngle;
-            
-            // 粒子距离随机分布在火焰长度内
-            const distance = this.width / 2 + 12 + Math.random() * (flameLength * 0.9);
-            
-            // 计算粒子位置
-            const x = this.x + this.width / 2 + Math.cos(particleAngle) * distance;
-            const y = this.y + this.height / 2 + Math.sin(particleAngle) * distance;
-            
-            // 根据距离调整粒子颜色和大小
-            const distanceRatio = (distance - this.width / 2 - 12) / (flameLength * 0.9);
-            const alpha = (Math.sin(time * 1.5 + i) + 1) * particleIntensity * (1 - distanceRatio * 0.6);
-            
-            // Boss粒子大小更大
-            const size = (3 + Math.random() * 4) * particleSizeMultiplier * (1 - distanceRatio * 0.4);
-            
-            // Boss火焰粒子颜色 - 血红色主调，根据距离渐变
-            let red, green, blue;
-            if (distanceRatio < 0.25) {
-                // 近处：血红色
-                red = 139 + distanceRatio * 116; // 139到255
-                green = 0 + distanceRatio * 50;   // 0到50
-                blue = 0;
-            } else if (distanceRatio < 0.6) {
-                // 中间：红橙色
-                red = 255;
-                green = 50 + (distanceRatio - 0.25) * 90; // 50到140
-                blue = 0 + (distanceRatio - 0.25) * 50;   // 0到50
-            } else {
-                // 远处：橙黄色
-                red = 255;
-                green = 140 + (distanceRatio - 0.6) * 115; // 140到255
-                blue = 50 + (distanceRatio - 0.6) * 155;   // 50到205
-            }
-            
-            ctx.fillStyle = `rgba(${red}, ${green}, ${blue}, ${alpha})`;
-            ctx.fillRect(x - size/2, y - size/2, size, size);
-            
-            // 添加一些白色高温粒子（核心区域）
-            if (Math.random() < 0.3 && distanceRatio < 0.3) {
-                ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.9})`;
-                const whiteSize = size * 0.6;
-                ctx.fillRect(x - whiteSize/2, y - whiteSize/2, whiteSize, whiteSize);
-            }
-            
-            // Boss专属：血红色烟雾效果（远距离粒子）
-            if (Math.random() < 0.15 && distanceRatio > 0.7) {
-                ctx.fillStyle = `rgba(139, 0, 0, ${alpha * 0.4})`;
-                const smokeSize = size * 1.5;
-                ctx.fillRect(x - smokeSize/2, y - smokeSize/2, smokeSize, smokeSize);
-            }
+            const ox = cx + Math.cos(thrusterAngle) * startDistance + Math.cos(perpAngle) * offsetPerp;
+            const oy = cy + Math.sin(thrusterAngle) * startDistance + Math.sin(perpAngle) * offsetPerp;
+            drawJetFlame(ctx, {
+                originX: ox,
+                originY: oy,
+                angle: thrusterAngle,
+                length, width,
+                intensity,
+                scheme: 'crimson',
+                spawnEmbers: true,
+                emberDensity: dodging ? 1.0 : 0.6,
+                id: i + (dodging ? 20 : 0)
+            });
         }
     }
     

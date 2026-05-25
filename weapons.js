@@ -223,61 +223,72 @@ class Sword extends Weapon {
     }
     
     draw(ctx, player) {
-        // 绘制剑刀光效果和冲刺效果
         if (this.slashes.length > 0 || this.isDashing) {
-            // 绘制所有刀光
-            this.slashes.forEach(slash => {
-                slash.draw(ctx);
-            });
-            
-            // 绘制冲刺效果
+            this.slashes.forEach(slash => slash.draw(ctx));
+
             if (this.isDashing) {
                 const dashCenterX = player.x + player.width / 2;
                 const dashCenterY = player.y + player.height / 2;
-                
                 ctx.save();
-                ctx.globalAlpha = 0.7;
-                
-                // 冲刺尾迹
-                const trailLength = 50;
-                const trailEndX = dashCenterX - Math.cos(this.dashDirection) * trailLength;
-                const trailEndY = dashCenterY - Math.sin(this.dashDirection) * trailLength;
-                
-                // 绘制冲刺尾迹（橙红渐变，符合光束军刀主题）
-                const gradient = ctx.createLinearGradient(dashCenterX, dashCenterY, trailEndX, trailEndY);
-                gradient.addColorStop(0, 'rgba(255, 69, 0, 0.9)'); // 橙红色
-                gradient.addColorStop(0.5, 'rgba(255, 140, 0, 0.7)'); // 深橙色
-                gradient.addColorStop(1, 'rgba(255, 255, 255, 0)'); // 透明白
-                
-                ctx.strokeStyle = gradient;
-                ctx.lineWidth = 10;
+                ctx.globalCompositeOperation = 'lighter';
+
+                // Streaking trail (multi-layer glow line, fades to soft edge)
+                const trailLength = 60;
+                const tx = dashCenterX - Math.cos(this.dashDirection) * trailLength;
+                const ty = dashCenterY - Math.sin(this.dashDirection) * trailLength;
+                // Outer halo
+                ctx.strokeStyle = 'rgba(255,80,0,0.45)';
+                ctx.lineWidth = 22;
+                ctx.lineCap = 'round';
+                ctx.beginPath(); ctx.moveTo(dashCenterX, dashCenterY); ctx.lineTo(tx, ty); ctx.stroke();
+                // Mid
+                ctx.strokeStyle = 'rgba(255,160,40,0.7)';
+                ctx.lineWidth = 12;
+                ctx.beginPath(); ctx.moveTo(dashCenterX, dashCenterY); ctx.lineTo(tx, ty); ctx.stroke();
+                // Inner core
+                ctx.strokeStyle = 'rgba(255,240,200,0.95)';
+                ctx.lineWidth = 4;
+                ctx.beginPath(); ctx.moveTo(dashCenterX, dashCenterY); ctx.lineTo(tx, ty); ctx.stroke();
+
+                // Energy ring around player (concentric, animated pulse)
+                const t = Date.now();
+                const pulse = 0.7 + 0.3 * Math.sin(t / 60);
+                const ringR = 26 * pulse;
+                const ringGrad = ctx.createRadialGradient(dashCenterX, dashCenterY, ringR * 0.5, dashCenterX, dashCenterY, ringR * 1.6);
+                ringGrad.addColorStop(0, 'rgba(255,200,80,0)');
+                ringGrad.addColorStop(0.5, 'rgba(255,160,40,0.55)');
+                ringGrad.addColorStop(1, 'rgba(255,80,0,0)');
+                ctx.fillStyle = ringGrad;
                 ctx.beginPath();
-                ctx.moveTo(dashCenterX, dashCenterY);
-                ctx.lineTo(trailEndX, trailEndY);
-                ctx.stroke();
-                
-                // 冲刺光环
-                ctx.strokeStyle = '#FF4500'; // 橙红色
-                ctx.lineWidth = 3;
-                ctx.beginPath();
-                ctx.arc(dashCenterX, dashCenterY, 28, 0, Math.PI * 2);
-                ctx.stroke();
-                
-                // 内层光环
-                ctx.strokeStyle = '#FF8C00'; // 深橙色
+                ctx.arc(dashCenterX, dashCenterY, ringR * 1.6, 0, Math.PI * 2);
+                ctx.fill();
+                // Bright thin ring
+                ctx.strokeStyle = 'rgba(255,240,180,0.8)';
                 ctx.lineWidth = 2;
                 ctx.beginPath();
-                ctx.arc(dashCenterX, dashCenterY, 20, 0, Math.PI * 2);
+                ctx.arc(dashCenterX, dashCenterY, ringR, 0, Math.PI * 2);
                 ctx.stroke();
-                
-                ctx.setLineDash([]);
-                ctx.restore();
-                
-                // 能量爆发效果
-                ctx.save();
-                ctx.globalAlpha = 0.5;
-                ctx.fillStyle = 'rgba(255, 140, 0, 0.3)';
-                ctx.fillRect(player.x - 8, player.y - 8, player.width + 16, player.height + 16);
+
+                // Spawn occasional embers along the trail
+                if (typeof bossFX !== 'undefined' && Math.random() < 0.7) {
+                    const t2 = Math.random();
+                    const sx = dashCenterX - Math.cos(this.dashDirection) * (trailLength * t2);
+                    const sy = dashCenterY - Math.sin(this.dashDirection) * (trailLength * t2);
+                    const sp = 1 + Math.random() * 1.5;
+                    const ang = this.dashDirection + Math.PI + (Math.random() - 0.5) * 0.6;
+                    bossFX.particles.push({
+                        x: sx, y: sy,
+                        vx: Math.cos(ang) * sp,
+                        vy: Math.sin(ang) * sp,
+                        size: 1 + Math.random() * 2,
+                        color: ['#ffe0a0', '#ff9040', '#ff5010'][Math.floor(Math.random() * 3)],
+                        lifeMs: 220 + Math.random() * 180,
+                        gravity: 0,
+                        drag: 0.92,
+                        alpha: 0.9,
+                        startedAt: Date.now()
+                    });
+                }
                 ctx.restore();
             }
         }
@@ -364,6 +375,9 @@ class Gun extends Weapon {
         );
         
         game.bullets.push(bullet);
+        // Record muzzle flash for draw()
+        this.lastMuzzleFlashTime = Date.now();
+        this.lastMuzzleAngle = shootDirection * Math.PI / 180;
         return true;
     }
     
@@ -432,6 +446,29 @@ class Gun extends Weapon {
                 this.reloading = false;
                 this.currentAmmo = this.magazineSize;
             }
+        }
+    }
+
+    draw(ctx, player) {
+        // Muzzle flash burst right after firing (lifetime ~80ms)
+        if (!this.lastMuzzleFlashTime) return;
+        const dt = Date.now() - this.lastMuzzleFlashTime;
+        if (dt > 90) return;
+        const fade = 1 - dt / 90;
+        const px = player.x + player.width / 2;
+        const py = player.y + player.height / 2;
+        // Position flash a bit out from the muzzle along firing direction
+        const offset = player.width / 2 + 6;
+        const fx = px + Math.cos(this.lastMuzzleAngle) * offset;
+        const fy = py + Math.sin(this.lastMuzzleAngle) * offset;
+        if (typeof drawMuzzleFlash === 'function') {
+            drawMuzzleFlash(ctx, {
+                x: fx, y: fy,
+                angle: this.lastMuzzleAngle,
+                size: 16,
+                scheme: 'gold',
+                alpha: fade
+            });
         }
     }
     
@@ -719,54 +756,45 @@ class LaserRifle extends Weapon {
             ctx.restore();
         }
         
-        // 光束效果
+        // Beam visual: multi-layer additive beam via shared drawBeam helper.
         if (this.beamEffect) {
             const e = this.beamEffect;
             const elapsed = Date.now() - e.startTime;
-            const alpha = 1 - elapsed / e.duration;
-            
-            ctx.save();
-            
-            // 外层光晕
-            ctx.strokeStyle = `rgba(255, 40, 40, ${alpha * 0.3})`;
-            ctx.lineWidth = 16 * alpha + 4;
-            ctx.shadowColor = '#FF2222';
-            ctx.shadowBlur = 25 * alpha;
-            ctx.beginPath();
-            ctx.moveTo(e.startX, e.startY);
-            ctx.lineTo(e.endX, e.endY);
-            ctx.stroke();
-            
-            // 主光束
-            ctx.strokeStyle = `rgba(255, 80, 60, ${alpha * 0.9})`;
-            ctx.lineWidth = 8 * alpha + 2;
-            ctx.shadowBlur = 15 * alpha;
-            ctx.beginPath();
-            ctx.moveTo(e.startX, e.startY);
-            ctx.lineTo(e.endX, e.endY);
-            ctx.stroke();
-            
-            // 内芯（白热）
-            ctx.strokeStyle = `rgba(255, 230, 220, ${alpha * 0.9})`;
-            ctx.lineWidth = 3 * alpha + 1;
-            ctx.shadowBlur = 0;
-            ctx.beginPath();
-            ctx.moveTo(e.startX, e.startY);
-            ctx.lineTo(e.endX, e.endY);
-            ctx.stroke();
-            
-            // 命中点闪光
-            const flashSize = 20 * alpha;
-            const gradient = ctx.createRadialGradient(e.endX, e.endY, 0, e.endX, e.endY, flashSize);
-            gradient.addColorStop(0, `rgba(255, 255, 200, ${alpha * 0.8})`);
-            gradient.addColorStop(0.4, `rgba(255, 100, 50, ${alpha * 0.4})`);
-            gradient.addColorStop(1, `rgba(255, 50, 30, 0)`);
-            ctx.fillStyle = gradient;
-            ctx.beginPath();
-            ctx.arc(e.endX, e.endY, flashSize, 0, Math.PI * 2);
-            ctx.fill();
-            
-            ctx.restore();
+            const tNorm = Math.min(1, elapsed / e.duration);
+            // Beam pops bright then fades out: fast early decay, long tail
+            const alpha = Math.pow(1 - tNorm, 1.4);
+            // Slight initial overcharge: width punch in the first 25% of life
+            const charge = tNorm < 0.25 ? 1 + (1 - tNorm / 0.25) * 0.6 : 1;
+
+            if (typeof drawBeam === 'function') {
+                drawBeam(ctx, {
+                    x1: e.startX, y1: e.startY,
+                    x2: e.endX, y2: e.endY,
+                    width: 7,
+                    scheme: 'crimson',
+                    alpha,
+                    charge
+                });
+            }
+
+            // Hit point burst: ring + sparks once at impact frame
+            if (!e._sparked && elapsed < 60) {
+                e._sparked = true;
+                if (typeof bossFX !== 'undefined' && bossFX.addShockwave) {
+                    bossFX.addShockwave(e.endX, e.endY, 4, 38, '#ff5040', 380, 3, 0.85);
+                    bossFX.addFlash(e.endX, e.endY, 22, '#ffffff', 120);
+                    bossFX.addShake(2, 120);
+                }
+                if (typeof drawImpactSparks === 'function') {
+                    drawImpactSparks({
+                        x: e.endX, y: e.endY,
+                        count: 14,
+                        scheme: 'crimson',
+                        speed: 5,
+                        lifeMs: 380
+                    });
+                }
+            }
         }
         
         // 过热条（玩家上方）
@@ -1031,85 +1059,128 @@ class LaserSpear extends Weapon {
     }
     
     draw(ctx, player) {
-        // 绘制长枪冲锋特效
         if (this.isCharging) {
             const playerCenterX = player.x + player.width / 2;
             const playerCenterY = player.y + player.height / 2;
-            
+            const dirX = Math.cos(this.chargeDirection);
+            const dirY = Math.sin(this.chargeDirection);
+
+            // Spear shaft (multi-layer azure beam pointing forward)
+            const spearLength = 70;
+            const spearEndX = playerCenterX + dirX * spearLength;
+            const spearEndY = playerCenterY + dirY * spearLength;
+            if (typeof drawBeam === 'function') {
+                drawBeam(ctx, {
+                    x1: playerCenterX, y1: playerCenterY,
+                    x2: spearEndX, y2: spearEndY,
+                    width: 5,
+                    scheme: 'azure',
+                    alpha: 1,
+                    charge: 1.1
+                });
+            }
+
+            // Spearhead diamond (drawn additively)
             ctx.save();
-            ctx.globalAlpha = 0.8;
-            
-            // 绘制长枪轨迹
-            const spearLength = 60;
-            const spearEndX = playerCenterX + Math.cos(this.chargeDirection) * spearLength;
-            const spearEndY = playerCenterY + Math.sin(this.chargeDirection) * spearLength;
-            
-            // 长枪主体（青蓝色光束）
-            ctx.strokeStyle = '#00CCFF';
-            ctx.lineWidth = 6;
+            ctx.translate(spearEndX, spearEndY);
+            ctx.rotate(this.chargeDirection);
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.fillStyle = '#ffffff';
             ctx.beginPath();
-            ctx.moveTo(playerCenterX, playerCenterY);
-            ctx.lineTo(spearEndX, spearEndY);
-            ctx.stroke();
-            
-            // 长枪锋刃（白色高亮）
-            ctx.strokeStyle = '#FFFFFF';
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            ctx.moveTo(spearEndX - Math.cos(this.chargeDirection) * 20, spearEndY - Math.sin(this.chargeDirection) * 20);
-            ctx.lineTo(spearEndX, spearEndY);
-            ctx.stroke();
-            
-            // 冲锋尾迹
-            const trailLength = 50;
-            const trailEndX = playerCenterX - Math.cos(this.chargeDirection) * trailLength;
-            const trailEndY = playerCenterY - Math.sin(this.chargeDirection) * trailLength;
-            
-            const gradient = ctx.createLinearGradient(playerCenterX, playerCenterY, trailEndX, trailEndY);
-            gradient.addColorStop(0, 'rgba(0, 204, 255, 0.8)');
-            gradient.addColorStop(1, 'rgba(0, 204, 255, 0)');
-            
-            ctx.strokeStyle = gradient;
-            ctx.lineWidth = 12;
-            ctx.beginPath();
-            ctx.moveTo(playerCenterX, playerCenterY);
-            ctx.lineTo(trailEndX, trailEndY);
-            ctx.stroke();
-            
-            // 冲锋能量场
-            ctx.strokeStyle = '#00FFFF';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(playerCenterX, playerCenterY, 30, 0, Math.PI * 2);
-            ctx.stroke();
-            
+            ctx.moveTo(14, 0);
+            ctx.lineTo(0, -6);
+            ctx.lineTo(-6, 0);
+            ctx.lineTo(0, 6);
+            ctx.closePath();
+            ctx.fill();
+            // Outer halo around the spearhead
+            const tipGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, 14);
+            tipGrad.addColorStop(0, '#ffffff');
+            tipGrad.addColorStop(0.5, 'rgba(120,200,255,0.7)');
+            tipGrad.addColorStop(1, 'rgba(40,120,255,0)');
+            ctx.fillStyle = tipGrad;
+            ctx.beginPath(); ctx.arc(0, 0, 14, 0, Math.PI * 2); ctx.fill();
             ctx.restore();
+
+            // Charge contrail behind player (azure glow streak)
+            const trailLen = 60;
+            const tx = playerCenterX - dirX * trailLen;
+            const ty = playerCenterY - dirY * trailLen;
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.strokeStyle = 'rgba(80,160,255,0.4)';
+            ctx.lineWidth = 16;
+            ctx.lineCap = 'round';
+            ctx.beginPath(); ctx.moveTo(playerCenterX, playerCenterY); ctx.lineTo(tx, ty); ctx.stroke();
+            ctx.strokeStyle = 'rgba(160,210,255,0.85)';
+            ctx.lineWidth = 6;
+            ctx.beginPath(); ctx.moveTo(playerCenterX, playerCenterY); ctx.lineTo(tx, ty); ctx.stroke();
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.moveTo(playerCenterX, playerCenterY); ctx.lineTo(tx, ty); ctx.stroke();
+
+            // Energy field ring around player (animated)
+            if (typeof drawEnergyRing === 'function') {
+                drawEnergyRing(ctx, {
+                    x: playerCenterX, y: playerCenterY,
+                    radius: 30, thickness: 2.5,
+                    scheme: 'azure', alpha: 0.85, segments: 4
+                });
+            }
+            ctx.restore();
+
+            // Constant ember spawn while charging
+            if (typeof bossFX !== 'undefined' && Math.random() < 0.6) {
+                const sp = 1.5 + Math.random() * 1.5;
+                const ang = this.chargeDirection + Math.PI + (Math.random() - 0.5) * 0.6;
+                bossFX.particles.push({
+                    x: playerCenterX, y: playerCenterY,
+                    vx: Math.cos(ang) * sp,
+                    vy: Math.sin(ang) * sp,
+                    size: 1 + Math.random() * 2,
+                    color: ['#ffffff', '#a0d8ff', '#3080ff'][Math.floor(Math.random() * 3)],
+                    lifeMs: 280 + Math.random() * 200,
+                    gravity: 0,
+                    drag: 0.92,
+                    alpha: 0.9,
+                    startedAt: Date.now()
+                });
+            }
         }
-        
-        // 绘制击中特效
+
+        // Hit effect: replace flat ring + sparks with radial burst
         this.spearTrails.forEach(effect => {
             const elapsed = Date.now() - effect.startTime;
-            const alpha = Math.max(0, 1 - elapsed / effect.duration);
-            
-            ctx.save();
-            ctx.globalAlpha = alpha;
-            
-            // 击中爆炸效果
-            ctx.strokeStyle = '#FFFF00'; // 金黄色
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            ctx.arc(effect.x, effect.y, 15 * (elapsed / effect.duration), 0, Math.PI * 2);
-            ctx.stroke();
-            
-            // 击中火花
-            ctx.fillStyle = '#FFFFFF';
-            for (let i = 0; i < 6; i++) {
-                const angle = (Math.PI * 2 / 6) * i;
-                const sparkX = effect.x + Math.cos(angle) * 10;
-                const sparkY = effect.y + Math.sin(angle) * 10;
-                ctx.fillRect(sparkX - 1, sparkY - 1, 2, 2);
+            const tNorm = Math.min(1, elapsed / effect.duration);
+            const fade = 1 - tNorm;
+
+            // One-shot world FX on the first frame
+            if (!effect._sparked) {
+                effect._sparked = true;
+                if (typeof bossFX !== 'undefined') {
+                    if (bossFX.addShockwave) bossFX.addShockwave(effect.x, effect.y, 6, 38, '#a0d8ff', 360, 3, 0.85);
+                    if (bossFX.addFlash) bossFX.addFlash(effect.x, effect.y, 22, '#ffffff', 140);
+                    if (bossFX.addShake) bossFX.addShake(2, 110);
+                }
+                if (typeof drawImpactSparks === 'function') {
+                    drawImpactSparks({
+                        x: effect.x, y: effect.y,
+                        count: 14, scheme: 'azure',
+                        speed: 5, lifeMs: 380
+                    });
+                }
             }
-            
+
+            // Lingering soft glow at hit point
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            const r = 8 + tNorm * 22;
+            const g = ctx.createRadialGradient(effect.x, effect.y, 0, effect.x, effect.y, r);
+            g.addColorStop(0, `rgba(255,255,255,${fade * 0.7})`);
+            g.addColorStop(0.5, `rgba(150,210,255,${fade * 0.45})`);
+            g.addColorStop(1, 'rgba(40,120,220,0)');
+            ctx.fillStyle = g;
+            ctx.beginPath(); ctx.arc(effect.x, effect.y, r, 0, Math.PI * 2); ctx.fill();
             ctx.restore();
         });
     }
@@ -1545,137 +1616,123 @@ class Missile {
     }
     
     draw(ctx) {
-        // 根据导弹类型选择颜色
-        const isBoss = this.isBossMissile;
-        let trailColor, bodyColor, headColor, flameColor;
-        
-        // 检查是否为超级导弹（紫色）
-        if (this.isSuperMissile) {
-            trailColor = '#800080';  // 紫色尾迹
-            bodyColor = '#4B0082';   // 深紫色
-            headColor = '#9370DB';   // 中紫色
-            flameColor = '#8A2BE2';  // 蓝紫色
-        } else if (this.isReversed) {
-            trailColor = '#800080';  // 紫色尾迹
-            bodyColor = '#4B0082';   // 深紫色
-            headColor = '#9370DB';   // 中紫色
-            flameColor = '#8A2BE2';  // 蓝紫色
-        } else if (this.bossType === 'sublime_moon') {
-            // 冰之姬：青蓝色主题
-            trailColor = '#4682B4';  // 钢蓝色
-            bodyColor = '#1E90FF';   // 道奇蓝
-            headColor = '#00BFFF';   // 深天蓝
-            flameColor = '#4169E1';  // 皇家蓝
-        } else if (isBoss || this.bossType === 'crimson_king') {
-            // 血红之王：红色主题
-            trailColor = '#DC143C';  // 深红色
-            bodyColor = '#8B0000';   // 暗红色
-            headColor = '#FF0000';   // 亮红色
-            flameColor = '#B22222';  // 火砖红
-        } else {
-            // 玩家导弹：金色主题
-            trailColor = '#FFD700';  // 金黄色
-            bodyColor = '#FF4500';   // 橙色
-            headColor = '#FFFFFF';   // 白色
-            flameColor = '#FF8C00';  // 深橙色
+        // Pick a palette scheme keyed off the missile flavor.
+        let scheme = 'gold';                  // player default
+        let trailCol = '#ffd060';
+        if (this.isSuperMissile || this.isReversed) { scheme = 'violet'; trailCol = '#c080ff'; }
+        else if (this.bossType === 'sublime_moon') { scheme = 'azure'; trailCol = '#80c0ff'; }
+        else if (this.isBossMissile || this.bossType === 'crimson_king') {
+            scheme = 'crimson';
+            const bmType = this.bossMissileType;
+            trailCol = bmType === 'homing' ? '#ff8040' : (bmType === 'cross' ? '#ff5060' : '#ff4040');
         }
-        
-        // 绘制尾迹
-        if (this.trail.length > 1) {
+
+        const size = this.size || 1;
+        const angle = Math.atan2(this.vy, this.vx);
+
+        // 1) Glowing additive trail using prior trail samples.
+        if (this.trail && this.trail.length > 1) {
             ctx.save();
-            
-            // Boss导弹的尾迹更加血腥和威胁性
-            if (isBoss) {
-                // 绘制血红色渐变尾迹
-                for (let i = 1; i < this.trail.length; i++) {
-                    const alpha = (i / this.trail.length) * 0.8;
-                    const width = 4 + (i / this.trail.length) * 2; // 渐变宽度
-                    
-                    ctx.globalAlpha = alpha;
-                    ctx.strokeStyle = trailColor;
-                    ctx.lineWidth = width;
-                    
-                    ctx.beginPath();
-                    ctx.moveTo(this.trail[i-1].x, this.trail[i-1].y);
-                    ctx.lineTo(this.trail[i].x, this.trail[i].y);
-                    ctx.stroke();
-                }
-                
-                // 添加Boss类型粒子效果
-                ctx.globalAlpha = 0.6;
-                this.trail.forEach((point, index) => {
-                    const trailAlpha = index / this.trail.length;
-                    if (trailAlpha > 0.5 && Math.random() < 0.3) { // 随机粒子
-                        const particleColor = this.bossType === 'sublime_moon' ? '#87CEEB' : '#FF4444';
-                        ctx.fillStyle = particleColor;
-                        ctx.fillRect(point.x - 1, point.y - 1, 2, 2);
-                    }
-                });
-            } else {
-                // 玩家导弹的金黄色尾迹
-                ctx.strokeStyle = trailColor;
-                ctx.lineWidth = 3;
-                ctx.globalAlpha = 0.7;
-                
+            ctx.globalCompositeOperation = 'lighter';
+            // Outer halo pass
+            ctx.lineCap = 'round';
+            ctx.strokeStyle = trailCol;
+            for (let i = 1; i < this.trail.length; i++) {
+                const t = i / this.trail.length;
+                ctx.globalAlpha = 0.45 * t;
+                ctx.lineWidth = (3 + 4 * t) * size;
                 ctx.beginPath();
-                ctx.moveTo(this.trail[0].x, this.trail[0].y);
-                for (let i = 1; i < this.trail.length; i++) {
-                    const alpha = i / this.trail.length;
-                    ctx.globalAlpha = alpha * 0.7;
-                    ctx.lineTo(this.trail[i].x, this.trail[i].y);
-                }
+                ctx.moveTo(this.trail[i - 1].x, this.trail[i - 1].y);
+                ctx.lineTo(this.trail[i].x, this.trail[i].y);
                 ctx.stroke();
             }
-            
+            // Bright core trail
+            ctx.strokeStyle = '#ffffff';
+            for (let i = 1; i < this.trail.length; i++) {
+                const t = i / this.trail.length;
+                ctx.globalAlpha = 0.9 * t;
+                ctx.lineWidth = (1 + 1.6 * t) * size;
+                ctx.beginPath();
+                ctx.moveTo(this.trail[i - 1].x, this.trail[i - 1].y);
+                ctx.lineTo(this.trail[i].x, this.trail[i].y);
+                ctx.stroke();
+            }
             ctx.restore();
         }
-        
-        // 计算导弹的运动角度
-        const angle = Math.atan2(this.vy, this.vx);
-        
-        // 绘制旋转的导弹主体
+
+        // 2) Continuous thruster jet at the tail (uses shared drawJetFlame).
+        const tailX = this.x - Math.cos(angle) * (4 * size);
+        const tailY = this.y - Math.sin(angle) * (4 * size);
+        if (typeof drawJetFlame === 'function') {
+            drawJetFlame(ctx, {
+                originX: tailX,
+                originY: tailY,
+                angle: angle + Math.PI,
+                length: 18 * size,
+                width: 7 * size,
+                intensity: 0.85,
+                scheme: scheme === 'crimson' ? 'crimson' : (scheme === 'azure' ? 'azure' : (scheme === 'violet' ? 'violet' : 'orange')),
+                spawnEmbers: true,
+                emberDensity: 0.35,
+                id: (this._fxId = this._fxId || Math.floor(Math.random() * 100))
+            });
+        }
+
+        // 3) Missile body: rotated rounded rect + glowing nose tip.
         ctx.save();
         ctx.translate(this.x, this.y);
         ctx.rotate(angle);
-        
-        // 根据导弹大小调整尺寸
-        const size = this.size || 1; // 默认为1倍大小
-        const bodyWidth = 8 * size;
-        const bodyHeight = 4 * size;
-        const headWidth = 3 * size;
-        const headHeight = 2 * size;
-        const flameWidth = 4 * size;
-        const flameHeight = 2 * size;
-        
-        // 导弹主体
-        ctx.fillStyle = bodyColor;
-        ctx.fillRect(-bodyWidth/2, -bodyHeight/2, bodyWidth, bodyHeight);
-        
-        // 导弹头部（朝向运动方向）
-        ctx.fillStyle = headColor;
-        ctx.fillRect(bodyWidth/2, -headHeight/2, headWidth, headHeight);
-        
-        // 导弹尾焰（朝向运动反方向）
-        ctx.fillStyle = flameColor;
-        ctx.fillRect(-bodyWidth/2 - flameWidth, -flameHeight/2, flameWidth, flameHeight);
-        
-        // Boss导弹额外的威胁效果
-        if (isBoss) {
-            ctx.globalAlpha = 0.5;
-            const borderColor = this.bossType === 'sublime_moon' ? '#00CCFF' : '#FF0000';
-            ctx.strokeStyle = borderColor;
-            ctx.lineWidth = 1;
-            ctx.strokeRect(-bodyWidth/2 - 1, -bodyHeight/2 - 1, bodyWidth + 2, bodyHeight + 2); // Boss边框
-        }
-        
-        // 超级导弹额外的紫色光环效果
-        if (this.isSuperMissile) {
-            ctx.globalAlpha = 0.3;
-            ctx.strokeStyle = '#9370DB';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(-bodyWidth/2 - 2, -bodyHeight/2 - 2, bodyWidth + 4, bodyHeight + 4);
-        }
-        
+
+        const bodyW = 10 * size;
+        const bodyH = 5 * size;
+        // Body shell with subtle highlight stripe
+        const bodyGrad = ctx.createLinearGradient(0, -bodyH / 2, 0, bodyH / 2);
+        bodyGrad.addColorStop(0, '#cccccc');
+        bodyGrad.addColorStop(0.4, '#888');
+        bodyGrad.addColorStop(0.6, '#555');
+        bodyGrad.addColorStop(1, '#222');
+        ctx.fillStyle = bodyGrad;
+        ctx.beginPath();
+        // Slight rounded rectangle
+        const r = bodyH * 0.4;
+        ctx.moveTo(-bodyW / 2 + r, -bodyH / 2);
+        ctx.lineTo(bodyW / 2 - r, -bodyH / 2);
+        ctx.quadraticCurveTo(bodyW / 2, -bodyH / 2, bodyW / 2, -bodyH / 2 + r);
+        ctx.lineTo(bodyW / 2, bodyH / 2 - r);
+        ctx.quadraticCurveTo(bodyW / 2, bodyH / 2, bodyW / 2 - r, bodyH / 2);
+        ctx.lineTo(-bodyW / 2 + r, bodyH / 2);
+        ctx.quadraticCurveTo(-bodyW / 2, bodyH / 2, -bodyW / 2, bodyH / 2 - r);
+        ctx.lineTo(-bodyW / 2, -bodyH / 2 + r);
+        ctx.quadraticCurveTo(-bodyW / 2, -bodyH / 2, -bodyW / 2 + r, -bodyH / 2);
+        ctx.closePath();
+        ctx.fill();
+
+        // Fins
+        ctx.fillStyle = '#444';
+        ctx.beginPath();
+        ctx.moveTo(-bodyW / 2, -bodyH / 2);
+        ctx.lineTo(-bodyW / 2 - 3 * size, -bodyH);
+        ctx.lineTo(-bodyW / 2 + 1 * size, -bodyH / 2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(-bodyW / 2, bodyH / 2);
+        ctx.lineTo(-bodyW / 2 - 3 * size, bodyH);
+        ctx.lineTo(-bodyW / 2 + 1 * size, bodyH / 2);
+        ctx.closePath();
+        ctx.fill();
+
+        // Glowing nose cone
+        ctx.globalCompositeOperation = 'lighter';
+        const noseGrad = ctx.createRadialGradient(bodyW / 2, 0, 0, bodyW / 2, 0, bodyH * 1.6);
+        noseGrad.addColorStop(0, '#ffffff');
+        noseGrad.addColorStop(0.5, trailCol);
+        noseGrad.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = noseGrad;
+        ctx.beginPath();
+        ctx.arc(bodyW / 2, 0, bodyH * 1.6, 0, Math.PI * 2);
+        ctx.fill();
+
         ctx.restore();
     }
     
@@ -1772,6 +1829,9 @@ class MissileLauncher extends Weapon {
         }
         
         game.missiles.push(missile);
+        // Record fire timing/direction for muzzle flash in draw()
+        this.lastMissileFireTime = Date.now();
+        this.lastMissileAngle = Math.atan2(targetY - launchY, targetX - launchX);
     }
     
     update(player) {
@@ -1792,29 +1852,32 @@ class MissileLauncher extends Weapon {
     }
     
     draw(ctx, player) {
-        // 绘制发射效果
         if (this.isLaunching) {
-            const playerCenterX = player.x + player.width / 2;
-            const playerCenterY = player.y + player.height / 2;
-            
-            ctx.save();
-            ctx.globalAlpha = 0.6;
-            
-            // 发射器光环
-            ctx.strokeStyle = '#FFD700';
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            ctx.arc(playerCenterX, playerCenterY, 35, 0, Math.PI * 2);
-            ctx.stroke();
-            
-            // 内层发射光环
-            ctx.strokeStyle = '#FF4500';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(playerCenterX, playerCenterY, 25, 0, Math.PI * 2);
-            ctx.stroke();
-            
-            ctx.restore();
+            const cx = player.x + player.width / 2;
+            const cy = player.y + player.height / 2;
+            // Pulsing energy ring around the player while salvo fires
+            if (typeof drawEnergyRing === 'function') {
+                drawEnergyRing(ctx, {
+                    x: cx, y: cy,
+                    radius: 32, thickness: 2.5,
+                    scheme: 'gold', alpha: 0.85, segments: 4
+                });
+            }
+            // Spawn a brief muzzle flash on the player every time a missile leaves
+            if (this.lastMissileFireTime && Date.now() - this.lastMissileFireTime < 90) {
+                const fade = 1 - (Date.now() - this.lastMissileFireTime) / 90;
+                const ang = (this.lastMissileAngle || 0);
+                if (typeof drawMuzzleFlash === 'function') {
+                    drawMuzzleFlash(ctx, {
+                        x: cx + Math.cos(ang) * (player.width / 2 + 4),
+                        y: cy + Math.sin(ang) * (player.width / 2 + 4),
+                        angle: ang,
+                        size: 14,
+                        scheme: 'gold',
+                        alpha: fade
+                    });
+                }
+            }
         }
     }
     
@@ -1907,53 +1970,57 @@ class PulseShield extends Weapon {
     
     draw(ctx, player) {
         if (!this.isActive) return;
-        
-        const centerX = player.x + player.width / 2;
-        const centerY = player.y + player.height / 2;
-        
+
+        const cx = player.x + player.width / 2;
+        const cy = player.y + player.height / 2;
+        const baseR = 40;
+        const pulse = Math.sin(this.shieldEffect.pulsePhase) * 5;
+        const r = baseR + pulse;
+
         ctx.save();
-        
-        // 绘制主护盾圆环
-        const baseRadius = 40;
-        const pulseRadius = baseRadius + Math.sin(this.shieldEffect.pulsePhase) * 5;
-        
-        // 外圈护盾环
-        ctx.strokeStyle = `rgba(0, 255, 255, ${0.6 + Math.sin(this.shieldEffect.pulsePhase) * 0.2})`;
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, pulseRadius, 0, Math.PI * 2);
-        ctx.stroke();
-        
-        // 内圈护盾环
-        ctx.strokeStyle = `rgba(100, 200, 255, ${0.8 + Math.sin(this.shieldEffect.pulsePhase * 1.5) * 0.2})`;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, pulseRadius * 0.8, 0, Math.PI * 2);
-        ctx.stroke();
-        
-        // 绘制护盾粒子
-        this.shieldEffect.particles.forEach(particle => {
-            const x = centerX + particle.x;
-            const y = centerY + particle.y;
-            const alpha = particle.life * 0.7;
-            
-            ctx.fillStyle = `rgba(0, 255, 255, ${alpha})`;
-            ctx.beginPath();
-            ctx.arc(x, y, 2, 0, Math.PI * 2);
-            ctx.fill();
-        });
-        
-        // 绘制护盾能量波动效果
-        for (let i = 0; i < 3; i++) {
-            const waveRadius = pulseRadius * (0.3 + i * 0.25);
-            const waveAlpha = 0.1 + Math.sin(this.shieldEffect.pulsePhase + i) * 0.05;
-            
-            ctx.fillStyle = `rgba(0, 255, 255, ${waveAlpha})`;
-            ctx.beginPath();
-            ctx.arc(centerX, centerY, waveRadius, 0, Math.PI * 2);
-            ctx.fill();
+        ctx.globalCompositeOperation = 'lighter';
+
+        // 1) Soft inner volume fill (cyan plasma dome)
+        const dome = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r);
+        dome.addColorStop(0, 'rgba(160,240,255,0.0)');
+        dome.addColorStop(0.6, 'rgba(80,200,255,0.18)');
+        dome.addColorStop(0.92, 'rgba(40,180,255,0.45)');
+        dome.addColorStop(1, 'rgba(0,150,255,0)');
+        ctx.fillStyle = dome;
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+
+        // 2) Multi-layer ring + rotating segment highlights
+        if (typeof drawEnergyRing === 'function') {
+            drawEnergyRing(ctx, {
+                x: cx, y: cy,
+                radius: r, thickness: 4,
+                scheme: 'cyan', alpha: 0.95,
+                segments: 6,
+                spin: this.shieldEffect.pulsePhase * 0.4
+            });
+            // Inner thinner ring spinning the other way
+            drawEnergyRing(ctx, {
+                x: cx, y: cy,
+                radius: r * 0.7, thickness: 2,
+                scheme: 'cyan', alpha: 0.6,
+                segments: 3,
+                spin: -this.shieldEffect.pulsePhase * 0.6
+            });
         }
-        
+
+        // 3) Floating shield particles (now glowing dots)
+        this.shieldEffect.particles.forEach(p => {
+            const x = cx + p.x;
+            const y = cy + p.y;
+            const alpha = p.life * 0.9;
+            const grad = ctx.createRadialGradient(x, y, 0, x, y, 4);
+            grad.addColorStop(0, '#ffffff');
+            grad.addColorStop(0.5, `rgba(160,230,255,${alpha})`);
+            grad.addColorStop(1, 'rgba(40,140,255,0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill();
+        });
+
         ctx.restore();
     }
     
@@ -2052,57 +2119,86 @@ class EMP extends Weapon {
     
     draw(ctx, player) {
         if (!this.empEffect) return;
-        
+
         const e = this.empEffect;
         const elapsed = Date.now() - e.startTime;
-        const progress = elapsed / e.duration;
-        
+        const progress = Math.min(1, elapsed / e.duration);
+        const fade = 1 - progress;
+
+        // One-shot world FX on first frame
+        if (!e._sparked) {
+            e._sparked = true;
+            if (typeof bossFX !== 'undefined') {
+                if (bossFX.addShockwave) bossFX.addShockwave(e.x, e.y, 8, this.radius, '#a8f0ff', 480, 4, 0.85);
+                if (bossFX.addFlash) bossFX.addFlash(e.x, e.y, 60, '#ffffff', 240);
+                if (bossFX.addShake) bossFX.addShake(4, 200);
+            }
+            if (typeof drawImpactSparks === 'function') {
+                drawImpactSparks({
+                    x: e.x, y: e.y,
+                    count: 28, scheme: 'cyan',
+                    speed: 7, lifeMs: 600
+                });
+            }
+        }
+
+        const waveR = this.radius * progress;
+
         ctx.save();
-        
-        // 扩散冲击波
-        const waveRadius = this.radius * progress;
-        const waveAlpha = 0.6 * (1 - progress);
-        
-        ctx.strokeStyle = `rgba(100, 200, 255, ${waveAlpha})`;
-        ctx.lineWidth = 4 * (1 - progress) + 1;
-        ctx.beginPath();
-        ctx.arc(e.x, e.y, waveRadius, 0, Math.PI * 2);
-        ctx.stroke();
-        
-        // 内圈光芒
-        const innerAlpha = 0.4 * (1 - progress);
-        const gradient = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, waveRadius * 0.6);
-        gradient.addColorStop(0, `rgba(150, 220, 255, ${innerAlpha})`);
-        gradient.addColorStop(1, `rgba(50, 100, 200, 0)`);
-        ctx.fillStyle = gradient;
-        ctx.beginPath();
-        ctx.arc(e.x, e.y, waveRadius * 0.6, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // 电弧效果
-        if (progress < 0.7) {
-            const arcCount = 8;
-            ctx.strokeStyle = `rgba(180, 230, 255, ${0.8 * (1 - progress)})`;
-            ctx.lineWidth = 1.5;
+        ctx.globalCompositeOperation = 'lighter';
+
+        // 1) Inner shockwave volume
+        const dome = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, waveR);
+        dome.addColorStop(0, `rgba(255,255,255,${fade * 0.4})`);
+        dome.addColorStop(0.55, `rgba(120,210,255,${fade * 0.45})`);
+        dome.addColorStop(0.95, `rgba(40,140,240,${fade * 0.35})`);
+        dome.addColorStop(1, 'rgba(20,80,180,0)');
+        ctx.fillStyle = dome;
+        ctx.beginPath(); ctx.arc(e.x, e.y, waveR, 0, Math.PI * 2); ctx.fill();
+
+        // 2) Multi-layer shockwave ring
+        ctx.strokeStyle = `rgba(80,180,255,${fade * 0.6})`;
+        ctx.lineWidth = 12 * fade + 2;
+        ctx.beginPath(); ctx.arc(e.x, e.y, waveR, 0, Math.PI * 2); ctx.stroke();
+        ctx.strokeStyle = `rgba(180,230,255,${fade})`;
+        ctx.lineWidth = 4 * fade + 1.2;
+        ctx.beginPath(); ctx.arc(e.x, e.y, waveR, 0, Math.PI * 2); ctx.stroke();
+        ctx.strokeStyle = `rgba(255,255,255,${fade})`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(e.x, e.y, waveR, 0, Math.PI * 2); ctx.stroke();
+
+        // 3) Lightning arcs (kept but brighter & glow)
+        if (progress < 0.75) {
+            const arcCount = 10;
             for (let i = 0; i < arcCount; i++) {
-                const angle = (Math.PI * 2 / arcCount) * i + progress * 3;
-                const len = waveRadius * (0.3 + Math.random() * 0.5);
-                ctx.beginPath();
-                ctx.moveTo(e.x, e.y);
-                let px = e.x, py = e.y;
-                const segments = 5;
-                for (let s = 1; s <= segments; s++) {
-                    const r = len * s / segments;
-                    const jitter = (Math.random() - 0.5) * 20;
-                    const nx = e.x + Math.cos(angle + jitter * 0.02) * r + jitter;
-                    const ny = e.y + Math.sin(angle + jitter * 0.02) * r + jitter;
+                const angle = (Math.PI * 2 / arcCount) * i + progress * 4;
+                const len = waveR * (0.4 + Math.random() * 0.6);
+                // Outer halo
+                ctx.strokeStyle = `rgba(120,200,255,${fade * 0.35})`;
+                ctx.lineWidth = 4;
+                ctx.beginPath(); ctx.moveTo(e.x, e.y);
+                let lastX = e.x, lastY = e.y;
+                const segs = 6;
+                const path = [];
+                for (let s = 1; s <= segs; s++) {
+                    const r = len * s / segs;
+                    const j = (Math.random() - 0.5) * 18;
+                    const nx = e.x + Math.cos(angle) * r + j;
+                    const ny = e.y + Math.sin(angle) * r + j;
+                    path.push([nx, ny]);
                     ctx.lineTo(nx, ny);
-                    px = nx; py = ny;
+                    lastX = nx; lastY = ny;
                 }
+                ctx.stroke();
+                // Bright core stroke
+                ctx.strokeStyle = `rgba(255,255,255,${fade})`;
+                ctx.lineWidth = 1.5;
+                ctx.beginPath(); ctx.moveTo(e.x, e.y);
+                path.forEach(([x, y]) => ctx.lineTo(x, y));
                 ctx.stroke();
             }
         }
-        
+
         ctx.restore();
     }
     
@@ -2239,62 +2335,68 @@ class CounterMech extends Weapon {
     
     draw(ctx, player) {
         if (!this.isActive || !this.effect) return;
-        
         const cx = player.x + player.width / 2;
         const cy = player.y + player.height / 2;
         const elapsed = Date.now() - this.activationTime;
         const remaining = 1 - elapsed / this.duration;
-        
-        ctx.save();
-        
-        // 防护六边形光环
-        const baseAlpha = 0.3 + 0.2 * remaining;
         const pulseR = 35 + 3 * Math.sin(Date.now() * 0.008);
-        ctx.strokeStyle = `rgba(255, 140, 0, ${baseAlpha})`;
-        ctx.lineWidth = 2.5;
-        ctx.shadowColor = '#FF8C00';
-        ctx.shadowBlur = 10;
-        ctx.beginPath();
-        for (let i = 0; i < 6; i++) {
-            const a = (Math.PI * 2 / 6) * i - Math.PI / 2;
-            const px2 = cx + Math.cos(a) * pulseR;
-            const py2 = cy + Math.sin(a) * pulseR;
-            if (i === 0) ctx.moveTo(px2, py2);
-            else ctx.lineTo(px2, py2);
-        }
-        ctx.closePath();
-        ctx.stroke();
-        
-        // 内圈渐变
-        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, pulseR);
-        grad.addColorStop(0, `rgba(255, 100, 0, ${baseAlpha * 0.25})`);
-        grad.addColorStop(1, 'rgba(255, 60, 0, 0)');
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.arc(cx, cy, pulseR, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // 粒子
-        for (const p of this.effect.particles) {
-            ctx.globalAlpha = p.life * 0.7;
-            ctx.fillStyle = '#FF6600';
-            ctx.fillRect(cx + p.ox - 1, cy + p.oy - 1, 2, 2);
-        }
-        
-        // 反射连线特效
-        if (this.effect.reflectLine) {
-            const rl = this.effect.reflectLine;
-            ctx.globalAlpha = rl.alpha * 0.8;
-            ctx.strokeStyle = '#FF4400';
-            ctx.lineWidth = 2;
-            ctx.shadowColor = '#FF4400';
-            ctx.shadowBlur = 8;
+
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+
+        // Inner volumetric heat dome
+        const dome = ctx.createRadialGradient(cx, cy, 0, cx, cy, pulseR);
+        dome.addColorStop(0, `rgba(255,200,80,${remaining * 0.35})`);
+        dome.addColorStop(0.7, `rgba(255,120,40,${remaining * 0.4})`);
+        dome.addColorStop(1, 'rgba(180,40,0,0)');
+        ctx.fillStyle = dome;
+        ctx.beginPath(); ctx.arc(cx, cy, pulseR, 0, Math.PI * 2); ctx.fill();
+
+        // Hexagonal ward (multi-layer glow)
+        const drawHex = (color, lw) => {
+            ctx.strokeStyle = color;
+            ctx.lineWidth = lw;
             ctx.beginPath();
-            ctx.moveTo(cx, cy);
-            ctx.lineTo(rl.tx, rl.ty);
+            for (let i = 0; i < 6; i++) {
+                const a = (Math.PI * 2 / 6) * i - Math.PI / 2 + Date.now() * 0.0015;
+                const px = cx + Math.cos(a) * pulseR;
+                const py = cy + Math.sin(a) * pulseR;
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
             ctx.stroke();
+        };
+        drawHex(`rgba(255,90,0,${remaining * 0.55})`, 8);
+        drawHex(`rgba(255,160,40,${remaining * 0.85})`, 3.5);
+        drawHex(`rgba(255,255,200,${remaining})`, 1.4);
+
+        // Glowing orbiting particles
+        for (const p of this.effect.particles) {
+            const x = cx + p.ox;
+            const y = cy + p.oy;
+            const a = p.life * 0.9;
+            const g = ctx.createRadialGradient(x, y, 0, x, y, 4);
+            g.addColorStop(0, '#ffffff');
+            g.addColorStop(0.5, `rgba(255,160,40,${a})`);
+            g.addColorStop(1, 'rgba(255,80,0,0)');
+            ctx.fillStyle = g;
+            ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill();
         }
-        
+
+        // Reflect beam (multi-layer)
+        if (this.effect.reflectLine && typeof drawBeam === 'function') {
+            const rl = this.effect.reflectLine;
+            drawBeam(ctx, {
+                x1: cx, y1: cy,
+                x2: rl.tx, y2: rl.ty,
+                width: 5,
+                scheme: 'orange',
+                alpha: rl.alpha,
+                charge: 1
+            });
+        }
+
         ctx.restore();
     }
     
@@ -2380,56 +2482,68 @@ class Decoy {
         const cx = this.x + this.width / 2;
         const cy = this.y + this.height / 2;
         const elapsed = Date.now() - this.startTime;
-        
-        ctx.save();
-        
-        // 全息闪烁效果
         const flicker = 0.4 + 0.3 * Math.sin(elapsed * 0.012 + this.flickerPhase);
         const glitch = Math.random() < 0.05 ? 0.1 : 0;
-        ctx.globalAlpha = flicker - glitch;
-        
-        // 全息蓝色主体
+        const a = flicker - glitch;
+
+        ctx.save();
+
+        // 1) Soft additive glow under the hologram (gives it depth)
+        ctx.globalCompositeOperation = 'lighter';
+        const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, this.width * 1.6);
+        glow.addColorStop(0, `rgba(160,210,255,${a * 0.55})`);
+        glow.addColorStop(0.5, `rgba(60,140,255,${a * 0.3})`);
+        glow.addColorStop(1, 'rgba(0,40,160,0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath(); ctx.arc(cx, cy, this.width * 1.6, 0, Math.PI * 2); ctx.fill();
+
+        // 2) Holographic body (semi-transparent, with scanline overlay)
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = a;
         ctx.fillStyle = '#4488FF';
-        ctx.shadowColor = '#4488FF';
-        ctx.shadowBlur = 12;
         ctx.fillRect(this.x, this.y, this.width, this.height);
-        
-        // 扫描线效果
-        ctx.globalAlpha = 0.15;
+        // Scan lines
+        ctx.globalAlpha = 0.18;
         ctx.fillStyle = '#FFFFFF';
         for (let sy = 0; sy < this.height; sy += 3) {
             if ((sy + Math.floor(elapsed * 0.05)) % 6 < 3) {
                 ctx.fillRect(this.x, this.y + sy, this.width, 1);
             }
         }
-        
-        // 外框
-        ctx.globalAlpha = flicker * 0.6;
-        ctx.strokeStyle = '#66AAFF';
+        // Edge frame (additive)
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = a;
+        ctx.strokeStyle = '#a0d0ff';
         ctx.lineWidth = 1.5;
-        ctx.shadowBlur = 6;
-        ctx.strokeRect(this.x - 2, this.y - 2, this.width + 4, this.height + 4);
-        
-        // 粒子
+        ctx.strokeRect(this.x - 1, this.y - 1, this.width + 2, this.height + 2);
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 0.6;
+        ctx.strokeRect(this.x, this.y, this.width, this.height);
+
+        // 3) Glowing particles
         for (const p of this.particles) {
-            ctx.globalAlpha = p.life * 0.5;
-            ctx.fillStyle = '#66CCFF';
-            ctx.fillRect(cx + p.ox - 1, cy + p.oy - 1, 2, 2);
+            const x = cx + p.ox;
+            const y = cy + p.oy;
+            const lA = p.life * 0.85;
+            const g = ctx.createRadialGradient(x, y, 0, x, y, 3);
+            g.addColorStop(0, '#ffffff');
+            g.addColorStop(0.5, `rgba(160,220,255,${lA})`);
+            g.addColorStop(1, 'rgba(40,100,255,0)');
+            ctx.fillStyle = g;
+            ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
         }
-        
-        // 血量条
+
+        // 4) Health bar (kept simple, non-additive)
+        ctx.globalCompositeOperation = 'source-over';
         if (this.health < this.maxHealth) {
-            ctx.globalAlpha = 0.8;
-            const barW = this.width;
-            const barH = 3;
-            const barX = this.x;
-            const barY = this.y - 7;
-            ctx.fillStyle = '#333333';
+            ctx.globalAlpha = 0.85;
+            const barW = this.width, barH = 3;
+            const barX = this.x, barY = this.y - 7;
+            ctx.fillStyle = '#222';
             ctx.fillRect(barX, barY, barW, barH);
             ctx.fillStyle = '#4488FF';
             ctx.fillRect(barX, barY, barW * (this.health / this.maxHealth), barH);
         }
-        
         ctx.restore();
     }
     
@@ -2514,30 +2628,52 @@ class DecoyClone extends Weapon {
     
     draw(ctx, player) {
         if (!this.isStealthActive) return;
-        
         const cx = player.x + player.width / 2;
         const cy = player.y + player.height / 2;
         const elapsed = Date.now() - this.stealthStartTime;
         const remaining = 1 - elapsed / this.stealthDuration;
-        
+        const r = 26 + 3 * Math.sin(elapsed * 0.006);
+
         ctx.save();
-        
-        // 隐身闪烁菱形光环
-        const baseAlpha = 0.25 * remaining;
-        const pulse = 0.5 + 0.5 * Math.sin(elapsed * 0.01);
-        ctx.strokeStyle = `rgba(68, 136, 255, ${baseAlpha + 0.15 * pulse})`;
-        ctx.lineWidth = 1.5;
-        ctx.shadowColor = '#4488FF';
-        ctx.shadowBlur = 8;
-        const r = 25 + 3 * Math.sin(elapsed * 0.006);
-        ctx.beginPath();
-        ctx.moveTo(cx, cy - r);
-        ctx.lineTo(cx + r, cy);
-        ctx.lineTo(cx, cy + r);
-        ctx.lineTo(cx - r, cy);
-        ctx.closePath();
-        ctx.stroke();
-        
+        ctx.globalCompositeOperation = 'lighter';
+
+        // Soft cloak glow
+        const cloak = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 1.6);
+        cloak.addColorStop(0, `rgba(80,160,255,${remaining * 0.25})`);
+        cloak.addColorStop(0.7, `rgba(40,100,220,${remaining * 0.35})`);
+        cloak.addColorStop(1, 'rgba(0,40,160,0)');
+        ctx.fillStyle = cloak;
+        ctx.beginPath(); ctx.arc(cx, cy, r * 1.6, 0, Math.PI * 2); ctx.fill();
+
+        // Diamond ward (multi-layer)
+        const drawDiamond = (color, lw) => {
+            ctx.strokeStyle = color;
+            ctx.lineWidth = lw;
+            ctx.beginPath();
+            ctx.moveTo(cx, cy - r);
+            ctx.lineTo(cx + r, cy);
+            ctx.lineTo(cx, cy + r);
+            ctx.lineTo(cx - r, cy);
+            ctx.closePath();
+            ctx.stroke();
+        };
+        drawDiamond(`rgba(40,120,255,${remaining * 0.5})`, 8);
+        drawDiamond(`rgba(140,200,255,${remaining * 0.85})`, 3.2);
+        drawDiamond(`rgba(255,255,255,${remaining})`, 1.2);
+
+        // Orbiting motes
+        for (let i = 0; i < 4; i++) {
+            const a = elapsed * 0.005 + i * Math.PI / 2;
+            const px = cx + Math.cos(a) * r;
+            const py = cy + Math.sin(a) * r;
+            const g = ctx.createRadialGradient(px, py, 0, px, py, 4);
+            g.addColorStop(0, '#ffffff');
+            g.addColorStop(0.5, `rgba(160,220,255,${remaining})`);
+            g.addColorStop(1, 'rgba(40,120,255,0)');
+            ctx.fillStyle = g;
+            ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI * 2); ctx.fill();
+        }
+
         ctx.restore();
     }
     
@@ -2708,6 +2844,8 @@ class SuperWeapon extends Weapon {
         }
         
         game.missiles.push(missile);
+        this.lastMissileFireTime = Date.now();
+        this.lastMissileAngle = Math.atan2(targetY - launchY, targetX - launchX);
     }
     
     update(player) {
@@ -2728,29 +2866,37 @@ class SuperWeapon extends Weapon {
     }
     
     draw(ctx, player) {
-        // 绘制发射效果
-        if (this.isLaunching) {
-            const playerCenterX = player.x + player.width / 2;
-            const playerCenterY = player.y + player.height / 2;
-            
-            ctx.save();
-            ctx.globalAlpha = 0.8;
-            
-            // 超级武器发射器光环 - 红色主题
-            ctx.strokeStyle = '#FF0000';
-            ctx.lineWidth = 5;
-            ctx.beginPath();
-            ctx.arc(playerCenterX, playerCenterY, 50, 0, Math.PI * 2);
-            ctx.stroke();
-            
-            // 内层发射光环
-            ctx.strokeStyle = '#FFFF00';
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            ctx.arc(playerCenterX, playerCenterY, 30, 0, Math.PI * 2);
-            ctx.stroke();
-            
-            ctx.restore();
+        if (!this.isLaunching) return;
+        const cx = player.x + player.width / 2;
+        const cy = player.y + player.height / 2;
+
+        // Aggressive crimson energy ring + inner gold ring
+        if (typeof drawEnergyRing === 'function') {
+            drawEnergyRing(ctx, {
+                x: cx, y: cy,
+                radius: 48, thickness: 4,
+                scheme: 'crimson', alpha: 1, segments: 6
+            });
+            drawEnergyRing(ctx, {
+                x: cx, y: cy,
+                radius: 28, thickness: 2.5,
+                scheme: 'gold', alpha: 0.9, segments: 4
+            });
+        }
+        // Per-missile flash (recorded by fireSuperMissile)
+        if (this.lastMissileFireTime && Date.now() - this.lastMissileFireTime < 110) {
+            const fade = 1 - (Date.now() - this.lastMissileFireTime) / 110;
+            const ang = this.lastMissileAngle || 0;
+            if (typeof drawMuzzleFlash === 'function') {
+                drawMuzzleFlash(ctx, {
+                    x: cx + Math.cos(ang) * (player.width / 2 + 6),
+                    y: cy + Math.sin(ang) * (player.width / 2 + 6),
+                    angle: ang,
+                    size: 22,
+                    scheme: 'crimson',
+                    alpha: fade
+                });
+            }
         }
     }
     
@@ -3032,14 +3178,24 @@ class CIWSBullet extends GameObject {
     }
     
     draw(ctx) {
-        ctx.save();
-        ctx.fillStyle = this.color;
-        ctx.shadowColor = '#00FF88';
-        ctx.shadowBlur = 4;
-        ctx.beginPath();
-        ctx.arc(this.x + this.width / 2, this.y + this.height / 2, this.width / 2, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
+        if (typeof drawTracer === 'function') {
+            drawTracer(ctx, {
+                x: this.x + this.width / 2,
+                y: this.y + this.height / 2,
+                vx: this.vx, vy: this.vy,
+                length: 12,
+                width: 2,
+                scheme: 'green',
+                alpha: 1
+            });
+        } else {
+            ctx.save();
+            ctx.fillStyle = this.color;
+            ctx.beginPath();
+            ctx.arc(this.x + this.width / 2, this.y + this.height / 2, this.width / 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
     }
 }
 
@@ -3091,49 +3247,58 @@ class PlasmaField {
     draw(ctx) {
         const elapsed = Date.now() - this.startTime;
         const progress = elapsed / this.duration;
-        const alpha = Math.max(0, 0.7 * (1 - progress * 0.5));
-        
+        const fade = Math.max(0, 1 - progress * 0.7);
+
         ctx.save();
-        
-        const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.radius);
-        gradient.addColorStop(0, `rgba(0, 255, 180, ${alpha * 0.6})`);
-        gradient.addColorStop(0.4, `rgba(0, 200, 255, ${alpha * 0.35})`);
-        gradient.addColorStop(0.7, `rgba(80, 120, 255, ${alpha * 0.2})`);
-        gradient.addColorStop(1, 'rgba(0, 80, 200, 0)');
-        
-        ctx.fillStyle = gradient;
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // 电弧效果
-        const arcCount = 4 + Math.floor(Math.random() * 3);
-        ctx.strokeStyle = `rgba(100, 255, 255, ${alpha * 0.8})`;
-        ctx.lineWidth = 1.5;
-        ctx.shadowColor = '#00FFCC';
-        ctx.shadowBlur = 6;
+        ctx.globalCompositeOperation = 'lighter';
+
+        // Volumetric plasma orb (multi-stop radial gradient)
+        const orbR = this.radius;
+        const orb = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, orbR);
+        orb.addColorStop(0, `rgba(255,255,255,${fade * 0.85})`);
+        orb.addColorStop(0.25, `rgba(140,255,220,${fade * 0.7})`);
+        orb.addColorStop(0.55, `rgba(60,200,255,${fade * 0.45})`);
+        orb.addColorStop(0.85, `rgba(40,80,220,${fade * 0.25})`);
+        orb.addColorStop(1, 'rgba(0,40,160,0)');
+        ctx.fillStyle = orb;
+        ctx.beginPath(); ctx.arc(this.x, this.y, orbR, 0, Math.PI * 2); ctx.fill();
+
+        // Crackling lightning arcs (more strokes, brighter)
+        const arcCount = 6 + Math.floor(Math.random() * 4);
         for (let i = 0; i < arcCount; i++) {
             const angle = Math.random() * Math.PI * 2;
-            const len = this.radius * (0.3 + Math.random() * 0.6);
-            ctx.beginPath();
-            ctx.moveTo(this.x, this.y);
-            const segments = 3 + Math.floor(Math.random() * 3);
-            for (let s = 1; s <= segments; s++) {
-                const t = s / segments;
-                const ax = this.x + Math.cos(angle) * len * t + (Math.random() - 0.5) * 12;
-                const ay = this.y + Math.sin(angle) * len * t + (Math.random() - 0.5) * 12;
+            const len = this.radius * (0.4 + Math.random() * 0.55);
+            // Halo stroke
+            ctx.strokeStyle = `rgba(120,220,255,${fade * 0.45})`;
+            ctx.lineWidth = 4;
+            ctx.beginPath(); ctx.moveTo(this.x, this.y);
+            const segs = 4 + Math.floor(Math.random() * 3);
+            const path = [];
+            for (let s = 1; s <= segs; s++) {
+                const t = s / segs;
+                const ax = this.x + Math.cos(angle) * len * t + (Math.random() - 0.5) * 14;
+                const ay = this.y + Math.sin(angle) * len * t + (Math.random() - 0.5) * 14;
+                path.push([ax, ay]);
                 ctx.lineTo(ax, ay);
             }
             ctx.stroke();
+            // Bright core stroke
+            ctx.strokeStyle = `rgba(255,255,255,${fade})`;
+            ctx.lineWidth = 1.4;
+            ctx.beginPath(); ctx.moveTo(this.x, this.y);
+            path.forEach(([x, y]) => ctx.lineTo(x, y));
+            ctx.stroke();
         }
-        
-        // 边缘脉冲环
-        ctx.strokeStyle = `rgba(0, 220, 255, ${alpha * 0.4 * (0.5 + 0.5 * Math.sin(elapsed * 0.01))})`;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.radius * (0.85 + 0.15 * Math.sin(elapsed * 0.008)), 0, Math.PI * 2);
-        ctx.stroke();
-        
+
+        // Pulsing edge rings
+        const pulse = 0.85 + 0.15 * Math.sin(elapsed * 0.012);
+        ctx.strokeStyle = `rgba(120,220,255,${fade * 0.55})`;
+        ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius * pulse, 0, Math.PI * 2); ctx.stroke();
+        ctx.strokeStyle = `rgba(255,255,255,${fade * 0.85})`;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius * pulse, 0, Math.PI * 2); ctx.stroke();
+
         ctx.restore();
     }
 }
@@ -3330,14 +3495,30 @@ class PlasmaMissile {
     }
     
     draw(ctx) {
-        // 尾迹
-        if (this.trail.length > 1) {
+        const angle = Math.atan2(this.vy, this.vx);
+
+        // Glowing additive trail
+        if (this.trail && this.trail.length > 1) {
             ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.lineCap = 'round';
+            // Halo
+            ctx.strokeStyle = '#80ffe0';
             for (let i = 1; i < this.trail.length; i++) {
-                const alpha = (i / this.trail.length) * 0.7;
-                ctx.globalAlpha = alpha;
-                ctx.strokeStyle = '#00CCA0';
-                ctx.lineWidth = 2 + (i / this.trail.length) * 1.5;
+                const t = i / this.trail.length;
+                ctx.globalAlpha = 0.45 * t;
+                ctx.lineWidth = 2 + 4 * t;
+                ctx.beginPath();
+                ctx.moveTo(this.trail[i - 1].x, this.trail[i - 1].y);
+                ctx.lineTo(this.trail[i].x, this.trail[i].y);
+                ctx.stroke();
+            }
+            // Bright core
+            ctx.strokeStyle = '#ffffff';
+            for (let i = 1; i < this.trail.length; i++) {
+                const t = i / this.trail.length;
+                ctx.globalAlpha = 0.9 * t;
+                ctx.lineWidth = 1 + 1.4 * t;
                 ctx.beginPath();
                 ctx.moveTo(this.trail[i - 1].x, this.trail[i - 1].y);
                 ctx.lineTo(this.trail[i].x, this.trail[i].y);
@@ -3345,31 +3526,39 @@ class PlasmaMissile {
             }
             ctx.restore();
         }
-        
-        const angle = Math.atan2(this.vy, this.vx);
-        
+
+        // Tail jet flame
+        if (typeof drawJetFlame === 'function') {
+            drawJetFlame(ctx, {
+                originX: this.x - Math.cos(angle) * 5,
+                originY: this.y - Math.sin(angle) * 5,
+                angle: angle + Math.PI,
+                length: 16, width: 6,
+                intensity: 0.8,
+                scheme: 'azure',
+                spawnEmbers: true,
+                emberDensity: 0.3,
+                id: (this._fxId = this._fxId || Math.floor(Math.random() * 100))
+            });
+        }
+
+        // Body + glowing nose
         ctx.save();
         ctx.translate(this.x, this.y);
         ctx.rotate(angle);
-        
-        // 飞弹主体
-        ctx.fillStyle = '#006666';
-        ctx.fillRect(-5, -2.5, 10, 5);
-        
-        // 弹头
-        ctx.fillStyle = '#00FFCC';
-        ctx.fillRect(5, -1.5, 3, 3);
-        
-        // 尾焰
-        ctx.fillStyle = '#00AA88';
-        ctx.fillRect(-9, -1.5, 4, 3);
-        
-        // 电浆光晕
-        ctx.globalAlpha = 0.4 + 0.2 * Math.sin(Date.now() * 0.015);
-        ctx.strokeStyle = '#00FFCC';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(-6, -3.5, 12, 7);
-        
+        const bodyGrad = ctx.createLinearGradient(0, -3, 0, 3);
+        bodyGrad.addColorStop(0, '#9adcd0');
+        bodyGrad.addColorStop(0.5, '#287a70');
+        bodyGrad.addColorStop(1, '#003030');
+        ctx.fillStyle = bodyGrad;
+        ctx.fillRect(-6, -2.5, 12, 5);
+        ctx.globalCompositeOperation = 'lighter';
+        const noseGrad = ctx.createRadialGradient(6, 0, 0, 6, 0, 8);
+        noseGrad.addColorStop(0, '#ffffff');
+        noseGrad.addColorStop(0.5, '#80ffe0');
+        noseGrad.addColorStop(1, 'rgba(0,150,140,0)');
+        ctx.fillStyle = noseGrad;
+        ctx.beginPath(); ctx.arc(6, 0, 8, 0, Math.PI * 2); ctx.fill();
         ctx.restore();
     }
 }
@@ -3463,17 +3652,13 @@ class PlasmaMissileLauncher extends Weapon {
         if (this.isLaunching) {
             const px = player.x + player.width / 2;
             const py = player.y + player.height / 2;
-            
-            ctx.save();
-            ctx.globalAlpha = 0.5;
-            ctx.strokeStyle = '#00FFCC';
-            ctx.lineWidth = 2;
-            ctx.shadowColor = '#00FFCC';
-            ctx.shadowBlur = 8;
-            ctx.beginPath();
-            ctx.arc(px, py, 30, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.restore();
+            if (typeof drawEnergyRing === 'function') {
+                drawEnergyRing(ctx, {
+                    x: px, y: py,
+                    radius: 30, thickness: 2.5,
+                    scheme: 'cyan', alpha: 0.85, segments: 4
+                });
+            }
         }
     }
     
@@ -3720,13 +3905,28 @@ class ClusterMissile {
     }
     
     draw(ctx) {
-        if (this.trail.length > 1) {
+        const angle = Math.atan2(this.vy, this.vx);
+
+        // Glowing additive trail
+        if (this.trail && this.trail.length > 1) {
             ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.lineCap = 'round';
+            ctx.strokeStyle = '#ffb060';
             for (let i = 1; i < this.trail.length; i++) {
-                const alpha = (i / this.trail.length) * 0.7;
-                ctx.globalAlpha = alpha;
-                ctx.strokeStyle = '#FFA500';
-                ctx.lineWidth = 3 + (i / this.trail.length) * 2;
+                const t = i / this.trail.length;
+                ctx.globalAlpha = 0.5 * t;
+                ctx.lineWidth = 3 + 5 * t;
+                ctx.beginPath();
+                ctx.moveTo(this.trail[i - 1].x, this.trail[i - 1].y);
+                ctx.lineTo(this.trail[i].x, this.trail[i].y);
+                ctx.stroke();
+            }
+            ctx.strokeStyle = '#ffffff';
+            for (let i = 1; i < this.trail.length; i++) {
+                const t = i / this.trail.length;
+                ctx.globalAlpha = 0.95 * t;
+                ctx.lineWidth = 1.2 + 1.6 * t;
                 ctx.beginPath();
                 ctx.moveTo(this.trail[i - 1].x, this.trail[i - 1].y);
                 ctx.lineTo(this.trail[i].x, this.trail[i].y);
@@ -3734,38 +3934,56 @@ class ClusterMissile {
             }
             ctx.restore();
         }
-        
-        const angle = Math.atan2(this.vy, this.vx);
-        
+
+        // Tail jet
+        if (typeof drawJetFlame === 'function') {
+            drawJetFlame(ctx, {
+                originX: this.x - Math.cos(angle) * 7,
+                originY: this.y - Math.sin(angle) * 7,
+                angle: angle + Math.PI,
+                length: 24, width: 9,
+                intensity: 0.95,
+                scheme: 'orange',
+                spawnEmbers: true,
+                emberDensity: 0.5,
+                id: (this._fxId = this._fxId || Math.floor(Math.random() * 100))
+            });
+        }
+
+        // Body + animated split-warning ring
         ctx.save();
         ctx.translate(this.x, this.y);
         ctx.rotate(angle);
-        
-        // 大号导弹主体
-        ctx.fillStyle = '#CC6600';
+        // Body
+        const bodyGrad = ctx.createLinearGradient(0, -4, 0, 4);
+        bodyGrad.addColorStop(0, '#cc7a30');
+        bodyGrad.addColorStop(0.5, '#7a3a10');
+        bodyGrad.addColorStop(1, '#2a1000');
+        ctx.fillStyle = bodyGrad;
         ctx.fillRect(-8, -4, 16, 8);
-        
-        // 弹头
-        ctx.fillStyle = '#FFFFFF';
+        // Pointed nose
+        ctx.fillStyle = '#ffffff';
         ctx.beginPath();
         ctx.moveTo(8, -4);
         ctx.lineTo(13, 0);
         ctx.lineTo(8, 4);
         ctx.fill();
-        
-        // 尾焰
-        ctx.fillStyle = '#FF8C00';
-        ctx.fillRect(-13, -2.5, 5, 5);
-        
-        // 分裂标记环
+        // Warning ring (additive pulse)
+        ctx.globalCompositeOperation = 'lighter';
         const pulse = 0.5 + 0.5 * Math.sin(Date.now() * 0.01);
-        ctx.globalAlpha = 0.3 + 0.2 * pulse;
-        ctx.strokeStyle = '#FFD700';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.arc(0, 0, 10, 0, Math.PI * 2);
-        ctx.stroke();
-        
+        ctx.strokeStyle = `rgba(255,210,80,${0.5 + 0.5 * pulse})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(0, 0, 12, 0, Math.PI * 2); ctx.stroke();
+        ctx.strokeStyle = `rgba(255,255,255,${0.7 * pulse})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(0, 0, 12, 0, Math.PI * 2); ctx.stroke();
+        // Glowing nose
+        const noseGrad = ctx.createRadialGradient(11, 0, 0, 11, 0, 9);
+        noseGrad.addColorStop(0, '#ffffff');
+        noseGrad.addColorStop(0.5, '#ffb070');
+        noseGrad.addColorStop(1, 'rgba(255,80,0,0)');
+        ctx.fillStyle = noseGrad;
+        ctx.beginPath(); ctx.arc(11, 0, 9, 0, Math.PI * 2); ctx.fill();
         ctx.restore();
     }
 }
