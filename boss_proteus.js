@@ -74,6 +74,7 @@ class Proteus extends GameObject {
         this.lastSkirmishBlinkAt = 0;
         this.lastSkirmishEmpAt = 0;
         this.lastSkirmishHealAt = 0;
+        this.lastSkirmishCannonAt = 0;   // occasional turret-style laser cannon
         this.skirmishBlinkFx = null; // {at, sx, sy, ex, ey} for trail draw
         this.skirmishEmpFx = null;   // {at, durMs} expanding ring
         this.skirmishHealFx = null;  // {at, durMs} green pulse
@@ -88,14 +89,16 @@ class Proteus extends GameObject {
         this.turrets = []; // {x, y, lastShotAt, bornAt}
 
         // Turret-form shield (Magnus-style, 80% damage reduction).
-        // Smaller pool than Magnus's 0.5x: 0.168x of max HP — meaningful
-        // but breakable with a few committed bursts. Activates whenever
-        // turret form fully engages, drops on form swap, and won't
-        // re-spawn for shieldRespawnCd ms after being broken.
+        // Shield is *not* one-shot any more: it regenerates while active
+        // and re-spawns automatically after shieldRespawnCd once broken.
+        // HP pool was bumped from 0.168x → 0.32x of max HP to give it
+        // real staying power in the new always-on regime.
         this.shieldActive = false;
         this.shieldHp = 0;
-        this.shieldMaxHp = Math.round(this.maxHealth * 0.168);
+        this.shieldMaxHp = Math.round(this.maxHealth * 0.32);
         this.shieldDamageReduction = 0.8;
+        this.shieldRegenPerSec = Math.round(this.shieldMaxHp * 0.06); // ~16s full
+        this.shieldLastRegenTick = 0;
         this.shieldBornAt = 0;
         this.shieldBrokenAt = 0;
         this.shieldRespawnCd = 8000;
@@ -183,6 +186,7 @@ class Proteus extends GameObject {
         this.shieldActive = true;
         this.shieldHp = this.shieldMaxHp;
         this.shieldBornAt = now;
+        this.shieldLastRegenTick = now;
         const cx = this.x + this.width / 2;
         const cy = this.y + this.height / 2;
         if (typeof bossFX !== 'undefined') {
@@ -227,6 +231,33 @@ class Proteus extends GameObject {
                 const dmg = Math.max(1, Math.round(this.shieldBreakDamage * falloff));
                 game.player.takeDamage(dmg);
             }
+        }
+    }
+
+    // Per-frame shield maintenance — only meaningful in turret form.
+    //   - If active and below max:  regen at shieldRegenPerSec.
+    //   - If broken and cd elapsed: auto-reactivate (no need to swap form).
+    // Called from _tickTurret each frame.
+    _tickShield(now) {
+        // Auto-respawn after the broken cooldown.
+        if (!this.shieldActive && this.shieldBrokenAt > 0
+            && now - this.shieldBrokenAt >= this.shieldRespawnCd) {
+            this._activateShield(now);
+            return;
+        }
+        // Continuous regen while active.
+        if (this.shieldActive && this.shieldHp < this.shieldMaxHp) {
+            if (this.shieldLastRegenTick === 0) this.shieldLastRegenTick = now;
+            const dt = (now - this.shieldLastRegenTick) / 1000;
+            if (dt > 0) {
+                const regen = this.shieldRegenPerSec * dt;
+                this.shieldHp = Math.min(this.shieldMaxHp, this.shieldHp + regen);
+                this.shieldLastRegenTick = now;
+            }
+        } else {
+            // Reset accumulator when we're at full or inactive so the
+            // next regen cycle starts cleanly.
+            this.shieldLastRegenTick = now;
         }
     }
 
@@ -839,6 +870,18 @@ class Proteus extends GameObject {
         this._tickSkirmishReactive(now);
         // Drone swarm — long cooldown, occasional release.
         this._maybeReleaseDroneSwarm(now, 'skirmish');
+        // Occasional turret-style heavy laser cannon (port of _fireBossCannon).
+        // Fires roughly every 5–8s with a short wind-up (faster than turret).
+        if (now - this.lastSkirmishCannonAt > 5000 && game.player) {
+            // Per-tick chance ramps with how long it's been since last shot
+            // so the wait time stays bounded around 5–8s.
+            const overdue = (now - this.lastSkirmishCannonAt - 5000) / 3000;
+            const chance = 0.004 + Math.max(0, Math.min(1, overdue)) * 0.04;
+            if (Math.random() < chance) {
+                this._fireSkirmishLaserCannon(now);
+                this.lastSkirmishCannonAt = now;
+            }
+        }
     }
 
     // Skirmish form's primary ranged attack — a heavy shotgun blast
@@ -1461,6 +1504,8 @@ class Proteus extends GameObject {
         // Boss body becomes mostly stationary — slight drift only.
         this.vx *= 0.85;
         this.vy *= 0.85;
+        // Shield maintenance: passive regen + auto-respawn after cd.
+        this._tickShield(now);
         // Boss-direct cannon shot at the player every 1300ms (predictive arc).
         if (now - this.lastTurretShotAt > 1300 && game.player) {
             this._fireBossCannon(now);
@@ -1793,6 +1838,46 @@ class Proteus extends GameObject {
             });
             bossFX.addFlash(sx, sy, 36, '#7fdfff', 240, 0.85);
             bossFX.addShake(2, 100);
+        }, windupMs);
+    }
+
+    // Skirmish-form laser cannon — a lighter, snappier port of the
+    // turret-form _fireBossCannon. Same hitscan beam pipeline so the
+    // visual fits the established Proteus laser style, but the wind-up
+    // is much shorter (~360ms) and the damage / radius are reduced
+    // since Skirmish is supposed to be highly mobile, not a sniper.
+    // Locks form check to 'skirmish' so a mid-flight form swap aborts.
+    _fireSkirmishLaserCannon(now) {
+        if (!game.player) return;
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const px = game.player.x + game.player.width / 2;
+        const py = game.player.y + game.player.height / 2;
+        const ang = Math.atan2(py - cy, px - cx);
+        const windupMs = 360;
+        // Skirmish keeps a hint of telegraph — a small aura + beam line
+        // (the global telegraph render is disabled so this is purely
+        // logical, but it's harmless and stays consistent with the
+        // turret cannon code path).
+        this.telegraphs.push(createTelegraphAura(cx, cy, 36, windupMs, '#a0ffc0'));
+        const tRange = 2400;
+        const tex = cx + Math.cos(ang) * tRange;
+        const tey = cy + Math.sin(ang) * tRange;
+        this.telegraphs.push(createTelegraphBeam(cx, cy, tex, tey, 6, windupMs, '#cdfff0'));
+        setTimeout(() => {
+            if (!this || this.health <= 0) return;
+            if (this.form !== 'skirmish') return;
+            const sx = this.x + this.width / 2;
+            const sy = this.y + this.height / 2;
+            const fireAng = this.facingAngle;
+            this._fireLaserBeam(sx, sy, fireAng, {
+                hitRadius: 18,
+                damage: 10,
+                durationMs: 280,
+                widths: [18, 6.5, 2.0]
+            });
+            bossFX.addFlash(sx, sy, 30, '#a0ffc0', 220, 0.85);
+            bossFX.addShake && bossFX.addShake(1.6, 90);
         }, windupMs);
     }
 
