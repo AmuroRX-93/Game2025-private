@@ -506,148 +506,311 @@ class Boss extends GameObject {
                     };
                 }
             },
-            // ---- Move 2.5: Square Plasma Barrage ----
-            // Three oversized plasma missiles enter from each of the four
-            // arena edges (top/bottom/left/right) and chase the player.
-            // Heavy damage; missiles explode into hostile plasma fields on
-            // detonation. Visually distinct: thick orb-tipped warhead.
+            // ---- Move 2.5: Plasma Mine Seed ----
+            // Boss flies to a random arena-edge position and drops a
+            // dormant plasma orb. With several orbs seeded around the
+            // map, the next move (plasmaActivate) wakes them all up.
             {
-                id: 'squareBarrage',
-                cooldown: 9000,
-                canUse: (ctx) => true,
+                id: 'plasmaSeed',
+                cooldown: 2200,
+                canUse: () => {
+                    const dormantCount = (game.plasmaMissiles || [])
+                        .filter(m => m.dormant && m.bossOwned).length;
+                    return dormantCount < 8; // cap at 8 mines on the field
+                },
+                score: () => {
+                    const dormantCount = (game.plasmaMissiles || [])
+                        .filter(m => m.dormant && m.bossOwned).length;
+                    // Strongly prioritize seeding until the field is
+                    // populated; back off only when we already have a
+                    // lot of mines waiting to be activated.
+                    if (dormantCount < 3) return 3.2;
+                    if (dormantCount < 6) return 2.4;
+                    return 1.6;
+                },
+                start: (b, ctx) => {
+                    const W = GAME_CONFIG.WIDTH;
+                    const H = GAME_CONFIG.HEIGHT;
+                    const margin = 60;
+                    // Pick a random edge + random position along it.
+                    const edge = Math.floor(Math.random() * 4); // 0..3
+                    let dropX, dropY;
+                    if (edge === 0) {        // top
+                        dropX = margin + Math.random() * (W - margin * 2);
+                        dropY = margin;
+                    } else if (edge === 1) { // right
+                        dropX = W - margin;
+                        dropY = margin + Math.random() * (H - margin * 2);
+                    } else if (edge === 2) { // bottom
+                        dropX = margin + Math.random() * (W - margin * 2);
+                        dropY = H - margin;
+                    } else {                 // left
+                        dropX = margin;
+                        dropY = margin + Math.random() * (H - margin * 2);
+                    }
+                    const moveSpeed = b.speed * 1.05; // a bit faster than normal traverse
+                    const startedAt = Date.now();
+                    const maxTravelMs = 2200; // hard timeout if we get stuck
+                    return {
+                        startedAt,
+                        totalMs: maxTravelMs + 500,
+                        recoveryMs: 200,
+                        dropX, dropY,
+                        moveSpeed,
+                        seeded: false,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (st.seeded) return;
+                            const bcx = b2.x + b2.width / 2;
+                            const bcy = b2.y + b2.height / 2;
+                            const dx = st.dropX - bcx;
+                            const dy = st.dropY - bcy;
+                            const d = Math.hypot(dx, dy);
+                            // Arrived (or timed out) — seed the dormant mine.
+                            if (d < Math.max(20, st.moveSpeed * 0.6) || now - st.startedAt > maxTravelMs) {
+                                b2.vx = 0; b2.vy = 0;
+                                if (typeof PlasmaMissile !== 'function') {
+                                    st.seeded = true;
+                                    return;
+                                }
+                                const orb = new PlasmaMissile(bcx, bcy, bcx, bcy, 7, {
+                                    hostile: true,
+                                    fuseRadius: 80,
+                                    fieldRadius: 110,
+                                    fieldDuration: 2200,
+                                    fieldDamageInterval: 250,
+                                    fieldDamage: 4,
+                                    contactDamage: b2.missileDamage + 4,
+                                    armingDelay: 250,
+                                    strongTrackingDuration: 1500,
+                                    maxLifetime: 2000,
+                                    detonateOnExpire: true,
+                                    dormant: true
+                                });
+                                orb.bossOwned = true;
+                                orb.vx = 0;
+                                orb.vy = 0;
+                                if (!game.plasmaMissiles) game.plasmaMissiles = [];
+                                game.plasmaMissiles.push(orb);
+                                bossFX.addFlash(bcx, bcy, 50, '#ff4070', 280, 0.8);
+                                bossFX.addShockwave(bcx, bcy, 18, 80, '#ff4070', 360, 3, 0.55);
+                                bossFX.spawnBurst(bcx, bcy, 14, {
+                                    color: '#ff4070',
+                                    speedMin: 1, speedMax: 3,
+                                    sizeMin: 1.5, sizeMax: 3,
+                                    lifeMs: 480,
+                                    spreadAngle: Math.PI * 2,
+                                    baseAngle: 0,
+                                    drag: 0.92
+                                });
+                                st.seeded = true;
+                                return;
+                            }
+                            // Travel toward drop point.
+                            const inv = 1 / d;
+                            b2.vx = dx * inv * st.moveSpeed;
+                            b2.vy = dy * inv * st.moveSpeed;
+                        },
+                        isDone: (b2, now) => {
+                            const st = b2.activeMove;
+                            return st.seeded || now - st.startedAt >= st.totalMs;
+                        },
+                        onEnd: (b2) => { b2.vx = 0; b2.vy = 0; }
+                    };
+                }
+            },
+            // ---- Move 2.6: Plasma Mine Activation ----
+            // Wakes all dormant boss-owned plasma orbs and sends them
+            // homing toward the player. Only meaningful when 3..8 mines
+            // are seeded; rolled probabilistically.
+            {
+                id: 'plasmaActivate',
+                cooldown: 4000,
+                canUse: () => {
+                    const dormantCount = (game.plasmaMissiles || [])
+                        .filter(m => m.dormant && m.bossOwned).length;
+                    return dormantCount >= 3;
+                },
+                score: () => {
+                    const dormantCount = (game.plasmaMissiles || [])
+                        .filter(m => m.dormant && m.bossOwned).length;
+                    if (dormantCount < 3) return 0;
+                    // Probabilistic activation: 3..8 mines may activate,
+                    // 9+ almost certainly do. The score-based picker
+                    // doesn't roll dice on its own, so we bake the
+                    // probability into the score itself.
+                    let p;
+                    if (dormantCount >= 9) p = 0.95;
+                    else p = 0.20 + (dormantCount - 3) * 0.10; // 0.20..0.70
+                    if (Math.random() > p) return 0;
+                    return 1.5 + dormantCount * 0.1;
+                },
+                start: (b, ctx) => {
+                    const telegraphMs = 450;
+                    const startedAt = Date.now();
+                    const dormantOrbs = (game.plasmaMissiles || [])
+                        .filter(m => m.dormant && m.bossOwned);
+                    // Brief pre-activation aura on each dormant orb so
+                    // the player has a chance to scatter.
+                    for (const orb of dormantOrbs) {
+                        b.telegraphs.push(createTelegraphAura(orb.x, orb.y, 36, telegraphMs, '#ff4070'));
+                    }
+                    return {
+                        startedAt,
+                        telegraphMs,
+                        totalMs: telegraphMs + 200,
+                        recoveryMs: 250,
+                        dormantOrbs,
+                        activated: false,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (st.activated) return;
+                            if (now < st.startedAt + st.telegraphMs) return;
+                            const tc = (typeof getBossTargetCenter === 'function')
+                                ? getBossTargetCenter(b2.x + b2.width / 2, b2.y + b2.height / 2) : null;
+                            const tx = tc ? tc.x : (game.player ? game.player.x + game.player.width / 2 : b2.x);
+                            const ty = tc ? tc.y : (game.player ? game.player.y + game.player.height / 2 : b2.y);
+                            // Re-fetch the dormant set in case some were
+                            // destroyed during telegraph.
+                            const live = (game.plasmaMissiles || [])
+                                .filter(m => m.dormant && m.bossOwned);
+                            for (const orb of live) {
+                                if (typeof orb.activate === 'function') {
+                                    orb.activate(tx, ty, {
+                                        speed: 8.4,
+                                        maxSpeed: 13.2,
+                                        armingDelay: 150,
+                                        strongTrackingDuration: 1500,
+                                        maxLifetime: 2200,
+                                        detonateOnExpire: true
+                                    });
+                                }
+                                bossFX.addFlash(orb.x, orb.y, 32, '#ff4070', 240, 0.85);
+                            }
+                            const bcx = b2.x + b2.width / 2;
+                            const bcy = b2.y + b2.height / 2;
+                            bossFX.addFlash(bcx, bcy, 80, '#ff3060', 320, 0.85);
+                            bossFX.addShake(4, 220);
+                            st.activated = true;
+                        },
+                        isDone: (b2, now) => {
+                            const st = b2.activeMove;
+                            return st.activated || now - st.startedAt >= st.totalMs;
+                        }
+                    };
+                }
+            },
+            // Crimson laser beam — fast, low-damage, no stun. Replaces the
+            // old red-arrow dash with a Star-Devourer-style precision
+            // laser, but blood-red and snappier (short telegraph, no
+            // recovery freeze).
+            {
+                id: 'crimsonLaser',
+                cooldown: 2400,
+                canUse: (ctx) => ctx.dist > 60 && ctx.dist < 900,
                 score: (ctx) => {
-                    let s = 1.0;
-                    if (ctx.dist > 200) s += 0.4;
-                    if (ctx.hpPct < 0.6) s += 0.4;
+                    let s = 1.4;
+                    if (ctx.dist > 220 && ctx.dist < 600) s += 0.5;
+                    if (ctx.hpPct < 0.7) s += 0.3;
                     return s;
                 },
                 start: (b, ctx) => {
-                    const telegraphMs = 700;
-                    const fireMs = 250;
+                    const telegraphMs = 350;
+                    const fireMs = 280;
                     const startedAt = Date.now();
-                    const W = GAME_CONFIG.WIDTH;
-                    const H = GAME_CONFIG.HEIGHT;
-                    // Pre-compute spawn slots for the telegraph: 3 evenly
-                    // spaced points along each edge, mirrored when firing.
-                    const slots = []; // { x, y, dirX, dirY }
-                    for (let i = 0; i < 3; i++) {
-                        const t = (i + 1) / 4; // 0.25, 0.5, 0.75
-                        slots.push({ x: W * t, y: -20,     dirX: 0, dirY: 1 });   // top -> down
-                        slots.push({ x: W * t, y: H + 20,  dirX: 0, dirY: -1 });  // bottom -> up
-                        slots.push({ x: -20,    y: H * t,  dirX: 1, dirY: 0 });   // left -> right
-                        slots.push({ x: W + 20, y: H * t,  dirX: -1, dirY: 0 });  // right -> left
-                    }
-                    // Telegraph: short beam pointing inward at each spawn
-                    // point so the player sees the incoming corridor.
-                    const beamLen = 110;
-                    for (const s of slots) {
-                        const ex = s.x + s.dirX * beamLen;
-                        const ey = s.y + s.dirY * beamLen;
-                        b.telegraphs.push(createTelegraphBeam(s.x, s.y, ex, ey, 18, telegraphMs, '#ff3060'));
-                    }
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    // Lock onto the player's CURRENT position. The
+                    // telegraph circle marks that exact spot, so if the
+                    // player moves out of it they dodge cleanly. No
+                    // lead — that caused the beam to consistently miss
+                    // even when the player stood still in the marker.
+                    const lockX = ctx.playerCX;
+                    const lockY = ctx.playerCY;
+                    const aimAngle = Math.atan2(lockY - cy, lockX - cx);
+                    const range = 900;
+                    // Telegraph: a red lock-on circle on the player's
+                    // locked position so it's easy to spot against the
+                    // boss' red body.
+                    b.telegraphs.push(createTelegraphCircle(lockX, lockY, 42, telegraphMs, '#ff4040'));
                     return {
                         startedAt,
                         telegraphMs,
                         fireMs,
                         totalMs: telegraphMs + fireMs,
-                        recoveryMs: 450,
-                        slots,
+                        recoveryMs: 0,
+                        aimAngle,
+                        lockX,
+                        lockY,
+                        range,
+                        beamWidth: 6,
+                        hitRadius: 24,
+                        damage: 8,
                         fired: false,
+                        hit: false,
+                        laserEffect: null,
                         tick: (b2, now) => {
                             const st = b2.activeMove;
-                            if (!st.fired && now >= st.startedAt + st.telegraphMs) {
-                                boss._fireSquareBarrage(st.slots);
+                            // Crimson King keeps moving — no freeze during
+                            // telegraph or fire (this is a "snap shot",
+                            // not a committed dash).
+                            if (now < st.startedAt + st.telegraphMs) return;
+                            if (!st.fired) {
                                 st.fired = true;
-                            }
-                        },
-                        isDone: (b2, now) => now - b2.activeMove.startedAt >= b2.activeMove.totalMs
-                    };
-                }
-            },
-            // Telegraphs a red arrow, then dashes through player at high speed.
-            {
-                id: 'redDash',
-                cooldown: 4500,
-                canUse: (ctx) => ctx.dist > 120 && ctx.dist < 700,
-                score: (ctx) => {
-                    let s = 1.2;
-                    if (ctx.dist > 280 && ctx.dist < 500) s += 0.6;
-                    if (ctx.hpPct < 0.6) s += 0.3;
-                    return s;
-                },
-                start: (b, ctx) => {
-                    const telegraphMs = 600;
-                    const dashMs = 380;
-                    const startedAt = Date.now();
-                    const cx = b.x + b.width / 2;
-                    const cy = b.y + b.height / 2;
-                    // Aim slightly past the player so the dash flies through
-                    const overshoot = 80;
-                    const dirX = Math.cos(ctx.angleToPlayer);
-                    const dirY = Math.sin(ctx.angleToPlayer);
-                    const targetX = ctx.playerCX + dirX * overshoot;
-                    const targetY = ctx.playerCY + dirY * overshoot;
-                    b.telegraphs.push(createTelegraphArrow(cx, cy, targetX, targetY, telegraphMs, '#ff2020'));
-                    return {
-                        startedAt,
-                        telegraphMs,
-                        dashMs,
-                        totalMs: telegraphMs + dashMs,
-                        recoveryMs: 600,
-                        dirX,
-                        dirY,
-                        dashSpeed: 14, // px per frame
-                        launched: false,
-                        lastTrailAt: 0,
-                        tick: (b2, now) => {
-                            const st = b2.activeMove;
-                            if (now < st.startedAt + st.telegraphMs) {
-                                freezeBoss(b2);
-                                return;
-                            }
-                            // Dash phase
-                            b2.vx = st.dirX * st.dashSpeed;
-                            b2.vy = st.dirY * st.dashSpeed;
-                            const cx = b2.x + b2.width / 2;
-                            const cy = b2.y + b2.height / 2;
-                            // Launch instant: big shockwave + flash + heavy shake
-                            if (!st.launched) {
-                                st.launched = true;
-                                bossFX.addFlash(cx, cy, 110, '#ff2020', 360, 1.0);
-                                bossFX.addShockwave(cx, cy, 24, 200, '#ff2020', 520, 6, 0.85);
-                                bossFX.spawnBurst(cx, cy, 22, {
-                                    color: '#ff3030',
-                                    speedMin: 2.5, speedMax: 8,
-                                    sizeMin: 2, sizeMax: 4.5,
-                                    lifeMs: 520,
-                                    spreadAngle: Math.PI / 1.2,
-                                    baseAngle: Math.atan2(st.dirY, st.dirX) + Math.PI, // backwards spray
-                                    drag: 0.9
-                                });
-                                bossFX.addShake(8, 280);
-                            }
-                            // Continuous trail behind boss while dashing
-                            if (now - st.lastTrailAt > 30) {
-                                st.lastTrailAt = now;
-                                bossFX.spawnBurst(cx, cy, 4, {
-                                    color: '#ff5040',
-                                    speedMin: 0.5, speedMax: 2,
-                                    sizeMin: 2, sizeMax: 5,
-                                    lifeMs: 380,
-                                    spreadAngle: Math.PI / 2,
-                                    baseAngle: Math.atan2(st.dirY, st.dirX) + Math.PI,
-                                    drag: 0.86
-                                });
+                                const bcx = b2.x + b2.width / 2;
+                                const bcy = b2.y + b2.height / 2;
+                                // Recompute aim from boss' CURRENT position
+                                // toward the locked spot — boss may have
+                                // drifted during the telegraph window, so
+                                // the original aimAngle would now miss.
+                                const fireAngle = Math.atan2(st.lockY - bcy, st.lockX - bcx);
+                                const lDx = Math.cos(fireAngle);
+                                const lDy = Math.sin(fireAngle);
+                                // Hit check: line-segment vs player (no stun).
+                                if (game.player && !game.player.isUntargetable) {
+                                    const pcx = game.player.x + game.player.width / 2;
+                                    const pcy = game.player.y + game.player.height / 2;
+                                    const proj = (pcx - bcx) * lDx + (pcy - bcy) * lDy;
+                                    if (proj > 0 && proj <= st.range) {
+                                        const px = bcx + lDx * proj;
+                                        const py = bcy + lDy * proj;
+                                        const d = Math.hypot(pcx - px, pcy - py);
+                                        if (d <= st.hitRadius) {
+                                            game.player.takeDamage(st.damage);
+                                            st.hit = true;
+                                            updateUI();
+                                        }
+                                    }
+                                }
+                                // Hit check vs decoys.
+                                if (game.decoys) {
+                                    for (const decoy of game.decoys) {
+                                        const dcx = decoy.x + decoy.width / 2;
+                                        const dcy = decoy.y + decoy.height / 2;
+                                        const dproj = (dcx - bcx) * lDx + (dcy - bcy) * lDy;
+                                        if (dproj > 0 && dproj <= st.range) {
+                                            const dpx = bcx + lDx * dproj;
+                                            const dpy = bcy + lDy * dproj;
+                                            const dd = Math.hypot(dcx - dpx, dcy - dpy);
+                                            if (dd <= st.hitRadius) {
+                                                decoy.takeDamage(st.damage);
+                                            }
+                                        }
+                                    }
+                                }
+                                // Visual + impact FX.
+                                bossFX.addFlash(bcx, bcy, 36, '#ff2020', 180, 0.85);
+                                bossFX.addShake(2, 90);
+                                b2.crimsonLaserFX = {
+                                    sx: bcx, sy: bcy,
+                                    ex: bcx + lDx * st.range,
+                                    ey: bcy + lDy * st.range,
+                                    startedAt: now,
+                                    durationMs: st.fireMs
+                                };
                             }
                         },
                         isDone: (b2, now) => now - b2.activeMove.startedAt >= b2.activeMove.totalMs,
-                        onEnd: (b2) => {
-                            b2.vx *= 0.2; b2.vy *= 0.2;
-                            // Recovery puff
-                            const cx = b2.x + b2.width / 2;
-                            const cy = b2.y + b2.height / 2;
-                            bossFX.addShockwave(cx, cy, 10, 90, '#ff6040', 380, 3, 0.5);
-                        }
                     };
                 }
             },
@@ -833,33 +996,88 @@ class Boss extends GameObject {
         if (!tc) return;
         const playerCX = tc.x;
         const playerCY = tc.y;
-        const baseAngle = Math.atan2(playerCY - cy, playerCX - cx);
-        const coneRad = Math.PI * 60 / 180;
-        const t = 6 > 1 ? index / (6 - 1) : 0.5;
-        const angle = baseAngle + (t - 0.5) * coneRad;
-        const launchDist = this.width / 2 + 10;
-        const launchX = cx + Math.cos(angle) * launchDist;
-        const launchY = cy + Math.sin(angle) * launchDist;
-        const m = new Missile(launchX, launchY, playerCX, playerCY, this.missileDamage + 6, this.missileSpeed * 1.05);
+
+        // Spawn from one of the four faces of the boss square. With 6
+        // missiles in a salvo this gives top/bottom 2 each, left/right
+        // 1 each (rotating starting face per salvo for variety). The
+        // missile launches outward along the face normal so it visibly
+        // peels off the boss before its homing kicks in.
+        const sides = ['top', 'right', 'bottom', 'left'];
+        if (this._homingSideOrder === undefined) this._homingSideOrder = 0;
+        if (index === 0) this._homingSideOrder = (this._homingSideOrder + 1) % 4;
+        const side = sides[(this._homingSideOrder + index) % 4];
+
+        // Position along the chosen face. Multiple missiles on the same
+        // face spread along that edge so they don't stack.
+        // sameFaceCount counts how many earlier missiles in this salvo
+        // already used this face.
+        let sameFaceCount = 0;
+        let sameFaceIndex = 0;
+        for (let i = 0; i < 6; i++) {
+            const s = sides[(this._homingSideOrder + i) % 4];
+            if (s === side) {
+                if (i < index) sameFaceIndex++;
+                sameFaceCount++;
+            }
+        }
+        const slotT = sameFaceCount > 1
+            ? (sameFaceIndex + 1) / (sameFaceCount + 1) // 1/(N+1) .. N/(N+1)
+            : 0.5;
+        const offsetAlong = (slotT - 0.5) * this.width;
+
+        let launchX, launchY, normalAngle;
+        const halfW = this.width / 2;
+        const halfH = this.height / 2;
+        const lip = 8; // small outward lip so the muzzle puff is visible
+        if (side === 'top') {
+            launchX = cx + offsetAlong;
+            launchY = cy - halfH - lip;
+            normalAngle = -Math.PI / 2;
+        } else if (side === 'bottom') {
+            launchX = cx + offsetAlong;
+            launchY = cy + halfH + lip;
+            normalAngle = Math.PI / 2;
+        } else if (side === 'left') {
+            launchX = cx - halfW - lip;
+            launchY = cy + offsetAlong;
+            normalAngle = Math.PI;
+        } else { // 'right'
+            launchX = cx + halfW + lip;
+            launchY = cy + offsetAlong;
+            normalAngle = 0;
+        }
+
+        const m = new Missile(launchX, launchY, playerCX, playerCY, this.missileDamage + 6, this.missileSpeed * 0.84);
+        // Override initial velocity so the missile shoots straight out
+        // of the face (outward normal). The Missile constructor seeds
+        // velocity toward the target, which would have pulled it
+        // diagonally back toward the player and looked wrong.
+        const initialSpeed = Math.hypot(m.vx, m.vy) || (this.missileSpeed * 0.84);
+        m.vx = Math.cos(normalAngle) * initialSpeed;
+        m.vy = Math.sin(normalAngle) * initialSpeed;
+
         m.isBossMissile = true;
         m.isBossMissileDelayed = true;
         m.bossMissileType = 'homing';
         m.delayStartTime = Date.now();
         m.delayDuration = 120;
-        m.guideRange = 1600;
+        m.guideRange = 800;
         m.enhancedHoming = true;
+        // Guide-time bumped to 150% of the previous halved values.
+        m.strongTrackingDuration = 1650;
+        m.fadeOutDuration = 675;
         m.size = 1.35; // visually thicker than salvo missiles
         if (!game.bossMissiles) game.bossMissiles = [];
         game.bossMissiles.push(m);
 
-        // VFX: orange muzzle puff
+        // VFX: orange muzzle puff blasting outward from the face.
         bossFX.spawnBurst(launchX, launchY, 6, {
             color: '#ff8030',
             speedMin: 1.5, speedMax: 4.5,
             sizeMin: 1.5, sizeMax: 3,
             lifeMs: 420,
             spreadAngle: Math.PI / 4,
-            baseAngle: angle,
+            baseAngle: normalAngle,
             drag: 0.9
         });
         if (index === 0) {
@@ -869,58 +1087,6 @@ class Boss extends GameObject {
         }
     }
 
-    _fireSquareBarrage(slots) {
-        if (!game.player) return;
-        const cx = this.x + this.width / 2;
-        const cy = this.y + this.height / 2;
-        const tc = (typeof getBossTargetCenter === 'function')
-            ? getBossTargetCenter(cx, cy) : null;
-        const playerCX = tc ? tc.x : (game.player.x + game.player.width / 2);
-        const playerCY = tc ? tc.y : (game.player.y + game.player.height / 2);
-        const speed = this.missileSpeed * 0.85; // hefty plasma orbs are slower
-        const dmg = this.missileDamage + 4;
-
-        for (const s of slots) {
-            // Initial heading is straight inward from the edge so the
-            // telegraph beam matches the launch direction; the
-            // PlasmaMissile's own homing kicks in shortly after.
-            // We aim toward the player's current position at fire
-            // time so the inward sweep matches what was telegraphed.
-            const targetX = playerCX;
-            const targetY = playerCY;
-            const m = new PlasmaMissile(s.x, s.y, targetX, targetY, speed, {
-                hostile: true,
-                fuseRadius: 80,
-                fieldRadius: 110,
-                fieldDuration: 2200,
-                fieldDamageInterval: 250,
-                fieldDamage: 4,
-                contactDamage: dmg,
-                armingDelay: 250
-            });
-            // Tag so the missile can be visually drawn as a boss
-            // projectile (PlasmaMissile.draw checks `bossOwned`).
-            m.bossOwned = true;
-            if (!game.plasmaMissiles) game.plasmaMissiles = [];
-            game.plasmaMissiles.push(m);
-
-            const ang = Math.atan2(s.dirY, s.dirX);
-            bossFX.spawnBurst(s.x, s.y, 12, {
-                color: '#ff4070',
-                speedMin: 2, speedMax: 5.5,
-                sizeMin: 2, sizeMax: 3.5,
-                lifeMs: 480,
-                spreadAngle: Math.PI / 4,
-                baseAngle: ang,
-                drag: 0.9
-            });
-            bossFX.addFlash(s.x, s.y, 28, '#ff80a0', 240, 0.85);
-        }
-        bossFX.addFlash(cx, cy, 120, '#ff3060', 360, 0.9);
-        bossFX.addShockwave(cx, cy, 24, 200, '#ff3060', 600, 5, 0.7);
-        bossFX.addShake(6, 280);
-    }
-    
     _fireGridBarrage(vLanesX, hLanesY) {
         const W = GAME_CONFIG.WIDTH;
         const H = GAME_CONFIG.HEIGHT;
@@ -1252,7 +1418,11 @@ class Boss extends GameObject {
     draw(ctx) {
         // Render active attack telegraphs UNDER the boss so the boss draws on top
         renderBossTelegraphs(ctx, this.telegraphs);
-        
+
+        // Active crimson-laser beam (fired by the crimsonLaser move).
+        // Drawn under the boss body so the boss block reads on top.
+        this._drawCrimsonLaser(ctx);
+
         // 绘制Boss主体（简单深红色大色块）
         ctx.fillStyle = this.color;
         ctx.fillRect(this.x, this.y, this.width, this.height);
@@ -1333,6 +1503,48 @@ class Boss extends GameObject {
                 this.drawLockIndicator(ctx);
             }
         }
+    }
+
+    // Crimson laser beam visual — Star-Devourer style line beam recolored
+    // blood-red. Cleared automatically when its duration expires.
+    _drawCrimsonLaser(ctx) {
+        const fx = this.crimsonLaserFX;
+        if (!fx) return;
+        const t = Date.now() - fx.startedAt;
+        if (t >= fx.durationMs) {
+            this.crimsonLaserFX = null;
+            return;
+        }
+        const a = 1 - (t / fx.durationMs);
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+            ctx.lineCap = 'round';
+        // Outer glow — wide, soft, deep red.
+        ctx.globalAlpha = a * 0.45;
+        ctx.strokeStyle = '#ff2020';
+        ctx.lineWidth = 14;
+            ctx.beginPath();
+        ctx.moveTo(fx.sx, fx.sy);
+        ctx.lineTo(fx.ex, fx.ey);
+            ctx.stroke();
+        // Mid body
+        ctx.globalAlpha = a * 0.8;
+        ctx.strokeStyle = '#ff5050';
+        ctx.lineWidth = 5;
+            ctx.beginPath();
+        ctx.moveTo(fx.sx, fx.sy);
+        ctx.lineTo(fx.ex, fx.ey);
+            ctx.stroke();
+        // Bright core — pale red, not pure white, so it can't blow out
+        // when stacked with other additive layers.
+        ctx.globalAlpha = a;
+        ctx.strokeStyle = '#ffc8c8';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(fx.sx, fx.sy);
+        ctx.lineTo(fx.ex, fx.ey);
+        ctx.stroke();
+        ctx.restore();
     }
 
     // Crimson King thruster: shared multi-layer additive jet flame.

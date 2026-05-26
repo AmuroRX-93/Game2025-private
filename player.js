@@ -199,6 +199,16 @@ class Player extends GameObject {
                     allEnemies.push(game.boss);
                 }
             }
+            // Yukikon shadow clones — surface them as targetable decoys so
+            // the player's auto-aim is forced onto a clone while they're up.
+            // They live on the boss (not in game.enemies) so weapons can't
+            // damage them; the clones simply yank attention.
+            if (typeof Yukikon !== 'undefined' && game.boss instanceof Yukikon &&
+                game.boss.shadowActive && Array.isArray(game.boss.clones)) {
+                for (const c of game.boss.clones) {
+                    if (c && !c.shouldDestroy) allEnemies.push(c);
+                }
+            }
         }
         
         if (allEnemies.length === 0) return null;
@@ -632,6 +642,11 @@ class Player extends GameObject {
         let actualDamage = damage;
         if (this.hiddenAbilityWeapon && this.hiddenAbilityWeapon.isDamageReduced && this.hiddenAbilityWeapon.isDamageReduced()) {
             const reduction = this.hiddenAbilityWeapon.getDamageReduction();
+            // Full immunity (reduction >= 1) skips the damage entirely instead
+            // of being clamped to the 1-damage minimum below.
+            if (reduction >= 1) {
+                return;
+            }
             actualDamage = damage * (1 - reduction);
             // 确保伤害值为整数，且最小为1点
             actualDamage = Math.max(1, Math.round(actualDamage));
@@ -1041,6 +1056,15 @@ class Player extends GameObject {
         this.dodgeDirection.y = dodgeY / magnitude;
         
         // 开始闪避
+        // Dodge speed = 200% of the player's current effective move speed,
+        // captured at the moment of activation so any active multipliers
+        // (overdrive / repair / burn / slow) carry through.
+        const burnMul = this.burning ? this.burnSpeedMultiplier : 1;
+        const overdriveMul = this.overdriveActive ? 3 : 1;
+        const repairMul = this.repairProtocolActive ? 1.5 : 1;
+        const currentMoveSpeed = this.speed * burnMul * this.slowMultiplier * overdriveMul * repairMul;
+        this.dodgeSpeed = currentMoveSpeed * 2;
+
         this.isDodging = true;
         this.dodgeStartTime = Date.now();
         this.lastDodgeTime = Date.now();

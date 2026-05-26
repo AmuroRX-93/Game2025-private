@@ -76,6 +76,24 @@ const BOSS_LEVELS = {
         difficulty: 6,
         color: '#9a6cff',
         unlocked: true
+    },
+    YUKIKON: {
+        id: 'YUKIKON',
+        name: '剑舞者 雪魂',
+        description: '高速近战决斗者，凭瞬移、突袭与影分身贴身压制，不闪避子弹只用距离换速度',
+        bossClass: 'Yukikon',
+        difficulty: 4,
+        color: '#7fc8ff',
+        unlocked: true
+    },
+    PROTEUS: {
+        id: 'PROTEUS',
+        name: '变形机甲 普罗忒斯',
+        description: '依玩家距离实时切换近战长戟、霰弹机动、远程炮塔三种结构，重组瞬间脆弱可乘',
+        bossClass: 'Proteus',
+        difficulty: 4,
+        color: '#a0ffc0',
+        unlocked: true
     }
     // 未来可以添加更多关卡
     // SHADOW_LORD: {

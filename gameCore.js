@@ -106,6 +106,7 @@ class Game {
         this.teleportEffects = [];
         this.boomerangHitEffects = [];
         this.crescentBullets = [];
+        this.bossCiwsBullets = [];
         this.iceClones = [];
         this.mines = [];
         this.molotovs = [];
@@ -116,6 +117,9 @@ class Game {
         this.hivePlasmaBullets = [];
         this.hiveSplinters = [];
         this.hiveDrones = [];
+        this.yukikonBullets = [];
+        this.yukikonDaggers = [];
+        this.proteusBullets = [];
         this.ciwsBullets = [];
         this.plasmaMissiles = [];
         this.plasmaFields = [];
@@ -182,6 +186,12 @@ class Game {
                         break;
                     case 'HiveMind':
                         this.boss = new HiveMind(randomPos.x, randomPos.y);
+                        break;
+                    case 'Yukikon':
+                        this.boss = new Yukikon(randomPos.x, randomPos.y);
+                        break;
+                    case 'Proteus':
+                        this.boss = new Proteus(randomPos.x, randomPos.y);
                         break;
                     default:
                         console.warn(`未知的Boss类型: ${level.bossClass}`);
@@ -508,6 +518,20 @@ class Game {
             this.crescentBullets = [];
         }
 
+        // Boss CIWS bullets (defensive interceptors fired by the boss
+        // at incoming player missiles).
+        if (this.bossCiwsBullets) {
+            for (let i = this.bossCiwsBullets.length - 1; i >= 0; i--) {
+                const bullet = this.bossCiwsBullets[i];
+                bullet.update();
+                if (bullet.shouldDestroy) {
+                    this.bossCiwsBullets.splice(i, 1);
+                }
+            }
+        } else {
+            this.bossCiwsBullets = [];
+        }
+
         // 更新冰之姬分身 - 从后往前遍历避免索引问题
         if (this.iceClones) {
             for (let i = this.iceClones.length - 1; i >= 0; i--) {
@@ -679,6 +703,30 @@ class Game {
                 const b = this.hivePlasmaBullets[i];
                 b.update();
                 if (b.shouldDestroy) this.hivePlasmaBullets.splice(i, 1);
+            }
+        }
+        // Yukikon SMG bullets
+        if (this.yukikonBullets) {
+            for (let i = this.yukikonBullets.length - 1; i >= 0; i--) {
+                const b = this.yukikonBullets[i];
+                b.update();
+                if (b.shouldDestroy) this.yukikonBullets.splice(i, 1);
+            }
+        }
+        // Yukikon homing daggers (sword-rain projectiles)
+        if (this.yukikonDaggers) {
+            for (let i = this.yukikonDaggers.length - 1; i >= 0; i--) {
+                const b = this.yukikonDaggers[i];
+                b.update();
+                if (b.shouldDestroy) this.yukikonDaggers.splice(i, 1);
+            }
+        }
+        // Proteus projectiles (shotgun pellets / cannon rounds / turret tracers)
+        if (this.proteusBullets) {
+            for (let i = this.proteusBullets.length - 1; i >= 0; i--) {
+                const b = this.proteusBullets[i];
+                b.update();
+                if (b.shouldDestroy) this.proteusBullets.splice(i, 1);
             }
         }
         // HiveMind splinters: prune dead from auxiliary list
@@ -866,6 +914,9 @@ class Game {
 
         // HiveMind plasma bullets
         if (this.hivePlasmaBullets) this.hivePlasmaBullets.forEach(b => b.draw(this.ctx));
+        if (this.yukikonBullets) this.yukikonBullets.forEach(b => b.draw(this.ctx));
+        if (this.yukikonDaggers) this.yukikonDaggers.forEach(b => b.draw(this.ctx));
+        if (this.proteusBullets) this.proteusBullets.forEach(b => b.draw(this.ctx));
         
         // 绘制近防炮子弹
         if (this.ciwsBullets) {
@@ -908,6 +959,11 @@ class Game {
         // 绘制月牙追踪弹
         if (this.crescentBullets) {
             this.crescentBullets.forEach(bullet => bullet.draw(this.ctx));
+        }
+
+        // Boss CIWS bullets — drawn above missiles so they're clearly visible
+        if (this.bossCiwsBullets) {
+            this.bossCiwsBullets.forEach(bullet => bullet.draw(this.ctx));
         }
 
         // 绘制冰之姬分身
@@ -2310,6 +2366,8 @@ class Game {
         else if (this.boss instanceof UglyEmperor) bossName = t('boss.UGLY_EMPEROR');
         else if (this.boss instanceof Magnus) bossName = t('boss.MAGNUS_EXEC');
         else if (this.boss instanceof HiveMind) bossName = t('boss.HIVE_MIND');
+        else if (this.boss instanceof Yukikon) bossName = t('boss.YUKIKON');
+        else if (this.boss instanceof Proteus) bossName = t('boss.PROTEUS');
 
         ctx.save();
         ctx.fillStyle = UI_THEME.color.danger;

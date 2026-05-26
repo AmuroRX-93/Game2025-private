@@ -225,55 +225,81 @@ class Sword extends Weapon {
     draw(ctx, player) {
         if (this.slashes.length > 0 || this.isDashing) {
             this.slashes.forEach(slash => slash.draw(ctx));
-
+            
             if (this.isDashing) {
                 const dashCenterX = player.x + player.width / 2;
                 const dashCenterY = player.y + player.height / 2;
                 ctx.save();
                 ctx.globalCompositeOperation = 'lighter';
 
-                // Streaking trail (multi-layer glow line, fades to soft edge)
-                const trailLength = 60;
-                const tx = dashCenterX - Math.cos(this.dashDirection) * trailLength;
-                const ty = dashCenterY - Math.sin(this.dashDirection) * trailLength;
-                // Outer halo
-                ctx.strokeStyle = 'rgba(255,80,0,0.45)';
-                ctx.lineWidth = 22;
-                ctx.lineCap = 'round';
-                ctx.beginPath(); ctx.moveTo(dashCenterX, dashCenterY); ctx.lineTo(tx, ty); ctx.stroke();
-                // Mid
-                ctx.strokeStyle = 'rgba(255,160,40,0.7)';
-                ctx.lineWidth = 12;
-                ctx.beginPath(); ctx.moveTo(dashCenterX, dashCenterY); ctx.lineTo(tx, ty); ctx.stroke();
-                // Inner core
-                ctx.strokeStyle = 'rgba(255,240,200,0.95)';
-                ctx.lineWidth = 4;
-                ctx.beginPath(); ctx.moveTo(dashCenterX, dashCenterY); ctx.lineTo(tx, ty); ctx.stroke();
+                // Draw the plasma flame blade trailing BEHIND the player
+                // during the dash push — the player is lunging forward
+                // with the blade dragged back, ready to strike. Same
+                // SwordSlash.renderFlameBlade so shape and color match
+                // the slash visual exactly.
+                const bladeLen = 56;
+                // Tip points opposite the dash direction.
+                const tipX = dashCenterX - Math.cos(this.dashDirection) * bladeLen;
+                const tipY = dashCenterY - Math.sin(this.dashDirection) * bladeLen;
+                const trailAng = this.dashDirection + Math.PI;
+                const now = Date.now();
 
-                // Energy ring around player (concentric, animated pulse)
+                // Two faint ghost blades AHEAD of the live blade (i.e.
+                // closer to the dash direction) so the trail reads as
+                // motion blur left behind by the lunge.
+                if (typeof SwordSlash !== 'undefined' && SwordSlash.renderFlameBlade) {
+                    for (let g = 2; g >= 1; g--) {
+                        const forward = g * 18;
+                        const gcx = dashCenterX + Math.cos(this.dashDirection) * forward;
+                        const gcy = dashCenterY + Math.sin(this.dashDirection) * forward;
+                        const gtx = gcx - Math.cos(this.dashDirection) * (bladeLen - g * 6);
+                        const gty = gcy - Math.sin(this.dashDirection) * (bladeLen - g * 6);
+                        SwordSlash.renderFlameBlade(ctx, {
+                            cx: gcx, cy: gcy, tipX: gtx, tipY: gty,
+                            ang: trailAng,
+                            bladeAlpha: 0.32 / g,
+                            elapsed: now - g * 30,
+                            baseW: 9,
+                            seed: this.dashStartTime + g
+                        });
+                    }
+                    // Live blade — full alpha, slightly fatter, dragged
+                    // straight back from the player.
+                    SwordSlash.renderFlameBlade(ctx, {
+                        cx: dashCenterX, cy: dashCenterY, tipX, tipY,
+                        ang: trailAng,
+                        bladeAlpha: 0.95,
+                        elapsed: now,
+                        baseW: 11,
+                        seed: this.dashStartTime
+                    });
+                }
+
+                // Energy ring around player (concentric, animated pulse,
+                // matched to blade colors).
                 const t = Date.now();
                 const pulse = 0.7 + 0.3 * Math.sin(t / 60);
                 const ringR = 26 * pulse;
                 const ringGrad = ctx.createRadialGradient(dashCenterX, dashCenterY, ringR * 0.5, dashCenterX, dashCenterY, ringR * 1.6);
-                ringGrad.addColorStop(0, 'rgba(255,200,80,0)');
-                ringGrad.addColorStop(0.5, 'rgba(255,160,40,0.55)');
-                ringGrad.addColorStop(1, 'rgba(255,80,0,0)');
+                ringGrad.addColorStop(0, 'rgba(120,255,200,0)');
+                ringGrad.addColorStop(0.5, 'rgba(80,240,180,0.55)');
+                ringGrad.addColorStop(1, 'rgba(20,160,120,0)');
                 ctx.fillStyle = ringGrad;
                 ctx.beginPath();
                 ctx.arc(dashCenterX, dashCenterY, ringR * 1.6, 0, Math.PI * 2);
                 ctx.fill();
                 // Bright thin ring
-                ctx.strokeStyle = 'rgba(255,240,180,0.8)';
+                ctx.strokeStyle = 'rgba(220,255,235,0.8)';
                 ctx.lineWidth = 2;
                 ctx.beginPath();
                 ctx.arc(dashCenterX, dashCenterY, ringR, 0, Math.PI * 2);
                 ctx.stroke();
-
-                // Spawn occasional embers along the trail
+                
+                // Spawn occasional plasma motes trailing behind the dash
                 if (typeof bossFX !== 'undefined' && Math.random() < 0.7) {
                     const t2 = Math.random();
-                    const sx = dashCenterX - Math.cos(this.dashDirection) * (trailLength * t2);
-                    const sy = dashCenterY - Math.sin(this.dashDirection) * (trailLength * t2);
+                    const sx = dashCenterX - Math.cos(this.dashDirection) * (40 * t2);
+                    const sy = dashCenterY - Math.sin(this.dashDirection) * (40 * t2);
                     const sp = 1 + Math.random() * 1.5;
                     const ang = this.dashDirection + Math.PI + (Math.random() - 0.5) * 0.6;
                     bossFX.particles.push({
@@ -281,7 +307,7 @@ class Sword extends Weapon {
                         vx: Math.cos(ang) * sp,
                         vy: Math.sin(ang) * sp,
                         size: 1 + Math.random() * 2,
-                        color: ['#ffe0a0', '#ff9040', '#ff5010'][Math.floor(Math.random() * 3)],
+                        color: ['#d8ffe8', '#5fffb0', '#30c8a0'][Math.floor(Math.random() * 3)],
                         lifeMs: 220 + Math.random() * 180,
                         gravity: 0,
                         drag: 0.92,
@@ -685,7 +711,7 @@ class LaserRifle extends Weapon {
             } else {
                 aimAng = (player.direction || 0) * Math.PI / 180;
             }
-
+            
             ctx.save();
             ctx.globalCompositeOperation = 'lighter';
 
@@ -715,10 +741,10 @@ class LaserRifle extends Weapon {
                 grad.addColorStop(1, 'rgba(180,20,10,0)');
                 ctx.strokeStyle = grad;
                 ctx.lineWidth = 1.6 + progress * 1.4;
-                ctx.beginPath();
+            ctx.beginPath();
                 ctx.moveTo(sx, sy);
                 ctx.lineTo(ex, ey);
-                ctx.stroke();
+            ctx.stroke();
             }
 
             // ---- Layer 2: capacitor arcs around the muzzle (jagged short bolts) ----
@@ -733,7 +759,7 @@ class LaserRifle extends Weapon {
                 ctx.lineWidth = 1.4;
                 ctx.shadowColor = '#ff5040';
                 ctx.shadowBlur = 8 + progress * 10;
-                ctx.beginPath();
+            ctx.beginPath();
                 ctx.moveTo(prevX, prevY);
                 for (let s = 1; s <= segs; s++) {
                     const ang = baseAng + (s / segs) * 0.9 + (Math.random() - 0.5) * 0.35;
@@ -742,7 +768,7 @@ class LaserRifle extends Weapon {
                     const yN = py + Math.sin(ang) * r;
                     ctx.lineTo(xN, yN);
                 }
-                ctx.stroke();
+            ctx.stroke();
             }
             ctx.shadowBlur = 0;
 
@@ -764,7 +790,7 @@ class LaserRifle extends Weapon {
                     g.addColorStop(1, 'rgba(120,10,0,0)');
                     ctx.strokeStyle = g;
                     ctx.lineWidth = 1.2 + eased * 1.6;
-                    ctx.beginPath();
+                ctx.beginPath();
                     ctx.moveTo(px, py);
                     ctx.lineTo(ex, ey);
                     ctx.stroke();
@@ -796,9 +822,9 @@ class LaserRifle extends Weapon {
             coreGrad.addColorStop(0.7, `rgba(255,60,40,${0.45 * progress})`);
             coreGrad.addColorStop(1, 'rgba(120,0,0,0)');
             ctx.fillStyle = coreGrad;
-            ctx.beginPath();
+                ctx.beginPath();
             ctx.arc(px, py, coreR * 3.2, 0, Math.PI * 2);
-            ctx.fill();
+                ctx.fill();
             // Hot white pinpoint
             ctx.fillStyle = `rgba(255,255,255,${0.6 + 0.4 * eased})`;
             ctx.beginPath();
@@ -818,7 +844,7 @@ class LaserRifle extends Weapon {
                 ctx.stroke();
                 ctx.shadowBlur = 0;
             }
-
+            
             ctx.restore();
 
             // ---- Layer 6: refined target reticle (drawn separately, no additive) ----
@@ -837,7 +863,7 @@ class LaserRifle extends Weapon {
                 ctx.lineTo(tx, ty);
                 ctx.stroke();
                 ctx.setLineDash([]);
-
+                
                 if (progress > 0.25) {
                     const lockAlpha = (progress - 0.25) / 0.75;
                     // Inner rotating diamond (reads as a tracking lock).
@@ -871,7 +897,7 @@ class LaserRifle extends Weapon {
                         ctx.stroke();
                     }
                 }
-                ctx.restore();
+            ctx.restore();
             }
         }
         
@@ -1571,10 +1597,10 @@ class Missile {
         
         // 计算飞行时间
         const elapsedTime = Date.now() - this.startTime;
-        const strongTrackingDuration = this.enhancedHoming
-            ? 2200
-            : (this.strongTrackingDuration || 1100); // 前1.1秒强追踪（超级导弹为4.1秒）
-        const fadeOutDuration = this.isSuperMissile ? 1000 : (this.enhancedHoming ? 900 : 500); // 超级导弹渐变时间更长
+        const strongTrackingDuration = this.strongTrackingDuration
+            || (this.enhancedHoming ? 2200 : 1100);
+        const fadeOutDuration = this.fadeOutDuration
+            || (this.isSuperMissile ? 1000 : (this.enhancedHoming ? 900 : 500));
         
         // 计算追踪强度
         let trackingStrength = 0;
@@ -1604,7 +1630,7 @@ class Missile {
         if (distance > 0) {
             let baseTurnRate;
             if (this.isClusterChild) baseTurnRate = 0.28;
-            else if (this.enhancedHoming) baseTurnRate = 0.32; // crimson king homing missile
+            else if (this.enhancedHoming) baseTurnRate = 0.352; // crimson king homing missile (boosted +10%)
             else baseTurnRate = 0.15;
             const turnRate = baseTurnRate * trackingStrength;
             
@@ -1663,15 +1689,36 @@ class Missile {
             allEnemies.push(game.boss);
         }
         
-        allEnemies.forEach(enemy => {
+        for (const enemy of allEnemies) {
             const dx = enemy.x + enemy.width / 2 - this.x;
             const dy = enemy.y + enemy.height / 2 - this.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
             
             if (distance < (enemy.width + enemy.height) / 4 + 8) {
+                // Yukikon shadow clones nullify missiles outright: the missile
+                // pops harmlessly with no AoE damage (you can't use the decoy
+                // as a free splash trigger).
+                if (enemy.isYukikonClone) {
+                    if (this.shouldDestroy) return;
+                    this.shouldDestroy = true;
+                    if (typeof bossFX !== 'undefined') {
+                        bossFX.addFlash(this.x, this.y, 22, '#bfeaff', 220, 0.85);
+                        bossFX.spawnBurst(this.x, this.y, 10, {
+                            color: '#bfeaff',
+                            speedMin: 1, speedMax: 3,
+                            sizeMin: 1, sizeMax: 2,
+                            lifeMs: 320,
+                            spreadAngle: Math.PI * 2,
+                            baseAngle: 0,
+                            drag: 0.9
+                        });
+                    }
+                    return;
+                }
                 this.explode();
+                return;
             }
-        });
+        }
     }
     
     explode() {
@@ -1758,7 +1805,7 @@ class Missile {
                 }));
             }
         }
-
+        
         // 标记销毁
         this.shouldDestroy = true;
         updateUI();
@@ -1799,7 +1846,7 @@ class Missile {
                 bodyAccent = '#ff2080';
             } else if (bmType === 'grid' || bmType === 'cross') {
                 trailCol = '#ff5060';
-            } else {
+        } else {
                 trailCol = '#ff4040';      // salvo: pure crimson
                 bodyAccent = '#cc1010';
             }
@@ -1815,29 +1862,29 @@ class Missile {
             // Outer halo pass
             ctx.lineCap = 'round';
             ctx.strokeStyle = trailCol;
-            for (let i = 1; i < this.trail.length; i++) {
+                for (let i = 1; i < this.trail.length; i++) {
                 const t = i / this.trail.length;
                 ctx.globalAlpha = 0.45 * t;
                 ctx.lineWidth = (3 + 4 * t) * size;
-                ctx.beginPath();
+                    ctx.beginPath();
                 ctx.moveTo(this.trail[i - 1].x, this.trail[i - 1].y);
-                ctx.lineTo(this.trail[i].x, this.trail[i].y);
-                ctx.stroke();
-            }
+                    ctx.lineTo(this.trail[i].x, this.trail[i].y);
+                    ctx.stroke();
+                }
             // Bright core trail
             ctx.strokeStyle = '#ffffff';
-            for (let i = 1; i < this.trail.length; i++) {
+                for (let i = 1; i < this.trail.length; i++) {
                 const t = i / this.trail.length;
                 ctx.globalAlpha = 0.9 * t;
                 ctx.lineWidth = (1 + 1.6 * t) * size;
                 ctx.beginPath();
                 ctx.moveTo(this.trail[i - 1].x, this.trail[i - 1].y);
-                ctx.lineTo(this.trail[i].x, this.trail[i].y);
+                    ctx.lineTo(this.trail[i].x, this.trail[i].y);
                 ctx.stroke();
             }
             ctx.restore();
         }
-
+        
         // 2) Continuous thruster jet at the tail (uses shared drawJetFlame).
         const tailX = this.x - Math.cos(angle) * (4 * size);
         const tailY = this.y - Math.sin(angle) * (4 * size);
@@ -1860,7 +1907,7 @@ class Missile {
         ctx.save();
         ctx.translate(this.x, this.y);
         ctx.rotate(angle);
-
+        
         const bmType = this.bossMissileType;
         if (bmType === 'square') {
             // Big plasma orb warhead — no metal shell, just a layered
@@ -1969,7 +2016,7 @@ class Missile {
             ctx.arc(bodyW / 2, 0, bodyH * 1.6, 0, Math.PI * 2);
             ctx.fill();
         }
-
+        
         ctx.restore();
     }
     
@@ -2123,12 +2170,12 @@ class MissileLauncher extends Weapon {
             const remaining = this.missilesPerSalvo - this.missilesFired;
             return { text: t('ws.launching', remaining), color: '#FFD700' };
         }
-
+        
         const cooldownRemaining = this.getCooldownRemaining();
         if (cooldownRemaining > 0) {
             return { text: t('ws.cooldown', (cooldownRemaining / 1000).toFixed(1)), color: '#CC6666' };
         }
-
+        
         return { text: t('ws.ready'), color: 'white' };
     }
 }
@@ -2145,8 +2192,8 @@ class PulseShield extends Weapon {
         
         this.isActive = false;
         this.activationTime = 0;
-        this.duration = 18000; // 18秒持续时间
-        this.damageReduction = 0.7; // 70%伤害减免
+        this.duration = 14400; // 14.4 seconds (80% of original 18s)
+        this.damageReduction = 1; // Fully immune while shield is up
         this.shieldEffect = {
             pulsePhase: 0,
             particles: []
@@ -2207,13 +2254,13 @@ class PulseShield extends Weapon {
     
     draw(ctx, player) {
         if (!this.isActive) return;
-
+        
         const cx = player.x + player.width / 2;
         const cy = player.y + player.height / 2;
         const baseR = 40;
         const pulse = Math.sin(this.shieldEffect.pulsePhase) * 5;
         const r = baseR + pulse;
-
+        
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
 
@@ -2257,7 +2304,7 @@ class PulseShield extends Weapon {
             ctx.fillStyle = grad;
             ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill();
         });
-
+        
         ctx.restore();
     }
     
@@ -2276,12 +2323,12 @@ class PulseShield extends Weapon {
             const remaining = this.duration - (Date.now() - this.activationTime);
             return { text: t('ws.shielding', (remaining / 1000).toFixed(1)), color: '#00FFFF' };
         }
-
+        
         const cooldownRemaining = this.getCooldownRemaining();
         if (cooldownRemaining > 0) {
             return { text: t('ws.cooldown', (cooldownRemaining / 1000).toFixed(1)), color: '#CC6666' };
         }
-
+        
         return { text: t('ws.ready'), color: '#00FFFF' };
     }
 }
@@ -2356,7 +2403,7 @@ class EMP extends Weapon {
     
     draw(ctx, player) {
         if (!this.empEffect) return;
-
+        
         const e = this.empEffect;
         const elapsed = Date.now() - e.startTime;
         const progress = Math.min(1, elapsed / e.duration);
@@ -2401,7 +2448,7 @@ class EMP extends Weapon {
         ctx.lineWidth = 4 * fade + 1.2;
         ctx.beginPath(); ctx.arc(e.x, e.y, waveR, 0, Math.PI * 2); ctx.stroke();
         ctx.strokeStyle = `rgba(255,255,255,${fade})`;
-        ctx.lineWidth = 1.5;
+            ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.arc(e.x, e.y, waveR, 0, Math.PI * 2); ctx.stroke();
 
         // 3) Lightning arcs (kept but brighter & glow)
@@ -2435,7 +2482,7 @@ class EMP extends Weapon {
                 ctx.stroke();
             }
         }
-
+        
         ctx.restore();
     }
     
@@ -2577,7 +2624,7 @@ class CounterMech extends Weapon {
         const elapsed = Date.now() - this.activationTime;
         const remaining = 1 - elapsed / this.duration;
         const pulseR = 35 + 3 * Math.sin(Date.now() * 0.008);
-
+        
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
 
@@ -2593,16 +2640,16 @@ class CounterMech extends Weapon {
         const drawHex = (color, lw) => {
             ctx.strokeStyle = color;
             ctx.lineWidth = lw;
-            ctx.beginPath();
-            for (let i = 0; i < 6; i++) {
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
                 const a = (Math.PI * 2 / 6) * i - Math.PI / 2 + Date.now() * 0.0015;
                 const px = cx + Math.cos(a) * pulseR;
                 const py = cy + Math.sin(a) * pulseR;
                 if (i === 0) ctx.moveTo(px, py);
                 else ctx.lineTo(px, py);
-            }
-            ctx.closePath();
-            ctx.stroke();
+        }
+        ctx.closePath();
+        ctx.stroke();
         };
         drawHex(`rgba(255,90,0,${remaining * 0.55})`, 8);
         drawHex(`rgba(255,160,40,${remaining * 0.85})`, 3.5);
@@ -2633,7 +2680,7 @@ class CounterMech extends Weapon {
                 charge: 1
             });
         }
-
+        
         ctx.restore();
     }
     
@@ -2722,9 +2769,9 @@ class Decoy {
         const flicker = 0.4 + 0.3 * Math.sin(elapsed * 0.012 + this.flickerPhase);
         const glitch = Math.random() < 0.05 ? 0.1 : 0;
         const a = flicker - glitch;
-
+        
         ctx.save();
-
+        
         // 1) Soft additive glow under the hologram (gives it depth)
         ctx.globalCompositeOperation = 'lighter';
         const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, this.width * 1.6);
@@ -3130,7 +3177,7 @@ class DecoyClone extends Weapon {
         const elapsed = Date.now() - this.stealthStartTime;
         const remaining = 1 - elapsed / this.stealthDuration;
         const r = 26 + 3 * Math.sin(elapsed * 0.006);
-
+        
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
 
@@ -3146,13 +3193,13 @@ class DecoyClone extends Weapon {
         const drawDiamond = (color, lw) => {
             ctx.strokeStyle = color;
             ctx.lineWidth = lw;
-            ctx.beginPath();
-            ctx.moveTo(cx, cy - r);
-            ctx.lineTo(cx + r, cy);
-            ctx.lineTo(cx, cy + r);
-            ctx.lineTo(cx - r, cy);
-            ctx.closePath();
-            ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - r);
+        ctx.lineTo(cx + r, cy);
+        ctx.lineTo(cx, cy + r);
+        ctx.lineTo(cx - r, cy);
+        ctx.closePath();
+        ctx.stroke();
         };
         drawDiamond(`rgba(40,120,255,${remaining * 0.5})`, 8);
         drawDiamond(`rgba(140,200,255,${remaining * 0.85})`, 3.2);
@@ -3170,7 +3217,7 @@ class DecoyClone extends Weapon {
             ctx.fillStyle = g;
             ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI * 2); ctx.fill();
         }
-
+        
         ctx.restore();
     }
     
@@ -3686,12 +3733,12 @@ class CIWSBullet extends GameObject {
                 alpha: 1
             });
         } else {
-            ctx.save();
-            ctx.fillStyle = this.color;
-            ctx.beginPath();
-            ctx.arc(this.x + this.width / 2, this.y + this.height / 2, this.width / 2, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.restore();
+        ctx.save();
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        ctx.arc(this.x + this.width / 2, this.y + this.height / 2, this.width / 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
         }
     }
 }
@@ -3796,14 +3843,14 @@ class PlasmaField {
             this._arcs.push({ path, forkPath, born: now, life: 90 + Math.random() * 80 });
         }
     }
-
+    
     update() {
         const now = Date.now();
         if (now - this.startTime >= this.duration) {
             this.shouldDestroy = true;
             return;
         }
-
+        
         if (now - this.lastDamageTime >= this.damageInterval) {
             this.lastDamageTime = now;
             this.damageEnemies();
@@ -3822,7 +3869,7 @@ class PlasmaField {
         this._rotA += this._rotASpeed;
         this._rotB += this._rotBSpeed;
     }
-
+    
     damageEnemies() {
         if (this.hostile) {
             // Hostile (boss) plasma field: tick damage to the player instead.
@@ -3843,12 +3890,12 @@ class PlasmaField {
         if (game.boss && game.boss.health > 0 && !game.boss.notTargetable) {
             allEnemies.push(game.boss);
         }
-
+        
         for (const enemy of allEnemies) {
             const dx = enemy.x + enemy.width / 2 - this.x;
             const dy = enemy.y + enemy.height / 2 - this.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
-
+            
             if (distance <= this.radius) {
                 enemy.takeDamage(this.damage, 'plasma');
                 gameState.score += this.damage;
@@ -3856,7 +3903,7 @@ class PlasmaField {
             }
         }
     }
-
+    
     draw(ctx) {
         const now = Date.now();
         const elapsed = now - this.startTime;
@@ -3916,7 +3963,7 @@ class PlasmaField {
             ember1: (a) => `rgba(140,230,255,${a * 0.6})`,
             ember2: 'rgba(60,120,220,0)'
         };
-
+        
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
 
@@ -3950,7 +3997,7 @@ class PlasmaField {
             ctx.lineWidth = 1.4;
             for (let i = 0; i < count; i++) {
                 const a = (i / count) * Math.PI * 2;
-                ctx.beginPath();
+        ctx.beginPath();
                 ctx.moveTo(Math.cos(a) * rInner, Math.sin(a) * rInner);
                 ctx.lineTo(Math.cos(a) * rOuter, Math.sin(a) * rOuter);
                 ctx.stroke();
@@ -3973,7 +4020,7 @@ class PlasmaField {
             ctx.stroke();
             // Bright core
             ctx.strokeStyle = PAL.arcCore(fade * arcAlpha);
-            ctx.lineWidth = 1.5;
+        ctx.lineWidth = 1.5;
             ctx.beginPath();
             ctx.moveTo(this.x, this.y);
             for (const [px, py] of arc.path) ctx.lineTo(this.x + px, this.y + py);
@@ -3992,7 +4039,7 @@ class PlasmaField {
                 ctx.beginPath();
                 ctx.moveTo(this.x + last[0], this.y + last[1]);
                 for (const [px, py] of arc.forkPath) ctx.lineTo(this.x + px, this.y + py);
-                ctx.stroke();
+            ctx.stroke();
             }
             // Tip flash
             const tip = arc.path[arc.path.length - 1];
@@ -4051,7 +4098,7 @@ class PlasmaField {
             ctx.arc(ex, ey, e.size, 0, Math.PI * 2);
             ctx.fill();
         }
-
+        
         ctx.restore();
     }
 }
@@ -4066,7 +4113,7 @@ class PlasmaMissile {
         this.maxSpeed = speed;
         this.currentSpeed = speed * 0.6;
         this.shouldDestroy = false;
-
+        
         // Hostile mode: boss-launched plasma missile that homes on
         // the player and leaves a hostile crimson plasma field
         // when it detonates. Same flight + fuse logic as the
@@ -4086,6 +4133,16 @@ class PlasmaMissile {
         this.armingDelay = options.armingDelay !== undefined ? options.armingDelay : 250;
         
         this.maxLifetime = options.maxLifetime || (this.hostile ? 5000 : 3000);
+        // When true, expiring or going off-screen triggers detonate()
+        // instead of a silent removal — used for hostile plasma orbs
+        // that should always blanket their endpoint with a danger
+        // field even if they never quite reach the player.
+        this.detonateOnExpire = !!options.detonateOnExpire;
+        // Dormant mode: the orb sits in place, no homing, no
+        // proximity fuse, no lifetime decay. Used by Crimson King's
+        // plasma-mine sequence — the boss seeds dormant orbs around
+        // the arena and later "activates" them in a salvo.
+        this.dormant = !!options.dormant;
         this.startTime = Date.now();
         this.trackingRadius = 160;
         this.currentTarget = null;
@@ -4108,11 +4165,22 @@ class PlasmaMissile {
     }
     
     update() {
+        // Dormant orbs sit in place until activated. They don't age,
+        // don't home, don't fuse, but they DO obey their seeded
+        // velocity (normally 0) so they stay put.
+        if (this.dormant) {
+            this.x += this.vx;
+            this.y += this.vy;
+            return;
+        }
+
         if (Date.now() - this.startTime > this.maxLifetime) {
             // Hostile (boss) plasma missiles silently expire on
             // timeout — we don't want them carpeting the arena
             // edges with hostile fields when they overshoot.
-            if (this.hostile) {
+            // Exception: detonateOnExpire forces a detonation so the
+            // orb always becomes a danger field at end-of-life.
+            if (this.hostile && !this.detonateOnExpire) {
                 this.shouldDestroy = true;
                 return;
             }
@@ -4281,6 +4349,24 @@ class PlasmaMissile {
             const distance = Math.sqrt(dx * dx + dy * dy);
             
             if (distance < this.fuseRadius) {
+                // Yukikon shadow clones nullify the orb without spawning
+                // a plasma field — the missile just pops harmlessly.
+                if (enemy.isYukikonClone) {
+                    this.shouldDestroy = true;
+                    if (typeof bossFX !== 'undefined') {
+                        bossFX.addFlash(this.x, this.y, 24, '#bfeaff', 220, 0.85);
+                        bossFX.spawnBurst(this.x, this.y, 12, {
+                            color: '#bfeaff',
+                            speedMin: 1, speedMax: 3,
+                            sizeMin: 1, sizeMax: 2,
+                            lifeMs: 320,
+                            spreadAngle: Math.PI * 2,
+                            baseAngle: 0,
+                            drag: 0.9
+                        });
+                    }
+                    return;
+                }
                 this.detonate();
                 return;
             }
@@ -4289,7 +4375,7 @@ class PlasmaMissile {
     
     detonate() {
         if (this.shouldDestroy) return;
-
+        
         if (!game.plasmaFields) game.plasmaFields = [];
         if (this.hostile) {
             // Hostile plasma field damages the player and uses the
@@ -4313,9 +4399,9 @@ class PlasmaMissile {
                 }
             }
         } else {
-            game.plasmaFields.push(new PlasmaField(this.x, this.y, this.fieldRadius));
+        game.plasmaFields.push(new PlasmaField(this.x, this.y, this.fieldRadius));
         }
-
+        
         if (!game.explosions) game.explosions = [];
         game.explosions.push({
             x: this.x,
@@ -4374,7 +4460,7 @@ class PlasmaMissile {
             }
             ctx.restore();
         }
-
+        
         // Tail jet flame
         if (typeof drawJetFlame === 'function') {
             drawJetFlame(ctx, {
@@ -4411,6 +4497,36 @@ class PlasmaMissile {
         ctx.fillStyle = noseGrad;
         ctx.beginPath(); ctx.arc(6, 0, 8, 0, Math.PI * 2); ctx.fill();
         ctx.restore();
+    }
+
+    // Wake a dormant orb up: reset its lifetime clock, give it homing
+    // velocity toward the target (normally the player), and re-arm
+    // the proximity fuse. Used by Crimson King's plasma-mine activation.
+    activate(targetX, targetY, options = {}) {
+        if (!this.dormant) return;
+        this.dormant = false;
+        this.startTime = Date.now();
+        const launchSpeed = options.speed != null ? options.speed : (this.maxSpeed * 0.6);
+        this.maxSpeed = options.maxSpeed != null ? options.maxSpeed : this.maxSpeed;
+        this.currentSpeed = launchSpeed;
+        const dx = targetX - this.x;
+        const dy = targetY - this.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist > 0) {
+            this.vx = (dx / dist) * launchSpeed;
+            this.vy = (dy / dist) * launchSpeed;
+        } else {
+            this.vx = 0;
+            this.vy = launchSpeed;
+        }
+        if (options.armingDelay != null) this.armingDelay = options.armingDelay;
+        if (options.maxLifetime != null) this.maxLifetime = options.maxLifetime;
+        if (options.strongTrackingDuration != null) {
+            this.strongTrackingDuration = options.strongTrackingDuration;
+        }
+        if (options.detonateOnExpire != null) {
+            this.detonateOnExpire = !!options.detonateOnExpire;
+        }
     }
 }
 
@@ -4785,7 +4901,7 @@ class ClusterMissile {
             }
             ctx.restore();
         }
-
+        
         // Tail jet
         if (typeof drawJetFlame === 'function') {
             drawJetFlame(ctx, {

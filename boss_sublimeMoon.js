@@ -10,10 +10,14 @@ class CrescentBullet extends GameObject {
         this.maxSpeed = speed;
         this.shouldDestroy = false;
         
-        // 追踪系统
+        // Homing system. Tracking strength is the per-frame steering
+        // weight; once homingDuration elapses since spawn, the bullet
+        // stops actively chasing and just coasts on its current vector.
         this.currentTarget = null;
-        this.trackingStrength = 0.08; // 追踪强度
-        this.maxLifetime = 8000; // 8秒生命周期
+        this.baseTrackingStrength = 0.05; // weakened from 0.08
+        this.trackingStrength = this.baseTrackingStrength;
+        this.homingDuration = 1800; // ms of active homing (was effectively maxLifetime)
+        this.maxLifetime = 8000;
         this.startTime = Date.now();
         
         // 初始方向朝向目标
@@ -43,25 +47,31 @@ class CrescentBullet extends GameObject {
     
     trackTarget() {
         if (!this.currentTarget) return;
-        
+
+        // Apply homing time-out: after homingDuration the bullet
+        // gradually loses tracking authority and finally coasts.
+        const age = Date.now() - this.startTime;
+        let trackScale = 1;
+        if (age > this.homingDuration) {
+            const fadeMs = 350;
+            trackScale = Math.max(0, 1 - (age - this.homingDuration) / fadeMs);
+        }
+        if (trackScale <= 0) return;
+        const effectiveTracking = this.trackingStrength * trackScale;
+
         const targetCenterX = this.currentTarget.x + this.currentTarget.width / 2;
         const targetCenterY = this.currentTarget.y + this.currentTarget.height / 2;
-        
-        // 计算到目标的方向
         const dx = targetCenterX - this.x;
         const dy = targetCenterY - this.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
-        
+
         if (distance > 0) {
-            // 目标方向的单位向量
             const targetVx = (dx / distance) * this.currentSpeed;
             const targetVy = (dy / distance) * this.currentSpeed;
-            
-            // 平滑地调整当前速度朝向目标
-            this.vx = this.vx * (1 - this.trackingStrength) + targetVx * this.trackingStrength;
-            this.vy = this.vy * (1 - this.trackingStrength) + targetVy * this.trackingStrength;
-            
-            // 保持速度大小
+
+            this.vx = this.vx * (1 - effectiveTracking) + targetVx * effectiveTracking;
+            this.vy = this.vy * (1 - effectiveTracking) + targetVy * effectiveTracking;
+
             const currentSpeedMag = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
             if (currentSpeedMag > 0) {
                 this.vx = (this.vx / currentSpeedMag) * this.currentSpeed;
@@ -320,7 +330,7 @@ class SublimeMoon extends GameObject {
         
         // 传送回旋斩系统
         this.canTeleportSlash = true; // 是否可以传送回旋斩
-        this.teleportSlashCooldown = 10000; // 传送回旋斩冷却时间
+        this.teleportSlashCooldown = 6500; // Teleport-slash cooldown (was 10s — quicker reprisal)
         this.lastTeleportSlash = 0;
         
         // 回旋镖形态系统
@@ -336,9 +346,18 @@ class SublimeMoon extends GameObject {
         this.isSpinSlashing = false;
         this.spinSlashDamagePhase1 = 12; // 降低伤害：20->12
         this.spinSlashDamagePhase2 = 18; // 降低伤害：30->18
-        this.spinSlashCooldown = 1100; // Cooldown between melee swings (was 100ms — too spammy when player lingered)
+        this.spinSlashCooldown = 700; // Melee swing cooldown (700ms — faster cadence)
         this.lastSpinSlash = 0;
         this.spinSlashRange = 60; // 回旋斩触发距离（缩小到60）
+
+        // Point-defense (CIWS) — shoots down player missiles that get
+        // close. Always-on, no cooldown beyond a per-shot fire rate
+        // limit so the boss can't fire 60 bullets per second.
+        this.pdRange = 320;          // intercept radius (px)
+        this.pdFireRate = 18;        // shots per second
+        this.pdLastFire = 0;
+        this.pdBulletSpeed = 14;     // px/frame, fast tracer
+        this.pdInheritedColor = '#7fc8ff'; // blue ammo
         
         // 瞬移系统
         this.teleportRange = 400; // 超过400像素时触发瞬移
@@ -349,7 +368,7 @@ class SublimeMoon extends GameObject {
         
         // 月牙追踪弹系统
         this.crescentBulletsPerSalvo = 5; // 每次发射5颗月牙弹
-        this.crescentBulletDamage = 10; // 每颗月牙弹10点伤害
+        this.crescentBulletDamage = 7; // Per-bullet damage (lowered from 10)
         this.crescentBulletSpeed = 8; // 月牙弹飞行速度
         this.crescentBulletCooldown = 4000; // 4秒冷却时间
         this.lastCrescentBullet = 0;
@@ -1173,6 +1192,9 @@ class SublimeMoon extends GameObject {
         // Combat: utility-AI picks moves (currently only cloneSummon)
         this.updateCombatAI();
 
+        // Point-defense: shoot down any player missile that gets close.
+        this.updatePointDefense(now);
+
         this.tryHeal();
 
         super.update();
@@ -1474,7 +1496,7 @@ class SublimeMoon extends GameObject {
                             }
                             if (st.nextShotAt === 0) st.nextShotAt = now;
                             if (now >= st.nextShotAt && st.shotsFired < st.totalShots) {
-                                b2.fireCrescentSpiralOne(st.currentAngle, { tracking: 0.04 });
+                                b2.fireCrescentSpiralOne(st.currentAngle, { tracking: 0.028 });
                                 st.currentAngle += Math.PI * 2 / 8; // 45deg/petal
                                 st.shotsFired++;
                                 st.nextShotAt = now + 70;
@@ -1499,13 +1521,9 @@ class SublimeMoon extends GameObject {
                     const telegraphMs = 320;
                     const cx = b.x + b.width / 2;
                     const cy = b.y + b.height / 2;
-                    // Telegraph: a small arrow toward the player so the fan is readable
-                    if (typeof createTelegraphArrow === 'function') {
-                        b.telegraphs.push(createTelegraphArrow(cx, cy,
-                            ctx.angleToPlayer, 110, telegraphMs, '#a0d8ff'));
-                    } else {
-                        b.telegraphs.push(createTelegraphAura(cx, cy, 50, telegraphMs, '#a0d8ff'));
-                    }
+                    // Telegraph: a soft aura on the boss so the fan is readable
+                    // without resembling a laser/aim line.
+                    b.telegraphs.push(createTelegraphAura(cx, cy, 50, telegraphMs, '#a0d8ff'));
                     return {
                         startedAt: Date.now(),
                         telegraphMs,
@@ -1558,7 +1576,7 @@ class SublimeMoon extends GameObject {
                             }
                             if (st.nextShotAt === 0) st.nextShotAt = now;
                             if (now >= st.nextShotAt && st.shots < 3) {
-                                b2.fireCrescentDirected({ tracking: 0.09, speedMult: 1.25 });
+                                b2.fireCrescentDirected({ tracking: 0.063, speedMult: 1.25 });
                                 st.shots++;
                                 st.nextShotAt = now + 110;
                             }
@@ -1597,8 +1615,8 @@ class SublimeMoon extends GameObject {
                             }
                             if (st.nextShotAt === 0) st.nextShotAt = now;
                             if (now >= st.nextShotAt && st.shots < st.totalShots) {
-                                b2.fireCrescentSpiralOne(st.angleA, { tracking: 0.035 });
-                                b2.fireCrescentSpiralOne(st.angleB, { tracking: 0.035 });
+                                b2.fireCrescentSpiralOne(st.angleA, { tracking: 0.025 });
+                                b2.fireCrescentSpiralOne(st.angleB, { tracking: 0.025 });
                                 st.angleA += Math.PI * 2 / 9;       // CCW
                                 st.angleB -= Math.PI * 2 / 9;       // CW (counter-rotating)
                                 st.shots += 2;
@@ -1640,6 +1658,78 @@ class SublimeMoon extends GameObject {
                             if (!st.fired) {
                                 b2.fireCrescentSiege(3);
                                 st.fired = true;
+                            }
+                        },
+                        isDone: (b2) => b2.activeMove.fired
+                    };
+                }
+            },
+            // ---- Move: Frost Nova (wide-area freeze) ----------------------
+            // Large radial pulse centered on the boss. Zero damage, but any
+            // player caught in the radius gets a 70% movement-speed slow for
+            // a few seconds. Probabilistic — only fires sometimes when the
+            // player is in range, so it can't be predicted on a fixed cycle.
+            {
+                id: 'frostNova',
+                cooldown: 9500,
+                canUse: (ctx) => ctx.dist <= 360,
+                score: (ctx) => {
+                    if (ctx.dist > 360) return -10;
+                    // Roll a probability gate here so the move only fires
+                    // sometimes when the player is in range.
+                    if (Math.random() > 0.55) return 0;
+                    let s = 1.2;
+                    if (ctx.dist < 220) s += 0.4;
+                    return s + Math.random() * 0.3;
+                },
+                start: (b) => {
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    const telegraphMs = 700;
+                    const novaRadius = 360;
+                    b.telegraphs.push(createTelegraphCircle(cx, cy, novaRadius, telegraphMs, '#9fd8ff'));
+                    b.telegraphs.push(createTelegraphAura(cx, cy, 70, telegraphMs, '#c8eaff'));
+                    return {
+                        startedAt: Date.now(),
+                        telegraphMs,
+                        novaRadius,
+                        fired: false,
+                        recoveryMs: 380,
+                        controlsMovement: true,
+                        tick: (b2, now) => {
+                            const st = b2.activeMove;
+                            if (now < st.startedAt + st.telegraphMs) {
+                                b2.vx *= 0.35; b2.vy *= 0.35;
+                                return;
+                            }
+                            if (st.fired) return;
+                            st.fired = true;
+                            const fx = b2.x + b2.width / 2;
+                            const fy = b2.y + b2.height / 2;
+                            // Apply slow if the player is inside the nova.
+                            if (game.player) {
+                                const px = game.player.x + game.player.width / 2;
+                                const py = game.player.y + game.player.height / 2;
+                                const d = Math.hypot(px - fx, py - fy);
+                                if (d <= st.novaRadius && typeof game.player.applySlow === 'function') {
+                                    game.player.applySlow(2800, 0.7);
+                                }
+                            }
+                            // Heavy visual: expanding shockwave + flash + frost burst.
+                            if (typeof bossFX !== 'undefined') {
+                                bossFX.addFlash(fx, fy, st.novaRadius, '#a0d8ff', 360, 0.55);
+                                bossFX.addShockwave(fx, fy, 28, st.novaRadius, '#a0d8ff', 620, 5, 0.8);
+                                bossFX.addShockwave(fx, fy, 18, st.novaRadius * 1.1, '#e0f4ff', 760, 3, 0.5);
+                                bossFX.addShake(4, 220);
+                                bossFX.spawnBurst(fx, fy, 32, {
+                                    color: '#bfe6ff',
+                                    speedMin: 2, speedMax: 6.5,
+                                    sizeMin: 1.5, sizeMax: 3,
+                                    lifeMs: 720,
+                                    spreadAngle: Math.PI * 2,
+                                    baseAngle: 0,
+                                    drag: 0.94
+                                });
                             }
                         },
                         isDone: (b2) => b2.activeMove.fired
@@ -1699,6 +1789,69 @@ class SublimeMoon extends GameObject {
         if (distance <= extendedRange) {
             this.performSpinSlash();
         }
+    }
+
+    // === Point Defense =========================================================
+    // Shoots blue tracer rounds at the closest incoming player missile.
+    // Always-on, throttled by pdFireRate. Fires only when at least one
+    // missile is inside pdRange.
+    updatePointDefense(now) {
+        if (!game.missiles || game.missiles.length === 0) return;
+
+        const fireInterval = 1000 / this.pdFireRate;
+        if (now - this.pdLastFire < fireInterval) return;
+
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const range = this.pdRange;
+        const r2 = range * range;
+
+        let best = null;
+        let bestDist2 = r2;
+        for (const m of game.missiles) {
+            if (!m || m.shouldDestroy) continue;
+            // Only target friendly (non-reversed) player missiles. Reversed
+            // ones are handled by the player's own CIWS, and we'd rather
+            // not waste shots on them.
+            if (m.isReversed) continue;
+            const mx = (m.x != null ? m.x : 0) + (m.width || 0) / 2;
+            const my = (m.y != null ? m.y : 0) + (m.height || 0) / 2;
+            const dx = mx - cx;
+            const dy = my - cy;
+            const d2 = dx * dx + dy * dy;
+            if (d2 < bestDist2) {
+                bestDist2 = d2;
+                best = { m, mx, my };
+            }
+        }
+        if (!best) return;
+
+        // Aim straight at the missile's current position. The CIWS bullet
+        // is fast enough (pdBulletSpeed >> typical missile speed) that
+        // lead prediction is unnecessary and actively harmful here —
+        // homing missiles curve, so any forward lead shoots into empty
+        // air on the side of the missile's path.
+        const dx0 = best.mx - cx;
+        const dy0 = best.my - cy;
+        const aLen = Math.sqrt(dx0 * dx0 + dy0 * dy0) || 1;
+        const vx = (dx0 / aLen) * this.pdBulletSpeed;
+        const vy = (dy0 / aLen) * this.pdBulletSpeed;
+
+        if (typeof BossCIWSBullet === 'function') {
+            const bullet = new BossCIWSBullet(cx, cy, vx, vy, this.pdInheritedColor);
+            if (!game.bossCiwsBullets) game.bossCiwsBullets = [];
+            game.bossCiwsBullets.push(bullet);
+        }
+
+        // Tiny muzzle puff so the player can read where the boss is firing from.
+        if (typeof bossFX !== 'undefined') {
+            const ang = Math.atan2(vy, vx);
+            const muzzleX = cx + Math.cos(ang) * 14;
+            const muzzleY = cy + Math.sin(ang) * 14;
+            bossFX.addFlash(muzzleX, muzzleY, 8, this.pdInheritedColor, 110, 0.7);
+        }
+
+        this.pdLastFire = now;
     }
     
     // 执行回旋斩
@@ -1931,7 +2084,7 @@ class SublimeMoon extends GameObject {
             const cb = new CrescentBullet(lx, ly, tx, ty,
                 this.crescentBulletDamage, this.crescentBulletSpeed);
             // Slightly weaker tracking so they bloom outward longer
-            cb.trackingStrength = 0.05;
+            cb.trackingStrength = 0.035;
             game.crescentBullets.push(cb);
         }
         bossFX.addShockwave(cx, cy, 14, 80, '#a0e0ff', 380, 4, 0.7);
@@ -1956,7 +2109,7 @@ class SublimeMoon extends GameObject {
             // Initial velocity targets the player roughly straight down
             const cb = new CrescentBullet(sx, sy, px, py + 80,
                 this.crescentBulletDamage, this.crescentBulletSpeed * 0.85);
-            cb.trackingStrength = 0.06;
+            cb.trackingStrength = 0.04;
             game.crescentBullets.push(cb);
         }
     }
@@ -1978,7 +2131,7 @@ class SublimeMoon extends GameObject {
         const cb = new CrescentBullet(lx, ly, tx, ty,
             this.crescentBulletDamage, this.crescentBulletSpeed);
         // Delay homing so the spiral shape is visible before petals curve in
-        cb.trackingStrength = (opts.tracking != null) ? opts.tracking : 0.04;
+        cb.trackingStrength = (opts.tracking != null) ? opts.tracking : 0.028;
         game.crescentBullets.push(cb);
     }
 
@@ -2005,7 +2158,7 @@ class SublimeMoon extends GameObject {
                 this.crescentBulletDamage, this.crescentBulletSpeed * 1.1);
             // Tighter tracking on outer petals so the fan converges on the player
             const edgeWeight = Math.abs(t - 0.5) * 2; // 0 center, 1 edges
-            cb.trackingStrength = 0.05 + 0.04 * edgeWeight;
+            cb.trackingStrength = 0.035 + 0.028 * edgeWeight;
             game.crescentBullets.push(cb);
         }
         bossFX.addShockwave(cx, cy, 12, 60, '#a0e0ff', 320, 3, 0.7);
@@ -2028,7 +2181,7 @@ class SublimeMoon extends GameObject {
         const cb = new CrescentBullet(lx, ly, tc.x, tc.y,
             this.crescentBulletDamage,
             this.crescentBulletSpeed * (opts.speedMult != null ? opts.speedMult : 1.2));
-        cb.trackingStrength = (opts.tracking != null) ? opts.tracking : 0.09;
+        cb.trackingStrength = (opts.tracking != null) ? opts.tracking : 0.063;
         game.crescentBullets.push(cb);
         bossFX.addFlash(lx, ly, 14, '#cdeeff', 180, 0.85);
     }
@@ -2055,7 +2208,7 @@ class SublimeMoon extends GameObject {
                 const cb = new CrescentBullet(ox, oy, tc.x, tc.y,
                     this.crescentBulletDamage,
                     this.crescentBulletSpeed * 0.9);
-                cb.trackingStrength = 0.05;
+                cb.trackingStrength = 0.035;
                 game.crescentBullets.push(cb);
             }
             bossFX.addFlash(c.x, c.y, 18, '#a0e0ff', 260, 0.8);
@@ -2426,7 +2579,7 @@ class IceClone extends GameObject {
         this.radius = radius; // 与玩家的距离
         
         // 月牙弹发射系统
-        this.crescentBulletDamage = 15; // 分身发射的月牙弹伤害
+        this.crescentBulletDamage = 10; // Clone-fired crescent damage (lowered from 15)
         this.crescentBulletSpeed = 10; // 分身月牙弹速度
         this.fireTimer = 0; // 发射计时器
         this.fireInterval = 1500; // 每1.5秒发射一次
@@ -2572,3 +2725,97 @@ class IceClone extends GameObject {
         ctx.restore();
     }
 } 
+
+// =============================================================================
+// BossCIWSBullet — defensive interceptor fired by the boss at incoming player
+// missiles. Blue tracer, no damage to the player, destroys missiles on contact.
+// =============================================================================
+class BossCIWSBullet extends GameObject {
+    constructor(x, y, vx, vy, color = '#7fc8ff', options = {}) {
+        super(x - 2, y - 2, 4, 4, color);
+        this.vx = vx;
+        this.vy = vy;
+        this.color = color;
+        this.maxLifetime = options.maxLifetime != null ? options.maxLifetime : 1100;
+        this.spawnTime = Date.now();
+        this.shouldDestroy = false;
+        this.startX = x;
+        this.startY = y;
+        this.maxRange = options.maxRange != null ? options.maxRange : 600;
+    }
+
+    update() {
+        const prevX = this.x;
+        const prevY = this.y;
+        super.update();
+
+        if (Date.now() - this.spawnTime > this.maxLifetime) {
+            this.shouldDestroy = true;
+            return;
+        }
+
+        const traveled = Math.hypot(this.x - this.startX, this.y - this.startY);
+        if (traveled > this.maxRange ||
+            this.x < -10 || this.x > GAME_CONFIG.WIDTH + 10 ||
+            this.y < -10 || this.y > GAME_CONFIG.HEIGHT + 10) {
+            this.shouldDestroy = true;
+            return;
+        }
+
+        // Sub-step intercept check (handles fast tracers vs fast missiles).
+        if (!game.missiles || game.missiles.length === 0) return;
+        const speed = Math.hypot(this.vx, this.vy);
+        const steps = Math.max(1, Math.ceil(speed / 8));
+        const hitRadius = 14;
+        for (let s = 0; s <= steps; s++) {
+            const t = s / steps;
+            const cx = prevX + (this.x - prevX) * t + this.width / 2;
+            const cy = prevY + (this.y - prevY) * t + this.height / 2;
+            for (let i = game.missiles.length - 1; i >= 0; i--) {
+                const m = game.missiles[i];
+                if (!m || m.shouldDestroy) continue;
+                if (m.isReversed) continue; // ignore reversed missiles
+                const mx = (m.x != null ? m.x : 0) + (m.width || 0) / 2;
+                const my = (m.y != null ? m.y : 0) + (m.height || 0) / 2;
+                if (Math.hypot(mx - cx, my - cy) < hitRadius) {
+                    m.shouldDestroy = true;
+                    this.shouldDestroy = true;
+                    if (typeof bossFX !== 'undefined') {
+                        bossFX.addFlash(mx, my, 22, this.color, 220, 0.9);
+                        bossFX.spawnBurst(mx, my, 8, {
+                            color: this.color,
+                            speedMin: 1, speedMax: 3,
+                            sizeMin: 1, sizeMax: 2,
+                            lifeMs: 320,
+                            spreadAngle: Math.PI * 2,
+                            baseAngle: 0,
+                            drag: 0.9
+                        });
+                    }
+                    return;
+                }
+            }
+        }
+    }
+
+    draw(ctx) {
+        if (typeof drawTracer === 'function') {
+            drawTracer(ctx, {
+                x: this.x + this.width / 2,
+                y: this.y + this.height / 2,
+                vx: this.vx, vy: this.vy,
+                length: 12,
+                width: 2,
+                scheme: 'azure',
+                alpha: 1
+            });
+            return;
+        }
+        ctx.save();
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        ctx.arc(this.x + this.width / 2, this.y + this.height / 2, this.width / 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+}
