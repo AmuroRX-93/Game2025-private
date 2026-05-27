@@ -1056,14 +1056,15 @@ class Player extends GameObject {
         this.dodgeDirection.y = dodgeY / magnitude;
         
         // 开始闪避
-        // Dodge speed = 200% of the player's current effective move speed,
-        // captured at the moment of activation so any active multipliers
-        // (overdrive / repair / burn / slow) carry through.
+        // Dodge speed = 400% of the player's current effective move speed
+        // (was 200%, doubled per request). Captured at activation so any
+        // active multipliers (overdrive / repair / burn / slow) carry
+        // through into the dodge.
         const burnMul = this.burning ? this.burnSpeedMultiplier : 1;
         const overdriveMul = this.overdriveActive ? 3 : 1;
         const repairMul = this.repairProtocolActive ? 1.5 : 1;
         const currentMoveSpeed = this.speed * burnMul * this.slowMultiplier * overdriveMul * repairMul;
-        this.dodgeSpeed = currentMoveSpeed * 2;
+        this.dodgeSpeed = currentMoveSpeed * 4;
 
         this.isDodging = true;
         this.dodgeStartTime = Date.now();

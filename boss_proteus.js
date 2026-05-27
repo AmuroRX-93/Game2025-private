@@ -110,6 +110,19 @@ class Proteus extends GameObject {
         // crimsonLaserFX but supports multiple concurrent beams.
         this.proteusLasers = [];
 
+        // Point-defense (CIWS) — ported from Sublime Moon. Active only
+        // in turret form (deactivated in _beginReconfigure when leaving).
+        // Targets the nearest non-reversed player missile inside pdRange
+        // and shoots fast tracers at it. Bullets reuse the existing
+        // BossCIWSBullet pipeline (game.bossCiwsBullets) so collision
+        // and rendering are handled by gameCore.
+        this.pdActive = false;
+        this.pdRange = 320;
+        this.pdFireRate = 18;            // shots per second
+        this.pdLastFire = 0;
+        this.pdBulletSpeed = 14;
+        this.pdColor = '#7fdfff';        // cyan to match turret form
+
         // Ongoing attack state (for melee swing windows)
         this.activeSwing = null;  // {startedAt, durMs, startAng, endAng, didHit}
         this.swingDash   = null;  // pre-swing forward dash with trailing blade
@@ -259,6 +272,63 @@ class Proteus extends GameObject {
             // next regen cycle starts cleanly.
             this.shieldLastRegenTick = now;
         }
+    }
+
+    // Turret-form CIWS: ported from Sublime Moon. Picks the closest
+    // non-reversed player missile inside pdRange and fires a fast tracer
+    // at it. Tracer reuses BossCIWSBullet so collision/draw is shared
+    // with the existing pipeline. Only runs while pdActive (set by
+    // _beginReconfigure on form swap) so other forms aren't protected.
+    _updateProteusPointDefense(now) {
+        if (!this.pdActive) return;
+        if (!game.missiles || game.missiles.length === 0) return;
+        const fireInterval = 1000 / this.pdFireRate;
+        if (now - this.pdLastFire < fireInterval) return;
+
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const r2 = this.pdRange * this.pdRange;
+
+        let best = null;
+        let bestDist2 = r2;
+        for (const m of game.missiles) {
+            if (!m || m.shouldDestroy) continue;
+            // Only friendly (non-reversed) player missiles. Reversed ones
+            // are already heading away; intercepting them is wasted ammo.
+            if (m.isReversed) continue;
+            const mx = (m.x != null ? m.x : 0) + (m.width || 0) / 2;
+            const my = (m.y != null ? m.y : 0) + (m.height || 0) / 2;
+            const dx = mx - cx;
+            const dy = my - cy;
+            const d2 = dx * dx + dy * dy;
+            if (d2 < bestDist2) {
+                bestDist2 = d2;
+                best = { m, mx, my };
+            }
+        }
+        if (!best) return;
+
+        // Direct aim — CIWS bullets are fast enough that lead prediction
+        // shoots into empty space against curving missiles.
+        const dx0 = best.mx - cx;
+        const dy0 = best.my - cy;
+        const aLen = Math.sqrt(dx0 * dx0 + dy0 * dy0) || 1;
+        const vx = (dx0 / aLen) * this.pdBulletSpeed;
+        const vy = (dy0 / aLen) * this.pdBulletSpeed;
+
+        if (typeof BossCIWSBullet === 'function') {
+            const bullet = new BossCIWSBullet(cx, cy, vx, vy, this.pdColor);
+            if (!game.bossCiwsBullets) game.bossCiwsBullets = [];
+            game.bossCiwsBullets.push(bullet);
+        }
+        // Muzzle puff so the player can read the firing arc.
+        if (typeof bossFX !== 'undefined') {
+            const ang = Math.atan2(vy, vx);
+            const muzzleX = cx + Math.cos(ang) * 14;
+            const muzzleY = cy + Math.sin(ang) * 14;
+            bossFX.addFlash(muzzleX, muzzleY, 8, this.pdColor, 110, 0.7);
+        }
+        this.pdLastFire = now;
     }
 
     addHitIndicator(damage) {
@@ -517,6 +587,7 @@ class Proteus extends GameObject {
             // player feels the structural change.
             if (this.form === 'turret') {
                 this._deployTurrets();
+                this.pdActive = true;
                 // Bring the shield up unless it was just broken (cooldown).
                 if (now - this.shieldBrokenAt >= this.shieldRespawnCd) {
                     this._activateShield(now);
@@ -525,6 +596,7 @@ class Proteus extends GameObject {
                 // Leaving turret form — drop the shield (no AOE: it's a
                 // controlled retreat, not a forced break).
                 this._deactivateShield();
+                this.pdActive = false;
             }
             const cx = this.x + this.width / 2;
             const cy = this.y + this.height / 2;
@@ -1220,13 +1292,18 @@ class Proteus extends GameObject {
             const spawnPhase = (i / count) * Math.PI * 2 + Math.random() * 0.05;
             this.proteusDrones.push({
                 bornAt: now,
+                lastShotAt: 0,
+                // Hard deadline: every drone MUST fire at least once
+                // every 10s. Used by _updateProteusDrones to force a
+                // preFire transition even if travel hasn't finished.
+                forceFireAfter: 10000,
                 cx: cx + Math.cos(spawnPhase) * 18,
                 cy: cy + Math.sin(spawnPhase) * 18,
                 vx: 0, vy: 0,
                 // Where to sit relative to the player (radians, around player).
                 formationAngle: (i / count) * Math.PI * 2 + Math.random() * 0.4,
                 attackRange,
-                speed: 6.0,                         // px/frame travel speed
+                speed: 18.0,                        // px/frame travel speed (3x of original 6.0)
                 shotsLeft: shotsEach,
                 shotsTotal: shotsEach,
                 state: 'travel',                    // travel → preFire → fire → postFire → travel ...
@@ -1238,7 +1315,6 @@ class Proteus extends GameObject {
                 elite,
                 detonateAt: 0,
                 shouldDestroy: false,
-                lastShotAt: 0,
             });
         }
         bossFX.addFlash(cx, cy, 38, elite ? '#ffd47a' : '#a0d8ff', 320, 0.85);
@@ -1290,8 +1366,13 @@ class Proteus extends GameObject {
                 const dx = idealX - d.cx;
                 const dy = idealY - d.cy;
                 const dist = Math.hypot(dx, dy);
-                if (dist <= 22) {
-                    // Arrived. Pick this volley's attack type and lock heading.
+                // Hard deadline: if we haven't shot in forceFireAfter ms
+                // (measured from spawn, or from last shot for repeat
+                // volleys), commit to preFire wherever we currently are
+                // so the player never gets a free 10s window.
+                const refTime = d.lastShotAt > 0 ? d.lastShotAt : d.bornAt;
+                const overdue = (now - refTime) >= d.forceFireAfter;
+                if (dist <= 22 || overdue) {
                     d.state = 'preFire';
                     d.stateStartedAt = now;
                     d.attackType = (Math.random() < 0.5) ? 'laser' : 'bullets';
@@ -1506,6 +1587,8 @@ class Proteus extends GameObject {
         this.vy *= 0.85;
         // Shield maintenance: passive regen + auto-respawn after cd.
         this._tickShield(now);
+        // Point-defense (CIWS) — picks off the nearest player missile.
+        this._updateProteusPointDefense(now);
         // Boss-direct cannon shot at the player every 1300ms (predictive arc).
         if (now - this.lastTurretShotAt > 1300 && game.player) {
             this._fireBossCannon(now);
@@ -1874,7 +1957,10 @@ class Proteus extends GameObject {
                 hitRadius: 18,
                 damage: 10,
                 durationMs: 280,
-                widths: [18, 6.5, 2.0]
+                widths: [18, 6.5, 2.0],
+                // Green palette to match the Skirmish form's body color.
+                // Layers: [outer glow, mid body, pale core].
+                colors: ['#3ad88a', '#7fffb0', '#d8ffe0']
             });
             bossFX.addFlash(sx, sy, 30, '#a0ffc0', 220, 0.85);
             bossFX.addShake && bossFX.addShake(1.6, 90);
@@ -1917,14 +2003,18 @@ class Proteus extends GameObject {
             const d = Math.hypot(px - qx, py - qy);
             if (d <= hitRadius) {
                 game.player.takeDamage(damage);
-                bossFX.addFlash(qx, qy, 22, '#bff0ff', 200, 0.8);
+                const flashColor = (opts.colors && opts.colors[2]) || '#bff0ff';
+                bossFX.addFlash(qx, qy, 22, flashColor, 200, 0.8);
             }
         }
         this.proteusLasers.push({
             sx, sy, ex, ey,
             startedAt: Date.now(),
             durationMs,
-            widths
+            widths,
+            // Optional 3-color palette [outerGlow, midBody, paleCore].
+            // Defaults applied at draw time to keep older callsites stable.
+            colors: opts.colors || null,
         });
     }
 
@@ -1940,9 +2030,10 @@ class Proteus extends GameObject {
         for (const l of this.proteusLasers) {
             const t = now - l.startedAt;
             const a = 1 - (t / l.durationMs);
-            // Outer glow — wide soft cyan.
+            const palette = l.colors || ['#3aa8d8', '#7fdfff', '#d8f0ff'];
+            // Outer glow — wide soft.
             ctx.globalAlpha = a * 0.45;
-            ctx.strokeStyle = '#3aa8d8';
+            ctx.strokeStyle = palette[0];
             ctx.lineWidth = l.widths[0];
             ctx.beginPath();
             ctx.moveTo(l.sx, l.sy);
@@ -1950,15 +2041,15 @@ class Proteus extends GameObject {
             ctx.stroke();
             // Mid body
             ctx.globalAlpha = a * 0.8;
-            ctx.strokeStyle = '#7fdfff';
+            ctx.strokeStyle = palette[1];
             ctx.lineWidth = l.widths[1];
             ctx.beginPath();
             ctx.moveTo(l.sx, l.sy);
             ctx.lineTo(l.ex, l.ey);
             ctx.stroke();
-            // Pale core — desaturated cyan, can't blow out under stacking.
+            // Pale core — desaturated, can't blow out under stacking.
             ctx.globalAlpha = a;
-            ctx.strokeStyle = '#d8f0ff';
+            ctx.strokeStyle = palette[2];
             ctx.lineWidth = l.widths[2];
             ctx.beginPath();
             ctx.moveTo(l.sx, l.sy);

@@ -334,8 +334,10 @@ class Game {
         mouse.leftClick = false;
         mouse.rightClick = false;
         
-        // 强制切换到软锁模式
-        gameState.lockMode = 'soft';
+        // Default to hard lock so a fresh run starts with the boss/enemy
+        // already locked. Players can cycle to soft/manual via the toggle.
+        gameState.lockMode = 'hard';
+        gameState.hardLockTarget = null;
         
         // 隐藏点击提示
         const clickHint = document.querySelector('.click-hint');

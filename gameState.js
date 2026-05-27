@@ -23,7 +23,7 @@ const gameState = {
         rightShoulder: null // 右肩武器：暂时为空
     },
     // 锁定系统
-    lockMode: 'soft', // 'soft' | 'hard' | 'manual'
+    lockMode: 'hard', // 'soft' | 'hard' | 'manual' — default to hard lock
     hardLockTarget: null, // 硬锁模式的锁定目标
     manualLockX: 0, // 手动锁模式的锁定位置
     manualLockY: 0,
