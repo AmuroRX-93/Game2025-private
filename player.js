@@ -537,17 +537,17 @@ class Player extends GameObject {
             }
         }
 
-        // 重装 (R键) - 只有在能接受键盘输入且可以攻击时才处理
-        if (canAcceptKeyboardInput && this.canAttack() && (keys['r'] || keys['R'])) {
-            // 重装左手武器（通常是枪）
-            if (this.leftHandWeapon && this.leftHandWeapon.canReload) {
-                this.leftHandWeapon.reload();
-            }
-            // 重装右手武器（如果有重装功能）
-            if (this.rightHandWeapon && this.rightHandWeapon.canReload) {
-                this.rightHandWeapon.reload();
-            }
-        }
+        // Manual reload (R key) has been removed — every weapon now
+        // auto-reloads when its magazine is empty. We keep this block
+        // commented out as documentation of the old behavior.
+        // if (canAcceptKeyboardInput && this.canAttack() && (keys['r'] || keys['R'])) {
+        //     if (this.leftHandWeapon && this.leftHandWeapon.canReload) {
+        //         this.leftHandWeapon.reload();
+        //     }
+        //     if (this.rightHandWeapon && this.rightHandWeapon.canReload) {
+        //         this.rightHandWeapon.reload();
+        //     }
+        // }
         
         // 隐藏机能 (Shift键) - 只有在能接受键盘输入时才处理
         if (canAcceptKeyboardInput && keys['Shift']) {

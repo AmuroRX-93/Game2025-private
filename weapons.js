@@ -524,7 +524,10 @@ class Gun extends Weapon {
     }
     
     getStatus() {
-        if (this.reloading) return { text: t('ws.reloading'), color: '#CC6666' };
+        if (this.reloading) {
+            const remaining = Math.max(0, this.reloadDuration - (Date.now() - this.reloadStartTime));
+            return { text: t('ws.reloading', (remaining / 1000).toFixed(1)), color: '#CC6666' };
+        }
         if (this.currentAmmo === 0) return { text: t('ws.ammoEmpty'), color: '#CC6666' };
         
         // 始终显示弹药数量，如果不满弹则提示可以重装
@@ -3747,7 +3750,10 @@ class CIWS extends Weapon {
     }
     
     getStatus() {
-        if (this.reloading) return { text: t('ws.reloading'), color: '#CC6666' };
+        if (this.reloading) {
+            const remaining = Math.max(0, this.reloadDuration - (Date.now() - this.reloadStartTime));
+            return { text: t('ws.reloading', (remaining / 1000).toFixed(1)), color: '#CC6666' };
+        }
         return { text: t('ws.ammo', this.currentAmmo, this.magazineSize), color: '#00FF88' };
     }
     
@@ -5378,7 +5384,10 @@ class Minigun extends Weapon {
     }
 
     getStatus() {
-        if (this.reloading) return { text: t('ws.reloading'), color: '#CC6666' };
+        if (this.reloading) {
+            const remaining = Math.max(0, this.reloadDuration - (Date.now() - this.reloadStartTime));
+            return { text: t('ws.reloading', (remaining / 1000).toFixed(1)), color: '#CC6666' };
+        }
         if (this.currentAmmo === 0) return { text: t('ws.ammoEmpty'), color: '#CC6666' };
         let statusText = t('ws.ammo', this.currentAmmo, this.magazineSize);
         if (this.currentAmmo < this.magazineSize) statusText += t('ws.pressR');
@@ -5509,7 +5518,10 @@ class Shotgun extends Weapon {
     }
 
     getStatus() {
-        if (this.reloading) return { text: t('ws.reloading'), color: '#CC6666' };
+        if (this.reloading) {
+            const remaining = Math.max(0, this.reloadDuration - (Date.now() - this.reloadStartTime));
+            return { text: t('ws.reloading', (remaining / 1000).toFixed(1)), color: '#CC6666' };
+        }
         if (this.currentAmmo === 0) return { text: t('ws.ammoEmpty'), color: '#CC6666' };
         let txt = t('ws.ammo', this.currentAmmo, this.magazineSize);
         if (this.currentAmmo < this.magazineSize) txt += t('ws.pressR');
@@ -5635,7 +5647,10 @@ class RocketLauncher extends Weapon {
     }
 
     getStatus() {
-        if (this.reloading) return { text: t('ws.reloading'), color: '#CC6666' };
+        if (this.reloading) {
+            const remaining = Math.max(0, this.reloadDuration - (Date.now() - this.reloadStartTime));
+            return { text: t('ws.reloading', (remaining / 1000).toFixed(1)), color: '#CC6666' };
+        }
         if (this.currentAmmo === 0) return { text: t('ws.ammoEmpty'), color: '#CC6666' };
         let txt = t('ws.ammo', this.currentAmmo, this.magazineSize);
         if (this.currentAmmo < this.magazineSize) txt += t('ws.pressR');

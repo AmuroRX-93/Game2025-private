@@ -3802,21 +3802,18 @@ class Game {
         gameState.showModeSelection = true;
         gameState.showLevelSelection = false;
         gameState.showWeaponConfig = false;
-        gameState.selectedMech = null;
         gameState.selectedGameMode = null;
         gameState.selectedLevel = null;
         gameState.bossSpawned = false;
         gameState.bossKillCount = 0;
-        // 重置失明状态
+        // Reset blindness status
         gameState.playerBlinded = false;
-        // 重置维修包数量
+        // Reset repair kit count
         gameState.repairKits = gameState.maxRepairKits;
-        // 武器配置重置为默认
-        gameState.weaponConfig = {
-            leftHand: 'gun',
-            rightHand: 'sword',
-            hiddenAbility: 'pulse_shield'
-        };
+        // Mech and weapon loadout are intentionally NOT reset on defeat —
+        // the pilot keeps their previously configured chassis + weapons so
+        // they can jump straight back into battle without re-picking
+        // everything from scratch every time they die.
         this.resetAllWeaponStates();
         
         this.player = null;

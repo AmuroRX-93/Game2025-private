@@ -796,6 +796,14 @@ class HiveMind extends GameObject {
         if (this.splinterPhase) {
             const live = (game.hiveSplinters || []).filter(s => !s.shouldDestroy).length;
             if (live === 0) {
+                // Recenter the queen on the last splinter's death site so
+                // the boss-kill explosion plays from the body that just
+                // got killed instead of the long-gone queen origin.
+                if (typeof this._lastSplinterDeathX === 'number' &&
+                    typeof this._lastSplinterDeathY === 'number') {
+                    this.x = this._lastSplinterDeathX - this.width / 2;
+                    this.y = this._lastSplinterDeathY - this.height / 2;
+                }
                 this.health = 0;
                 this.shouldDestroy = true;
             } else {
@@ -1372,6 +1380,13 @@ class HiveSplinter extends GameObject {
         this.shouldDestroy = true;
         const cx = this.x + this.width / 2;
         const cy = this.y + this.height / 2;
+        // Tell the queen where the last dying splinter is, so when she
+        // collapses (last splinter killed), the boss-kill explosion plays
+        // from this splinter's body instead of the now-invisible queen.
+        if (typeof game !== 'undefined' && game.boss && game.boss.splinterPhase) {
+            game.boss._lastSplinterDeathX = cx;
+            game.boss._lastSplinterDeathY = cy;
+        }
         if (typeof bossFX !== 'undefined') {
             bossFX.addFlash(cx, cy, 60, '#e0c8ff', 420, 0.95);
             bossFX.addShockwave(cx, cy, 12, 90, '#9a6cff', 460, 4, 0.75);
