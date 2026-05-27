@@ -94,6 +94,15 @@ const BOSS_LEVELS = {
         difficulty: 4,
         color: '#a0ffc0',
         unlocked: true
+    },
+    TRIUMVIRATE: {
+        id: 'TRIUMVIRATE',
+        name: '元素三主神',
+        description: '火/雷/冰三体同台，杀掉两体后最后一体崩塌为虚空体，吞噬非近战攻击并以黑洞反击',
+        bossClass: 'Triumvirate',
+        difficulty: 7,
+        color: '#a070ff',
+        unlocked: true
     }
     // 未来可以添加更多关卡
     // SHADOW_LORD: {

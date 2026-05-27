@@ -67,7 +67,7 @@ class SwordSlash {
             
             if (distance <= this.slashWidth + enemy.width / 2) {
                 this.hitEnemies.add(enemy);
-                const isDead = enemy.takeDamage(this.damage);
+                const isDead = enemy.takeDamage(this.damage, 'melee');
                 gameState.score += this.damage;
                 gameState.totalDamage += this.damage;
                 if (isDead) {
@@ -468,7 +468,7 @@ class MoonlightSlash {
             const distance = distanceToLineSegment(ecx, ecy, playerCenterX, playerCenterY, endX, endY);
             if (distance <= this.slashWidth + enemy.width / 2) {
                 this.hitEnemies.add(enemy);
-                const isDead = enemy.takeDamage(this.damage);
+                const isDead = enemy.takeDamage(this.damage, 'melee');
                 gameState.score += this.damage;
                 gameState.totalDamage += this.damage;
                 if (isDead) {

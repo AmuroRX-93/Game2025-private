@@ -193,6 +193,12 @@ class Game {
                     case 'Proteus':
                         this.boss = new Proteus(randomPos.x, randomPos.y);
                         break;
+                    case 'Triumvirate':
+                        this.boss = new Triumvirate(randomPos.x, randomPos.y);
+                        // Push members into the enemies array so player
+                        // weapons can target them via the standard pipeline.
+                        for (const m of this.boss.members) this.enemies.push(m);
+                        break;
                     default:
                         console.warn(`未知的Boss类型: ${level.bossClass}`);
                         this.boss = new Boss(randomPos.x, randomPos.y); // 默认使用血红之王
@@ -630,6 +636,10 @@ class Game {
         if (this.player && !this.player.isUntargetable && this.enemies.length > 0) {
             for (let enemyIndex = this.enemies.length - 1; enemyIndex >= 0; enemyIndex--) {
                 const enemy = this.enemies[enemyIndex];
+                // Triumvirate members deal damage exclusively through their
+                // attack moves — direct body contact is a no-op (they would
+                // otherwise melt the player just by being shoved).
+                if (enemy.isTriMember || enemy.isVoidborn) continue;
                 if (enemy.collidesWith(this.player)) {
                     this.player.takeDamage(1);
                     updateUI();
@@ -2380,6 +2390,7 @@ class Game {
         else if (this.boss instanceof HiveMind) bossName = t('boss.HIVE_MIND');
         else if (this.boss instanceof Yukikon) bossName = t('boss.YUKIKON');
         else if (this.boss instanceof Proteus) bossName = t('boss.PROTEUS');
+        else if (this.boss instanceof Triumvirate) bossName = t('boss.TRIUMVIRATE');
 
         ctx.save();
         ctx.fillStyle = UI_THEME.color.danger;

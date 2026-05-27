@@ -6,7 +6,7 @@
 class Magnus extends GameObject {
     constructor(x, y) {
         super(x, y, 70, 70, '#5a6470');
-        this.maxHealth = 420;
+        this.maxHealth = 600;
         this.health = this.maxHealth;
         this.speed = 28;
         this.dodgeSpeed = 36;

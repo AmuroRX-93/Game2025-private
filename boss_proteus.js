@@ -97,7 +97,7 @@ class Proteus extends GameObject {
         this.shieldHp = 0;
         this.shieldMaxHp = Math.round(this.maxHealth * 0.32);
         this.shieldDamageReduction = 0.8;
-        this.shieldRegenPerSec = Math.round(this.shieldMaxHp * 0.06); // ~16s full
+        this.shieldRegenPerSec = Math.round(this.shieldMaxHp * 0.015); // ~64s full (was 0.06 / ~16s)
         this.shieldLastRegenTick = 0;
         this.shieldBornAt = 0;
         this.shieldBrokenAt = 0;
