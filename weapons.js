@@ -1,3 +1,25 @@
+// ===========================================================================
+// Real-velocity helper
+// ---------------------------------------------------------------------------
+// Many enemies (especially when wall-pinned) report a non-zero `vx`/`vy`
+// representing their *intended* motion, but their world position is not
+// actually changing. Using these intended values for predictive aiming
+// causes shots/beams to lead off-screen.
+//
+// gameCore measures each entity's *observed* per-frame displacement and
+// stores it as `_observedVx`/`_observedVy`. This helper prefers the
+// observed value and falls back to intent when unavailable.
+// ===========================================================================
+function getEntityAimVelocity(entity) {
+    if (!entity) return { vx: 0, vy: 0 };
+    const ox = entity._observedVx;
+    const oy = entity._observedVy;
+    if (typeof ox === 'number' && typeof oy === 'number') {
+        return { vx: ox, vy: oy };
+    }
+    return { vx: entity.vx || 0, vy: entity.vy || 0 };
+}
+
 // 武器基类
 class Weapon {
     constructor(config) {
@@ -432,9 +454,12 @@ class Gun extends Weapon {
         const enemyX = lockedTarget.x + lockedTarget.width / 2;
         const enemyY = lockedTarget.y + lockedTarget.height / 2;
         
-        // 目标速度
-        const enemyVx = lockedTarget.vx || 0;
-        const enemyVy = lockedTarget.vy || 0;
+        // 目标速度 — use *observed* velocity so wall-pinned enemies
+        // (whose intent vx/vy points into the wall) don't drag the
+        // predicted point off the map.
+        const _av = getEntityAimVelocity(lockedTarget);
+        const enemyVx = _av.vx;
+        const enemyVy = _av.vy;
         
         // 计算距离
         const dx = enemyX - bulletX;
@@ -445,34 +470,8 @@ class Gun extends Weapon {
         const flightTime = distance / this.bulletSpeed;
         
         // 预测目标位置
-        let predictedX = enemyX + enemyVx * flightTime;
-        let predictedY = enemyY + enemyVy * flightTime;
-
-        // Clamp prediction to inside the arena. When an enemy is pinned
-        // against a wall, its vx/vy may still be non-zero (driving it into
-        // the wall) so the naive predicted point lands off-map and pulls
-        // bullets off-target. Bound the prediction to where the enemy
-        // could actually be — accounting for its own bounding-box size.
-        const halfW = (lockedTarget.width || 0) / 2;
-        const halfH = (lockedTarget.height || 0) / 2;
-        if (typeof GAME_CONFIG !== 'undefined') {
-            predictedX = Math.max(halfW, Math.min(GAME_CONFIG.WIDTH - halfW, predictedX));
-            predictedY = Math.max(halfH, Math.min(GAME_CONFIG.HEIGHT - halfH, predictedY));
-        }
-        // If the enemy is already wall-pinned (close to a boundary) and
-        // its velocity points further into that wall, drop the lead in
-        // that axis entirely — the enemy literally cannot move there.
-        const wallPad = 8;
-        if (typeof GAME_CONFIG !== 'undefined') {
-            if ((enemyX - halfW <= wallPad && enemyVx < 0) ||
-                (enemyX + halfW >= GAME_CONFIG.WIDTH - wallPad && enemyVx > 0)) {
-                predictedX = enemyX;
-            }
-            if ((enemyY - halfH <= wallPad && enemyVy < 0) ||
-                (enemyY + halfH >= GAME_CONFIG.HEIGHT - wallPad && enemyVy > 0)) {
-                predictedY = enemyY;
-            }
-        }
+        const predictedX = enemyX + enemyVx * flightTime;
+        const predictedY = enemyY + enemyVy * flightTime;
         
         // 计算射击角度
         const aimDx = predictedX - bulletX;
@@ -604,8 +603,11 @@ class LaserRifle extends Weapon {
         if (target) {
             const tx = target.x + target.width / 2;
             const ty = target.y + target.height / 2;
-            const tvx = target.vx || 0;
-            const tvy = target.vy || 0;
+            // Use observed velocity so wall-pinned enemies don't pull the
+            // beam off-map.
+            const _av = getEntityAimVelocity(target);
+            const tvx = _av.vx;
+            const tvy = _av.vy;
             
             const dist = Math.sqrt((tx - px) ** 2 + (ty - py) ** 2);
             const beamSpeed = 200;
@@ -613,26 +615,6 @@ class LaserRifle extends Weapon {
             
             endX = tx + tvx * flightTime;
             endY = ty + tvy * flightTime;
-
-            // Same wall-pin guard as the rifle: clamp the predicted point
-            // inside the arena, and zero-out lead on any axis where the
-            // target is already pinned and trying to push further into a
-            // wall. Without this, beams aim off-screen.
-            const halfW = (target.width || 0) / 2;
-            const halfH = (target.height || 0) / 2;
-            if (typeof GAME_CONFIG !== 'undefined') {
-                endX = Math.max(halfW, Math.min(GAME_CONFIG.WIDTH - halfW, endX));
-                endY = Math.max(halfH, Math.min(GAME_CONFIG.HEIGHT - halfH, endY));
-                const wallPad = 8;
-                if ((tx - halfW <= wallPad && tvx < 0) ||
-                    (tx + halfW >= GAME_CONFIG.WIDTH - wallPad && tvx > 0)) {
-                    endX = tx;
-                }
-                if ((ty - halfH <= wallPad && tvy < 0) ||
-                    (ty + halfH >= GAME_CONFIG.HEIGHT - wallPad && tvy > 0)) {
-                    endY = ty;
-                }
-            }
         } else {
             const angle = player.direction * Math.PI / 180;
             endX = px + Math.cos(angle) * 2000;
@@ -5828,6 +5810,123 @@ class Rocket extends GameObject {
 
         ctx.restore();
     }
+}
+
+// ============================================================
+// BossRocket - boss-fired version of the player rocket launcher.
+// Subclasses Rocket so it shares the exact same flight + draw code; we
+// only swap the target side: damage applies to the player, and direct-
+// hit detection looks at the player's hitbox instead of enemies/boss.
+// Lives in game.bossMissiles so the existing missile pipeline updates,
+// draws, and prunes it. damage=0 on the missile hull so the generic
+// boss-missile direct-hit path doesn't double-dip — _detonate() owns
+// all damage application via the explosion's AOE falloff.
+// ============================================================
+class BossRocket extends Rocket {
+    constructor(x, y, targetX, targetY, damage, speed, explosionRadius, maxRange) {
+        super(x, y, targetX, targetY, damage, speed, explosionRadius, maxRange);
+        this._aoeDamage = damage;     // applied at detonation
+        this.damage = 0;              // suppress generic missile direct-hit
+        this.isPlayerRocket = false;
+        this.isBossMissile = true;
+        this.isBossRocket = true;
+    }
+
+    update() {
+        if (this.exploded) { this.shouldDestroy = true; return; }
+        // Identical to Rocket.update except the direct-hit check looks at
+        // the player rather than enemies/boss.
+        this.x += this.vx;
+        this.y += this.vy;
+        const dx = this.x - this.startX;
+        const dy = this.y - this.startY;
+        const traveled = Math.sqrt(dx * dx + dy * dy);
+        this._trail.push({ x: this.x + this.width / 2, y: this.y + this.height / 2, t: Date.now() });
+        if (this._trail.length > 14) this._trail.shift();
+        if (traveled > this.maxRange ||
+            this.x < -40 || this.x > GAME_CONFIG.WIDTH + 40 ||
+            this.y < -40 || this.y > GAME_CONFIG.HEIGHT + 40) {
+            this._detonate();
+            return;
+        }
+        if (game.player && !game.player.isUntargetable) {
+            const cx = this.x + this.width / 2;
+            const cy = this.y + this.height / 2;
+            const px = game.player.x + game.player.width / 2;
+            const py = game.player.y + game.player.height / 2;
+            const r = (game.player.width + game.player.height) / 4 + 6;
+            const ddx = px - cx, ddy = py - cy;
+            if (ddx * ddx + ddy * ddy <= r * r) {
+                this._detonate();
+                return;
+            }
+        }
+    }
+
+    // Generic missile pipeline checks collidesWith(player); we already
+    // handle that ourselves in update(), so report false to suppress the
+    // generic instant-kill path.
+    collidesWith() { return false; }
+
+    explode() { this._detonate(); }
+
+    _detonate() {
+        if (this.exploded) return;
+        this.exploded = true;
+        this.shouldDestroy = true;
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const radius = this.explosionRadius;
+        if (game.player && !game.player.isUntargetable) {
+            const px = game.player.x + game.player.width / 2;
+            const py = game.player.y + game.player.height / 2;
+            const dist = Math.hypot(px - cx, py - cy);
+            if (dist <= radius) {
+                const norm = dist / radius;
+                const falloff = Math.max(0.05, 1 - norm * norm);
+                const dmg = Math.max(1, Math.round(this._aoeDamage * falloff));
+                game.player.takeDamage(dmg);
+                if (typeof updateUI === 'function') updateUI();
+            }
+        }
+        if (!game.explosions) game.explosions = [];
+        game.explosions.push({
+            x: cx, y: cy,
+            startTime: Date.now(),
+            duration: 600,
+            isBossMissile: true,
+            isSuperMissile: false,
+            explosionRadius: radius
+        });
+        if (typeof bossFX !== 'undefined') {
+            if (bossFX.addShake) bossFX.addShake(7, 280);
+            if (bossFX.addShockwave) {
+                bossFX.addShockwave(cx, cy, radius * 0.25, radius * 1.0, '#fff0c0', 420, 5, 0.95);
+                bossFX.addShockwave(cx, cy, radius * 0.35, radius * 1.25, '#ff9040', 560, 4, 0.75);
+                bossFX.addShockwave(cx, cy, radius * 0.45, radius * 1.6, '#ff5020', 720, 3, 0.5);
+            }
+            if (bossFX.addFlash) {
+                bossFX.addFlash(cx, cy, radius * 0.9, '#ffd070', 380, 1.0);
+            }
+            if (bossFX.spawnBurst) {
+                bossFX.spawnBurst(cx, cy, 26, {
+                    color: '#ffb050',
+                    speedMin: 3, speedMax: 9,
+                    sizeMin: 2, sizeMax: 4.5,
+                    lifeMs: 620, drag: 0.92
+                });
+                bossFX.spawnBurst(cx, cy, 14, {
+                    color: '#fff0c0',
+                    speedMin: 1.5, speedMax: 5,
+                    sizeMin: 1.5, sizeMax: 3,
+                    lifeMs: 460, drag: 0.9
+                });
+            }
+        }
+    }
+
+    // Inherit draw() from Rocket - identical visual to the player's rocket
+    // launcher (warhead, fins, exhaust, smoke trail).
 }
 
 // 填充武器类型映射

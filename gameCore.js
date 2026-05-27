@@ -466,7 +466,13 @@ class Game {
         // 更新敌人 - 从后往前遍历避免索引问题
         for (let i = this.enemies.length - 1; i >= 0; i--) {
             const enemy = this.enemies[i];
+            // Snapshot pre-update position so we can compute *observed*
+            // velocity (intent vs reality may diverge when wall-pinned).
+            const _prevX = enemy.x;
+            const _prevY = enemy.y;
             enemy.update();
+            enemy._observedVx = enemy.x - _prevX;
+            enemy._observedVy = enemy.y - _prevY;
             if (enemy.shouldDestroy) {
                 this.enemies.splice(i, 1);
             }
@@ -657,7 +663,11 @@ class Game {
 
         // 更新Boss
         if (this.boss) {
+            const _bossPrevX = this.boss.x;
+            const _bossPrevY = this.boss.y;
             this.boss.update();
+            this.boss._observedVx = this.boss.x - _bossPrevX;
+            this.boss._observedVy = this.boss.y - _bossPrevY;
         }
         
         // 更新混沌子弹

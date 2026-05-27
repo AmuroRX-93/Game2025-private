@@ -1681,13 +1681,19 @@ class MagnusShoulderPod extends GameObject {
         this.aimAngle = 0;
         this.lastFireAt = Date.now();
         this.fireInterval = 1100 + Math.random() * 400;
-        // Rocket launcher: each pod independently lobs a homing rocket on a
-        // longer cooldown. Stagger initial cooldown so the two pods don't
-        // fire simultaneously.
-        this.rocketInterval = 4800;
-        this.lastRocketAt = Date.now() - 1500 - Math.random() * 1500;
-        this.rocketTelegraphMs = 480;
-        this.rocketWindupAt = 0;          // 0 = idle, otherwise launch timestamp
+        // Rocket launcher (player-style: straight shot + AOE on impact).
+        // Mirrors the player's RocketLauncher contract — single-shot tube
+        // with reload between shots, big radius, strong center / weak rim.
+        // Each pod owns its own launcher with staggered initial cooldown
+        // so the two pods don't volley simultaneously.
+        this.rocketCooldown = 5500;          // ms between launches
+        this.rocketTelegraphMs = 520;        // pre-fire wind-up
+        this.rocketDamage = 22;              // peak (center-hit)
+        this.rocketSpeed = 13;
+        this.rocketExplosionRadius = 150;
+        this.rocketRange = 18 * 50;
+        this.lastRocketAt = Date.now() - 2200 - Math.random() * 2400;
+        this.rocketWindupAt = 0;             // 0 = idle; otherwise launch deadline
         this.rocketWindupAngle = 0;
         this.driftPhase = Math.random() * Math.PI * 2;
         this.maxHealth = 80;
@@ -1738,17 +1744,20 @@ class MagnusShoulderPod extends GameObject {
             this._fireShot();
         }
 
-        // Rocket launcher: brief telegraph, then launch a homing rocket.
-        // Pods fire rockets independently — if both pods are destroyed nothing
-        // is launched (the boss body never owns this attack).
+        // Rocket launcher: brief telegraph, then a single straight rocket.
+        // (Player-style RocketLauncher: NOT a homing missile — it flies in
+        // a straight line and explodes in an AOE on impact / max range.)
         if (this.rocketWindupAt > 0) {
             if (now >= this.rocketWindupAt) {
                 this.rocketWindupAt = 0;
                 this._fireRocket();
                 this.lastRocketAt = now;
             }
-        } else if (now - this.lastRocketAt > this.rocketInterval) {
+        } else if (now - this.lastRocketAt > this.rocketCooldown) {
             this.rocketWindupAt = now + this.rocketTelegraphMs;
+            // Lock aim now so the player can read the launch direction
+            // from the pod orientation — straight rockets can't course-
+            // correct, so they MUST commit on telegraph start.
             this.rocketWindupAngle = this.aimAngle;
             const cx2 = this.x + this.width / 2;
             const cy2 = this.y + this.height / 2;
@@ -1790,41 +1799,35 @@ class MagnusShoulderPod extends GameObject {
         });
     }
 
-    // Each pod owns a homing rocket launcher. Aim is locked at telegraph
-    // start to give the player a brief pre-fire signal; the missile itself
-    // then homes via the standard Missile guidance.
+    // Fires a single straight-flying rocket along the locked windup angle.
+    // Player's RocketLauncher contract: dumb fire + AOE on impact. No
+    // homing — that would make this a missile, not a rocket.
     _fireRocket() {
         if (!game.player) return;
         const cx = this.x + this.width / 2;
         const cy = this.y + this.height / 2;
-        const tc = (typeof getBossTargetCenter === 'function')
-            ? getBossTargetCenter(cx, cy) : null;
-        if (!tc) return;
         const ang = this.rocketWindupAngle;
-        const launchDist = 16;
+        const launchDist = 18;
         const launchX = cx + Math.cos(ang) * launchDist;
         const launchY = cy + Math.sin(ang) * launchDist;
-        const boss = game.boss;
-        const dmg = (boss && boss.missileDamage) ? boss.missileDamage : 8;
-        const spd = (boss && boss.missileSpeed) ? boss.missileSpeed : 22;
-        const m = new Missile(launchX, launchY, tc.x, tc.y, dmg, spd);
-        m.isBossMissile = true;
-        m.isBossMissileDelayed = true;
-        m.bossMissileType = 'magnus';
-        m.delayStartTime = Date.now();
-        m.delayDuration = 220;
-        m.guideRange = 800;
+        // Flight target is just "very far ahead" — straight line.
+        const reach = this.rocketRange;
+        const tx = launchX + Math.cos(ang) * reach;
+        const ty = launchY + Math.sin(ang) * reach;
+        const rocket = new BossRocket(launchX, launchY, tx, ty,
+            this.rocketDamage, this.rocketSpeed,
+            this.rocketExplosionRadius, this.rocketRange);
         if (!game.bossMissiles) game.bossMissiles = [];
-        game.bossMissiles.push(m);
-        bossFX.addFlash(launchX, launchY, 30, '#ffd070', 260, 1.0);
-        bossFX.spawnBurst(launchX, launchY, 8, {
+        game.bossMissiles.push(rocket);
+        bossFX.addFlash(launchX, launchY, 36, '#ffd070', 280, 1.0);
+        bossFX.spawnBurst(launchX, launchY, 10, {
             color: '#ffc060',
-            speedMin: 2, speedMax: 5,
-            sizeMin: 1.5, sizeMax: 3,
-            lifeMs: 360, baseAngle: ang, spreadAngle: Math.PI / 3,
+            speedMin: 2.5, speedMax: 6,
+            sizeMin: 1.8, sizeMax: 3.2,
+            lifeMs: 420, baseAngle: ang, spreadAngle: Math.PI / 3,
             drag: 0.9
         });
-        bossFX.addShake(2, 140);
+        bossFX.addShake(3, 180);
     }
 
     takeDamage(damage) {
