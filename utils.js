@@ -280,6 +280,18 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // Settings page: while open, the DOM <input> takes focus and
+        // captures regular keystrokes. We only listen for ESC (close
+        // page and persist any pending edit) and Enter (commit + close).
+        if (gameState.showSettings) {
+            if (e.key === 'Escape') {
+                if (game) game.closeSettings(true);
+            }
+            // Enter is handled directly on the input element so the
+            // user can also click the Save button without losing focus.
+            return;
+        }
+
         // 机甲选择已删除
         
         if (e.key === ' ') {

@@ -137,6 +137,14 @@ class Game {
     }
 
     init() {
+        // Load persistent settings before the first frame so menus
+        // render with the saved values from the start.
+        try {
+            const savedName = localStorage.getItem('mechName');
+            if (savedName && typeof savedName === 'string' && savedName.trim().length > 0) {
+                gameState.mechName = savedName.slice(0, 24);
+            }
+        } catch (_) { /* localStorage may be unavailable in private mode */ }
         // 等待用户选择游戏模式，不预生成敌人
         this.gameLoop();
     }
@@ -627,6 +635,11 @@ class Game {
         gameState.guideCategory = null;
         gameState.guideSubItem = null;
         gameState.guideScrollOffset = 0;
+        gameState.showSettings = false;
+        if (this._settingsInputEl) {
+            this._settingsInputEl.style.display = 'none';
+            try { this._settingsInputEl.blur(); } catch (_) {}
+        }
         gameState.selectedMech = null;
         gameState.selectedGameMode = null;
         gameState.selectedLevel = null;
@@ -662,7 +675,7 @@ class Game {
     // selectMech方法已删除，功能已合并到selectWeaponConfig中
 
     update() {
-        if (gameState.paused || gameState.showModeSelection || gameState.showWeaponConfig || gameState.showMechCustomization || gameState.showGuide) return;
+        if (gameState.paused || gameState.showModeSelection || gameState.showWeaponConfig || gameState.showMechCustomization || gameState.showGuide || gameState.showSettings) return;
         if (!this.player) return;
         
         // 游戏结束时只更新UI，不更新游戏对象
@@ -1089,7 +1102,7 @@ class Game {
         // HUD-style background: dark with animated grid + vignette + scanlines
         const inMenuOrModal = gameState.showGuide || gameState.showModeSelection ||
             gameState.showLevelSelection || gameState.showWeaponConfig ||
-            gameState.showMechCustomization;
+            gameState.showMechCustomization || gameState.showSettings;
         if (inMenuOrModal) {
             uiDrawGridBackground(this.ctx, GAME_CONFIG.WIDTH, GAME_CONFIG.HEIGHT);
         } else {
@@ -1100,6 +1113,12 @@ class Game {
         // 显示游戏简介界面
         if (gameState.showGuide) {
             this.drawGuide();
+            return;
+        }
+
+        // Settings page (mech callsign etc.)
+        if (gameState.showSettings) {
+            this.drawSettings();
             return;
         }
 
@@ -1350,6 +1369,15 @@ class Game {
         by += btnH + gap;
         const guideH = 56;
         this.guideButton = uiDrawButton(ctx, btnX, by, btnW, guideH, t('menu.guide'), {
+            accentColor: UI_THEME.color.textSecondary,
+            labelFont: `18px ${UI_THEME.font.display}`,
+            labelLetterSpacing: 3,
+            chamfer: 10
+        });
+
+        // Settings button (smaller, secondary, sits next to guide)
+        by += guideH + 12;
+        this.settingsButton = uiDrawButton(ctx, btnX, by, btnW, guideH, t('menu.settings'), {
             accentColor: UI_THEME.color.textSecondary,
             labelFont: `18px ${UI_THEME.font.display}`,
             labelLetterSpacing: 3,
@@ -2387,7 +2415,7 @@ class Game {
         const panelX = 14;
         const panelY = 14;
         const panelW = 320;
-        const panelH = 252;
+        const panelH = 268;
 
         uiDrawPanel(ctx, panelX, panelY, panelW, panelH, {
             chamfer: 10,
@@ -2406,20 +2434,29 @@ class Game {
 
         ctx.fillStyle = UI_THEME.color.textPrimary;
         ctx.font = `bold 16px ${UI_THEME.font.display}`;
-        ctx.fillText(t('hud.mech', t('mech.' + this.player.mechType)), panelX + 14, panelY + 36);
+        // Pilot's mech callsign (e.g. "Scorchfrost") sits where the
+        // mech-type readout used to be — the chassis archetype is now
+        // shown as a smaller subtitle right beneath it.
+        const _callsign = (gameState && gameState.mechName) ? gameState.mechName : 'Scorchfrost';
+        ctx.fillText(_callsign, panelX + 14, panelY + 36);
+        ctx.save();
+        ctx.fillStyle = UI_THEME.color.textSecondary;
+        ctx.font = `11px ${UI_THEME.font.mono}`;
+        ctx.fillText(t('hud.mech', t('mech.' + this.player.mechType)), panelX + 14, panelY + 56);
+        ctx.restore();
 
-        // Divider
+        // Divider (sits just below the chassis subtitle)
         ctx.strokeStyle = UI_THEME.color.primaryDim;
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(panelX + 14, panelY + 50);
-        ctx.lineTo(panelX + panelW - 14, panelY + 50);
+        ctx.moveTo(panelX + 14, panelY + 70);
+        ctx.lineTo(panelX + panelW - 14, panelY + 70);
         ctx.stroke();
         ctx.restore();
 
         // ---------- HP bar (top of panel) ----------
         const hpBarX = panelX + 14;
-        const hpBarY = panelY + 64;
+        const hpBarY = panelY + 80;
         const hpBarW = panelW - 28;
         const hpBarH = 18;
         const hpPct = Math.max(0, this.player.health / this.player.maxHealth);
@@ -2489,7 +2526,7 @@ class Game {
         }
 
         // ---------- Weapon / utility rows ----------
-        const rowStartY = panelY + 100;
+        const rowStartY = panelY + 116;
         const rowH = 18;
         const labelX = panelX + 14;
         const statusX = panelX + 78;
@@ -2931,6 +2968,249 @@ class Game {
         return getLocalizedGuideData();
     }
 
+    // ----- Settings page ----------------------------------------------------
+    // Minimal settings screen. Currently only one feature: name your mech.
+    // Implemented with a real DOM <input> overlaid on top of the canvas so
+    // the player gets all the usual text-input affordances (IME, copy/paste,
+    // selection, cursor) for free.
+    _ensureSettingsInput() {
+        if (this._settingsInputEl) return this._settingsInputEl;
+        const inp = document.createElement('input');
+        inp.type = 'text';
+        inp.maxLength = 24;
+        inp.spellcheck = false;
+        inp.autocomplete = 'off';
+        inp.style.position = 'fixed';
+        inp.style.zIndex = '9999';
+        inp.style.padding = '10px 14px';
+        inp.style.fontFamily = UI_THEME.font.mono;
+        inp.style.fontSize = '20px';
+        inp.style.fontWeight = '600';
+        inp.style.letterSpacing = '1px';
+        inp.style.color = '#e8f4ff';
+        inp.style.background = 'rgba(6, 14, 22, 0.92)';
+        inp.style.border = `1.5px solid ${UI_THEME.color.primary}`;
+        inp.style.borderRadius = '4px';
+        inp.style.outline = 'none';
+        inp.style.boxShadow = '0 0 12px rgba(95, 163, 255, 0.35) inset, 0 0 8px rgba(95, 163, 255, 0.25)';
+        inp.style.display = 'none';
+        inp.addEventListener('keydown', (e) => {
+            // Stop game-wide handlers from also reacting to typing in
+            // the settings field.
+            e.stopPropagation();
+            if (e.key === 'Enter') {
+                this._commitSettingsInput();
+                this.closeSettings(false);
+            } else if (e.key === 'Escape') {
+                this.closeSettings(true);
+            }
+        });
+        document.body.appendChild(inp);
+        this._settingsInputEl = inp;
+        return inp;
+    }
+
+    _openSettingsInput() {
+        const inp = this._ensureSettingsInput();
+        inp.value = (gameState.mechName || 'Scorchfrost').slice(0, 24);
+        inp.style.display = 'block';
+        // Position is recomputed every frame in drawSettings() so it
+        // tracks canvas resizes.
+        this._settingsToast = '';
+        this._settingsToastUntil = 0;
+        // Defer focus to after the click handler returns so the click
+        // doesn't immediately blur the field on some browsers.
+        setTimeout(() => { try { inp.focus(); inp.select(); } catch (_) {} }, 0);
+    }
+
+    _commitSettingsInput() {
+        if (!this._settingsInputEl) return;
+        let v = (this._settingsInputEl.value || '').trim();
+        if (v.length === 0) v = 'Scorchfrost';
+        if (v.length > 24) v = v.slice(0, 24);
+        gameState.mechName = v;
+        try { localStorage.setItem('mechName', v); } catch (_) { /* private mode */ }
+        this._settingsToast = t('settings.saved');
+        this._settingsToastUntil = Date.now() + 1400;
+    }
+
+    closeSettings(persist) {
+        if (persist) this._commitSettingsInput();
+        if (this._settingsInputEl) {
+            this._settingsInputEl.style.display = 'none';
+            try { this._settingsInputEl.blur(); } catch (_) {}
+        }
+        gameState.showSettings = false;
+        gameState.showModeSelection = true;
+    }
+
+    drawSettings() {
+        const ctx = this.ctx;
+        const W = GAME_CONFIG.WIDTH;
+        const H = GAME_CONFIG.HEIGHT;
+
+        // Title block (matches Guide / mode-select look)
+        const titleY = Math.max(120, H * 0.18);
+        if (typeof uiDrawTitle === 'function') {
+            uiDrawTitle(ctx, W / 2, titleY, t('settings.title'), t('settings.subtitle'));
+        }
+
+        // Central panel
+        const panelW = 620;
+        const panelH = 320;
+        const panelX = (W - panelW) / 2;
+        const panelY = titleY + 70;
+        uiDrawPanel(ctx, panelX, panelY, panelW, panelH, {
+            chamfer: 12,
+            fill: { from: 'rgba(6, 12, 16, 0.78)', to: 'rgba(10, 18, 24, 0.78)' },
+            stroke: UI_THEME.color.primaryDim,
+            strokeWidth: 1
+        });
+
+        // Section header
+        ctx.save();
+        ctx.fillStyle = UI_THEME.color.primary;
+        ctx.font = `12px ${UI_THEME.font.mono}`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('// PILOT IDENTIFICATION', panelX + 22, panelY + 26);
+        ctx.restore();
+
+        // Field label
+        ctx.save();
+        ctx.fillStyle = UI_THEME.color.textPrimary;
+        ctx.font = `bold 22px ${UI_THEME.font.display}`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText(t('settings.mechNameLabel'), panelX + 22, panelY + 60);
+
+        ctx.fillStyle = UI_THEME.color.textMuted;
+        ctx.font = `12px ${UI_THEME.font.mono}`;
+        ctx.fillText(t('settings.mechNameHint'), panelX + 22, panelY + 92);
+        ctx.restore();
+
+        // DOM input position — overlay over the canvas in screen space.
+        // Canvas is full-window in this game so canvas coords ≈ viewport.
+        const inputW = panelW - 44;
+        const inputH = 44;
+        const inputCanvasX = panelX + 22;
+        const inputCanvasY = panelY + 122;
+
+        // Decorative frame underneath the DOM input (so even if the
+        // DOM element is briefly missing the screen still looks right).
+        ctx.save();
+        ctx.fillStyle = 'rgba(6, 14, 22, 0.92)';
+        ctx.strokeStyle = UI_THEME.color.primary;
+        ctx.lineWidth = 1.5;
+        ctx.fillRect(inputCanvasX, inputCanvasY, inputW, inputH);
+        ctx.strokeRect(inputCanvasX, inputCanvasY, inputW, inputH);
+        ctx.restore();
+
+        const inp = this._ensureSettingsInput();
+        const rect = this.canvas.getBoundingClientRect();
+        const scaleX = rect.width / this.canvas.width;
+        const scaleY = rect.height / this.canvas.height;
+        inp.style.left = (rect.left + inputCanvasX * scaleX) + 'px';
+        inp.style.top = (rect.top + inputCanvasY * scaleY) + 'px';
+        inp.style.width = (inputW * scaleX - 28) + 'px';
+        inp.style.height = (inputH * scaleY - 20) + 'px';
+        if (inp.style.display === 'none') inp.style.display = 'block';
+
+        // Action buttons
+        const btnY = panelY + panelH - 64;
+        const btnH = 44;
+        const saveW = 140;
+        const resetW = 160;
+        const backW = 140;
+        const totalBtnW = saveW + resetW + backW + 24;
+        let bx = panelX + (panelW - totalBtnW) / 2;
+        this.settingsSaveButton = uiDrawButton(ctx, bx, btnY, saveW, btnH, t('settings.save'), {
+            accentColor: UI_THEME.color.primary,
+            labelFont: `bold 16px ${UI_THEME.font.display}`,
+            chamfer: 8
+        });
+        bx += saveW + 12;
+        this.settingsResetButton = uiDrawButton(ctx, bx, btnY, resetW, btnH, t('settings.reset'), {
+            accentColor: UI_THEME.color.warning,
+            labelFont: `bold 14px ${UI_THEME.font.display}`,
+            chamfer: 8
+        });
+        bx += resetW + 12;
+        this.settingsBackButton = uiDrawButton(ctx, bx, btnY, backW, btnH, t('settings.back'), {
+            accentColor: UI_THEME.color.textSecondary,
+            labelFont: `bold 16px ${UI_THEME.font.display}`,
+            chamfer: 8
+        });
+
+        // Toast (shown briefly on save).
+        if (this._settingsToast && Date.now() < this._settingsToastUntil) {
+            ctx.save();
+            ctx.fillStyle = UI_THEME.color.success || '#7df9ff';
+            ctx.font = `12px ${UI_THEME.font.mono}`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('// ' + this._settingsToast, W / 2, btnY - 18);
+            ctx.restore();
+        }
+
+        // ----- Contact card -----
+        // Lightweight info-only panel that sits below the main settings
+        // panel. Lists the author's contact channels (currently just
+        // Bilibili). No interactive elements — players can read and
+        // copy the UID manually.
+        const contactW = panelW;
+        const contactH = 116;
+        const contactX = panelX;
+        const contactY = panelY + panelH + 18;
+        // Make sure it fits above the footer hint.
+        if (contactY + contactH < H - 60) {
+            uiDrawPanel(ctx, contactX, contactY, contactW, contactH, {
+                chamfer: 10,
+                fill: { from: 'rgba(8, 14, 18, 0.72)', to: 'rgba(12, 20, 26, 0.72)' },
+                stroke: UI_THEME.color.primaryDim,
+                strokeWidth: 1
+            });
+
+            ctx.save();
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+
+            // Section header
+            ctx.fillStyle = UI_THEME.color.primary;
+            ctx.font = `12px ${UI_THEME.font.mono}`;
+            ctx.fillText(t('settings.contactHeader'), contactX + 18, contactY + 22);
+
+            // Friendly greeting
+            ctx.fillStyle = UI_THEME.color.textPrimary;
+            ctx.font = `bold 16px ${UI_THEME.font.display}`;
+            ctx.fillText(t('settings.contactGreeting'), contactX + 18, contactY + 50);
+
+            // Bilibili handle (highlighted)
+            ctx.fillStyle = '#7df9ff';
+            ctx.font = `bold 14px ${UI_THEME.font.mono}`;
+            ctx.fillText(t('settings.contactBili'), contactX + 18, contactY + 76);
+
+            // UID line (mono, muted)
+            ctx.fillStyle = UI_THEME.color.textSecondary;
+            ctx.font = `13px ${UI_THEME.font.mono}`;
+            ctx.fillText(t('settings.contactBiliUid'), contactX + 18, contactY + 98);
+
+            ctx.restore();
+        }
+
+        // Footer hint (ESC to go back, Enter to save)
+        ctx.save();
+        ctx.fillStyle = UI_THEME.color.textMuted;
+        ctx.font = `11px ${UI_THEME.font.mono}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('// ENTER = SAVE  //  ESC = BACK', W / 2, H - 40);
+        ctx.restore();
+
+        if (typeof uiDrawScreenFrame === 'function') uiDrawScreenFrame(ctx, W, H);
+        if (typeof uiDrawScanlines === 'function') uiDrawScanlines(ctx, W, H);
+    }
+
     drawGuide() {
         const W = GAME_CONFIG.WIDTH;
         const H = GAME_CONFIG.HEIGHT;
@@ -3361,6 +3641,13 @@ class Game {
                 gameState.guideScrollOffset = 0;
                 return true;
             }
+
+            if (this.settingsButton && this.isButtonClicked(this.settingsButton, mouseX, mouseY)) {
+                gameState.showModeSelection = false;
+                gameState.showSettings = true;
+                this._openSettingsInput();
+                return true;
+            }
         }
         
         // 检查关卡选择按钮点击
@@ -3372,6 +3659,26 @@ class Game {
                 return true;
                     }
                 }
+            }
+        }
+
+        // Settings page button clicks.
+        if (gameState.showSettings) {
+            if (this.settingsSaveButton && this.isButtonClicked(this.settingsSaveButton, mouseX, mouseY)) {
+                this._commitSettingsInput();
+                return true;
+            }
+            if (this.settingsResetButton && this.isButtonClicked(this.settingsResetButton, mouseX, mouseY)) {
+                if (this._settingsInputEl) this._settingsInputEl.value = 'Scorchfrost';
+                this._commitSettingsInput();
+                if (this._settingsInputEl) {
+                    try { this._settingsInputEl.focus(); this._settingsInputEl.select(); } catch (_) {}
+                }
+                return true;
+            }
+            if (this.settingsBackButton && this.isButtonClicked(this.settingsBackButton, mouseX, mouseY)) {
+                this.closeSettings(true);
+                return true;
             }
         }
         

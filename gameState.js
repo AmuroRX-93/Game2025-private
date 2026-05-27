@@ -55,7 +55,13 @@ const gameState = {
     showGuide: false,
     guideCategory: null,
     guideSubItem: null,
-    guideScrollOffset: 0
+    guideScrollOffset: 0,
+    // Settings page
+    showSettings: false,
+    // Mech callsign — pilot-assigned name for their personal mech.
+    // Persisted to localStorage on change; loaded at boot (see boot code
+    // in main.js / gameCore.js init).
+    mechName: 'Scorchfrost'
 };
 
 // 键盘输入状态

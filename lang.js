@@ -23,6 +23,20 @@ const translations = {
         'menu.customizeMech': '定制机甲',
         'menu.customizeDesc': '配置武器装备，自定义作战风格',
         'menu.guide': '游戏简介',
+        'menu.settings': '设置',
+        'menu.settingsDesc': '机甲命名等个人偏好',
+        'settings.title': '设置',
+        'settings.subtitle': 'PERSONAL PREFERENCES',
+        'settings.mechNameLabel': '机甲命名',
+        'settings.mechNameHint': '为你的座驾起一个专属代号 (1–24 字符)',
+        'settings.save': '保存',
+        'settings.saved': '已保存',
+        'settings.reset': '恢复默认',
+        'settings.back': '返回',
+        'settings.contactHeader': '// CONTACT — 联络作者',
+        'settings.contactGreeting': '欢迎联系我！',
+        'settings.contactBili': 'B 站：ガンダムさん',
+        'settings.contactBiliUid': 'UID：3493134971439675',
         'menu.selectLevel': '选择关卡',
         'menu.bossModeSub': 'Boss战模式 - 挑战强大的敌人',
         'menu.difficulty': '难度: ',
@@ -222,6 +236,20 @@ const translations = {
         'menu.customizeMech': 'Customize Mech',
         'menu.customizeDesc': 'Configure weapons & combat style',
         'menu.guide': 'Game Guide',
+        'menu.settings': 'Settings',
+        'menu.settingsDesc': 'Mech callsign and other preferences',
+        'settings.title': 'SETTINGS',
+        'settings.subtitle': 'PERSONAL PREFERENCES',
+        'settings.mechNameLabel': 'Mech Callsign',
+        'settings.mechNameHint': 'Name your personal mech (1–24 chars)',
+        'settings.save': 'Save',
+        'settings.saved': 'Saved',
+        'settings.reset': 'Reset',
+        'settings.back': 'Back',
+        'settings.contactHeader': '// CONTACT — REACH OUT',
+        'settings.contactGreeting': 'Feel free to get in touch!',
+        'settings.contactBili': 'Bilibili: ガンダムさん',
+        'settings.contactBiliUid': 'UID: 3493134971439675',
         'menu.selectLevel': 'Select Level',
         'menu.bossModeSub': 'Boss Battle - Challenge powerful bosses',
         'menu.difficulty': 'Difficulty: ',
@@ -559,7 +587,7 @@ const guideData = {
         {
             id: 'bosses', name: 'Boss图鉴', color: '#FF4444',
             items: [
-                { name: '★ 血红之王', color: '#8B0000', lines: [
+                { name: '血红之王', color: '#8B0000', lines: [
                     'HP 300 | 导弹洗地型',
                     '',
                     '— 攻击方式 —',
@@ -577,7 +605,7 @@ const guideData = {
                     '近防炮拦截导弹，配合近战输出',
                     '避免短时间集中火力触发高减伤',
                 ]},
-                { name: '★★ 冰之姬', color: '#4682B4', lines: [
+                { name: '冰之姬', color: '#4682B4', lines: [
                     'HP 200 | 高机动刺客型',
                     '',
                     '— 攻击方式 —',
@@ -596,7 +624,7 @@ const guideData = {
                     '勿过度依赖镭射步枪 / 制导武器',
                     '保持中近距离，利用霰弹/火箭筒爆发',
                 ]},
-                { name: '★★★ 噬星者', color: '#333333', lines: [
+                { name: '噬星者', color: '#333333', lines: [
                     'HP 300 | 战术压制型',
                     '',
                     '— 攻击方式 —',
@@ -613,7 +641,7 @@ const guideData = {
                     '优先摧毁浮游炮，近防炮拦截策反导弹',
                     '信号干扰期间凭手感持续移动，二阶段需近距离作战',
                 ]},
-                { name: '★★★★ 丑皇', color: '#8B4513', lines: [
+                { name: '丑皇', color: '#8B4513', lines: [
                     'HP 250 | 区域控制型',
                     '',
                     '— 攻击方式 —',
@@ -632,7 +660,7 @@ const guideData = {
                     '二阶段全力导弹输出（伤害翻倍）',
                     '两阶段需完全不同的武器策略',
                 ]},
-                { name: '★★★★★ 机甲执政官 Magnus', color: '#C68C2A', lines: [
+                { name: '机甲执政官 Magnus', color: '#C68C2A', lines: [
                     'HP 600 | 重装压制型',
                     '',
                     '— 攻击方式 —',
@@ -654,7 +682,7 @@ const guideData = {
                     '优先摧毁肩部炮塔，再压制本体',
                     '近防炮专门对付脱离的炮台火箭弹',
                 ]},
-                { name: '★★★★★ 蜂巢意识', color: '#9C27B0', lines: [
+                { name: '蜂巢意识', color: '#9C27B0', lines: [
                     'HP 320 (本体) | 多体协同型',
                     '',
                     '— 攻击方式 —',
@@ -677,7 +705,7 @@ const guideData = {
                     '抓住女王暴露窗口集中爆发',
                     '残识阶段优先处理对玩家威胁最大的那只',
                 ]},
-                { name: '★★★★ 剑舞者 雪魂 (Yukikon)', color: '#7fc8ff', lines: [
+                { name: '剑舞者 雪魂 (Yukikon)', color: '#7fc8ff', lines: [
                     'HP 150 | 高速近战决斗者',
                     '',
                     '— 攻击方式 —',
@@ -698,7 +726,7 @@ const guideData = {
                     '注意她抬手挥剑的瞬间，那几帧远程基本无效',
                     '影分身阶段不要乱锁，等真身露脸',
                 ]},
-                { name: '★★★★ 变形机甲 普罗忒斯 (Proteus)', color: '#a0ffc0', lines: [
+                { name: '变形机甲 普罗忒斯 (Proteus)', color: '#a0ffc0', lines: [
                     'HP 360 | 形态切换型',
                     '',
                     '— 三种形态（按距离切换）—',
@@ -722,7 +750,7 @@ const guideData = {
                     '炮台形态破盾用大单发武器，低伤连射会被护盾吃光',
                     '别在护盾激活时贴脸逼他切换，会被反震',
                 ]},
-                { name: '★★★★★ 元素三主神 + 虚空', color: '#c87cff', lines: [
+                { name: '元素三主神 + 虚空', color: '#c87cff', lines: [
                     '三本体各 HP 240 | 杀两个后第三个变身为虚空 HP 200',
                     '',
                     '— 火神 Pyron（中近距压制）—',
@@ -916,7 +944,7 @@ const guideData = {
         {
             id: 'bosses', name: 'Boss Guide', color: '#FF4444',
             items: [
-                { name: '★ Crimson King', color: '#8B0000', lines: [
+                { name: 'Crimson King', color: '#8B0000', lines: [
                     'HP 300 | Missile Barrage Type',
                     '',
                     '— Attacks —',
@@ -934,7 +962,7 @@ const guideData = {
                     'CIWS to intercept missiles, combine with melee',
                     'Avoid burst damage to prevent high DR',
                 ]},
-                { name: '★★ Sublime Moon', color: '#4682B4', lines: [
+                { name: 'Sublime Moon', color: '#4682B4', lines: [
                     'HP 200 | High-Mobility Assassin Type',
                     '',
                     '— Attacks —',
@@ -953,7 +981,7 @@ const guideData = {
                     'Avoid relying on Laser Rifle / homing missiles',
                     'Stay mid-close range, burst with Shotgun / Rocket Launcher',
                 ]},
-                { name: '★★★ Star Devourer', color: '#333333', lines: [
+                { name: 'Star Devourer', color: '#333333', lines: [
                     'HP 300 | Tactical Suppression Type',
                     '',
                     '— Attacks —',
@@ -970,7 +998,7 @@ const guideData = {
                     'Destroy floating guns first; CIWS intercepts reversed missiles',
                     'Keep moving while jammed; Phase 2 requires close combat',
                 ]},
-                { name: '★★★★ Ugly Emperor', color: '#8B4513', lines: [
+                { name: 'Ugly Emperor', color: '#8B4513', lines: [
                     'HP 250 | Area Control Type',
                     '',
                     '— Attacks —',
@@ -989,7 +1017,7 @@ const guideData = {
                     'Phase 2: full missile assault (double damage)',
                     'Two phases require completely different weapon strategies',
                 ]},
-                { name: '★★★★★ Magnus, Mech Executive', color: '#C68C2A', lines: [
+                { name: 'Magnus, Mech Executive', color: '#C68C2A', lines: [
                     'HP 600 | Heavy Suppression Type',
                     '',
                     '— Attacks —',
@@ -1011,7 +1039,7 @@ const guideData = {
                     'Take down shoulder turrets first, then push the body',
                     'Use CIWS to pop the rockets fired by detached pods',
                 ]},
-                { name: '★★★★★ Hive Mind', color: '#9C27B0', lines: [
+                { name: 'Hive Mind', color: '#9C27B0', lines: [
                     'HP 320 (Queen) | Multi-body Coordination Type',
                     '',
                     '— Attacks —',
@@ -1034,7 +1062,7 @@ const guideData = {
                     'Burst the queen during her exposed window',
                     'In splinter phase, focus the splinter that pressures you the most',
                 ]},
-                { name: '★★★★ Yukikon, the Silent Edge', color: '#7fc8ff', lines: [
+                { name: 'Yukikon, the Silent Edge', color: '#7fc8ff', lines: [
                     'HP 150 | High-Mobility Melee Duelist',
                     '',
                     '— Attacks —',
@@ -1056,7 +1084,7 @@ const guideData = {
                     'Watch for her swing windows; that\'s when ranged fizzles',
                     'During shadow phase, wait for the real one to reveal before locking',
                 ]},
-                { name: '★★★★ Proteus, the Shapeshifter', color: '#a0ffc0', lines: [
+                { name: 'Proteus, the Shapeshifter', color: '#a0ffc0', lines: [
                     'HP 360 | Adaptive Shapeshifter',
                     '',
                     '— Three Forms (distance-based) —',
@@ -1080,7 +1108,7 @@ const guideData = {
                     'Crack the turret-form shield with high single-hit weapons',
                     'Don\'t poke into melee while his shield is up — you\'ll eat the shockwave',
                 ]},
-                { name: '★★★★★ Elemental Triumvirate + Voidborn', color: '#c87cff', lines: [
+                { name: 'Elemental Triumvirate + Voidborn', color: '#c87cff', lines: [
                     'Three bodies × HP 240 | Kill any 2 → the last becomes Voidborn (HP 200)',
                     '',
                     '— Pyron, the Fire God (close-mid pressure) —',
