@@ -445,8 +445,34 @@ class Gun extends Weapon {
         const flightTime = distance / this.bulletSpeed;
         
         // 预测目标位置
-        const predictedX = enemyX + enemyVx * flightTime;
-        const predictedY = enemyY + enemyVy * flightTime;
+        let predictedX = enemyX + enemyVx * flightTime;
+        let predictedY = enemyY + enemyVy * flightTime;
+
+        // Clamp prediction to inside the arena. When an enemy is pinned
+        // against a wall, its vx/vy may still be non-zero (driving it into
+        // the wall) so the naive predicted point lands off-map and pulls
+        // bullets off-target. Bound the prediction to where the enemy
+        // could actually be — accounting for its own bounding-box size.
+        const halfW = (lockedTarget.width || 0) / 2;
+        const halfH = (lockedTarget.height || 0) / 2;
+        if (typeof GAME_CONFIG !== 'undefined') {
+            predictedX = Math.max(halfW, Math.min(GAME_CONFIG.WIDTH - halfW, predictedX));
+            predictedY = Math.max(halfH, Math.min(GAME_CONFIG.HEIGHT - halfH, predictedY));
+        }
+        // If the enemy is already wall-pinned (close to a boundary) and
+        // its velocity points further into that wall, drop the lead in
+        // that axis entirely — the enemy literally cannot move there.
+        const wallPad = 8;
+        if (typeof GAME_CONFIG !== 'undefined') {
+            if ((enemyX - halfW <= wallPad && enemyVx < 0) ||
+                (enemyX + halfW >= GAME_CONFIG.WIDTH - wallPad && enemyVx > 0)) {
+                predictedX = enemyX;
+            }
+            if ((enemyY - halfH <= wallPad && enemyVy < 0) ||
+                (enemyY + halfH >= GAME_CONFIG.HEIGHT - wallPad && enemyVy > 0)) {
+                predictedY = enemyY;
+            }
+        }
         
         // 计算射击角度
         const aimDx = predictedX - bulletX;
@@ -587,6 +613,26 @@ class LaserRifle extends Weapon {
             
             endX = tx + tvx * flightTime;
             endY = ty + tvy * flightTime;
+
+            // Same wall-pin guard as the rifle: clamp the predicted point
+            // inside the arena, and zero-out lead on any axis where the
+            // target is already pinned and trying to push further into a
+            // wall. Without this, beams aim off-screen.
+            const halfW = (target.width || 0) / 2;
+            const halfH = (target.height || 0) / 2;
+            if (typeof GAME_CONFIG !== 'undefined') {
+                endX = Math.max(halfW, Math.min(GAME_CONFIG.WIDTH - halfW, endX));
+                endY = Math.max(halfH, Math.min(GAME_CONFIG.HEIGHT - halfH, endY));
+                const wallPad = 8;
+                if ((tx - halfW <= wallPad && tvx < 0) ||
+                    (tx + halfW >= GAME_CONFIG.WIDTH - wallPad && tvx > 0)) {
+                    endX = tx;
+                }
+                if ((ty - halfH <= wallPad && tvy < 0) ||
+                    (ty + halfH >= GAME_CONFIG.HEIGHT - wallPad && tvy > 0)) {
+                    endY = ty;
+                }
+            }
         } else {
             const angle = player.direction * Math.PI / 180;
             endX = px + Math.cos(angle) * 2000;

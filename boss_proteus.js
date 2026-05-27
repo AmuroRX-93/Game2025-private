@@ -1296,14 +1296,13 @@ class Proteus extends GameObject {
                 // Hard deadline: every drone MUST fire at least once
                 // every 10s. Used by _updateProteusDrones to force a
                 // preFire transition even if travel hasn't finished.
-                forceFireAfter: 10000,
+                forceFireAfter: 3000,
                 cx: cx + Math.cos(spawnPhase) * 18,
                 cy: cy + Math.sin(spawnPhase) * 18,
                 vx: 0, vy: 0,
-                // Where to sit relative to the player (radians, around player).
                 formationAngle: (i / count) * Math.PI * 2 + Math.random() * 0.4,
                 attackRange,
-                speed: 18.0,                        // px/frame travel speed (3x of original 6.0)
+                speed: 54.0,                        // px/frame travel speed (300% of 18)
                 shotsLeft: shotsEach,
                 shotsTotal: shotsEach,
                 state: 'travel',                    // travel → preFire → fire → postFire → travel ...
@@ -1369,7 +1368,7 @@ class Proteus extends GameObject {
                 // Hard deadline: if we haven't shot in forceFireAfter ms
                 // (measured from spawn, or from last shot for repeat
                 // volleys), commit to preFire wherever we currently are
-                // so the player never gets a free 10s window.
+                // so the player never gets a free window.
                 const refTime = d.lastShotAt > 0 ? d.lastShotAt : d.bornAt;
                 const overdue = (now - refTime) >= d.forceFireAfter;
                 if (dist <= 22 || overdue) {

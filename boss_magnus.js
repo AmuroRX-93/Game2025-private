@@ -479,8 +479,9 @@ class Magnus extends GameObject {
                         beams: null,
                         tick: (b2, now) => {
                             const st = b2.activeMove;
-                            // Telegraph phase: each pod tracks player, draw aim line
-                            const pods = boss._getPodOrigins();
+                            // Twin beam is owned by the chassis: always fire from
+                            // the body's shoulder mounts, even after pods detach.
+                            const pods = boss._getBodyShoulderOrigins();
                             if (now < st.startedAt + st.telegraphMs) {
                                 freezeBoss(b2);
                                 if (game.player) {
@@ -526,7 +527,7 @@ class Magnus extends GameObject {
                         // Custom render hook (used by draw())
                         render: (b2, ctx, now) => {
                             const st = b2.activeMove;
-                            const pods = boss._getPodOrigins();
+                            const pods = boss._getBodyShoulderOrigins();
                             // Aim laser (telegraph): draw a thin red guide line
                             if (now < st.startedAt + st.telegraphMs) {
                                 const tProgress = (now - st.startedAt) / st.telegraphMs;
@@ -855,6 +856,13 @@ class Magnus extends GameObject {
         if (this.phase === 2 && this.podsDetached && this.shoulderPods.length === 2) {
             return this.shoulderPods.map(p => ({ x: p.x + p.width / 2, y: p.y + p.height / 2 }));
         }
+        return this._getBodyShoulderOrigins();
+    }
+
+    // Always returns the chassis shoulder-mount positions, regardless of phase.
+    // Used for the twin-beam attack which is owned by the body even in phase 2
+    // (so the detached pods can specialize in rockets / suppressing fire).
+    _getBodyShoulderOrigins() {
         const cx = this.x + this.width / 2;
         const cy = this.y + this.height / 2;
         const off = 38;
@@ -1673,6 +1681,14 @@ class MagnusShoulderPod extends GameObject {
         this.aimAngle = 0;
         this.lastFireAt = Date.now();
         this.fireInterval = 1100 + Math.random() * 400;
+        // Rocket launcher: each pod independently lobs a homing rocket on a
+        // longer cooldown. Stagger initial cooldown so the two pods don't
+        // fire simultaneously.
+        this.rocketInterval = 4800;
+        this.lastRocketAt = Date.now() - 1500 - Math.random() * 1500;
+        this.rocketTelegraphMs = 480;
+        this.rocketWindupAt = 0;          // 0 = idle, otherwise launch timestamp
+        this.rocketWindupAngle = 0;
         this.driftPhase = Math.random() * Math.PI * 2;
         this.maxHealth = 80;
         this.health = this.maxHealth;
@@ -1722,6 +1738,23 @@ class MagnusShoulderPod extends GameObject {
             this._fireShot();
         }
 
+        // Rocket launcher: brief telegraph, then launch a homing rocket.
+        // Pods fire rockets independently — if both pods are destroyed nothing
+        // is launched (the boss body never owns this attack).
+        if (this.rocketWindupAt > 0) {
+            if (now >= this.rocketWindupAt) {
+                this.rocketWindupAt = 0;
+                this._fireRocket();
+                this.lastRocketAt = now;
+            }
+        } else if (now - this.lastRocketAt > this.rocketInterval) {
+            this.rocketWindupAt = now + this.rocketTelegraphMs;
+            this.rocketWindupAngle = this.aimAngle;
+            const cx2 = this.x + this.width / 2;
+            const cy2 = this.y + this.height / 2;
+            bossFX.addFlash(cx2, cy2, 22, '#ffd070', this.rocketTelegraphMs, 0.7);
+        }
+
         this.checkBounds();
     }
 
@@ -1755,6 +1788,43 @@ class MagnusShoulderPod extends GameObject {
             sizeMin: 1, sizeMax: 2,
             lifeMs: 240, baseAngle: ang, spreadAngle: Math.PI / 4
         });
+    }
+
+    // Each pod owns a homing rocket launcher. Aim is locked at telegraph
+    // start to give the player a brief pre-fire signal; the missile itself
+    // then homes via the standard Missile guidance.
+    _fireRocket() {
+        if (!game.player) return;
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const tc = (typeof getBossTargetCenter === 'function')
+            ? getBossTargetCenter(cx, cy) : null;
+        if (!tc) return;
+        const ang = this.rocketWindupAngle;
+        const launchDist = 16;
+        const launchX = cx + Math.cos(ang) * launchDist;
+        const launchY = cy + Math.sin(ang) * launchDist;
+        const boss = game.boss;
+        const dmg = (boss && boss.missileDamage) ? boss.missileDamage : 8;
+        const spd = (boss && boss.missileSpeed) ? boss.missileSpeed : 22;
+        const m = new Missile(launchX, launchY, tc.x, tc.y, dmg, spd);
+        m.isBossMissile = true;
+        m.isBossMissileDelayed = true;
+        m.bossMissileType = 'magnus';
+        m.delayStartTime = Date.now();
+        m.delayDuration = 220;
+        m.guideRange = 800;
+        if (!game.bossMissiles) game.bossMissiles = [];
+        game.bossMissiles.push(m);
+        bossFX.addFlash(launchX, launchY, 30, '#ffd070', 260, 1.0);
+        bossFX.spawnBurst(launchX, launchY, 8, {
+            color: '#ffc060',
+            speedMin: 2, speedMax: 5,
+            sizeMin: 1.5, sizeMax: 3,
+            lifeMs: 360, baseAngle: ang, spreadAngle: Math.PI / 3,
+            drag: 0.9
+        });
+        bossFX.addShake(2, 140);
     }
 
     takeDamage(damage) {
@@ -1810,6 +1880,26 @@ class MagnusShoulderPod extends GameObject {
         ctx.fill();
         ctx.globalAlpha = 1;
         ctx.restore();
+
+        // Rocket charge ring — fills as the launch telegraph counts down so
+        // the player can read pod state at a glance.
+        if (this.rocketWindupAt > 0) {
+            const now = Date.now();
+            const total = this.rocketTelegraphMs;
+            const remain = Math.max(0, this.rocketWindupAt - now);
+            const charge = 1 - remain / total;
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.strokeStyle = '#ffd070';
+            ctx.lineWidth = 2;
+            ctx.globalAlpha = 0.55 + 0.35 * charge;
+            ctx.beginPath();
+            ctx.arc(0, 0, this.width * 0.7, -Math.PI / 2,
+                -Math.PI / 2 + Math.PI * 2 * charge);
+            ctx.stroke();
+            ctx.restore();
+        }
 
         // Tiny health bar
         const barW = this.width;
