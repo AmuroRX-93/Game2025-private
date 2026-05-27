@@ -166,6 +166,13 @@ class FloatingDrone extends Enemy {
         if (this.health <= 0) {
             this.health = 0;
             this.shouldDestroy = true; // 设置销毁标志
+            if (typeof bossFX !== 'undefined' && typeof bossFX.spawnSubKillExplosion === 'function') {
+                bossFX.spawnSubKillExplosion(
+                    this.x + this.width / 2,
+                    this.y + this.height / 2,
+                    { scale: 0.85, shake: 8, shakeMs: 220 }
+                );
+            }
             return true; // 死亡
         }
         return false;

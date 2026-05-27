@@ -227,6 +227,68 @@ const bossFX = {
                 startedAt: Date.now()
             });
         }
+    },
+
+    // Compact "sub-kill" explosion for breakable units that aren't the main
+    // boss — Magnus shoulder pods, StarDevourer floating drones, Triumvirate
+    // members (Pyron / Volthar / Glacius). Smaller in scale and shorter than
+    // the full boss-death spectacle but still meaty: layered fire flashes,
+    // one shockwave, fire chunks + bright sparks + a puff of rising smoke.
+    spawnSubKillExplosion(x, y, opts = {}) {
+        const {
+            scale = 1.0,           // overall size multiplier
+            color = '#ffaa40',     // base hot color
+            shake = 10,            // peak shake magnitude
+            shakeMs = 240,
+        } = opts;
+        const FIRE_PALETTE  = ['#fff2b8', '#ffd35a', '#ff9030', '#ff5028'];
+        const SMOKE_PALETTE = ['#5a4738', '#3a2e26', '#2a201a'];
+
+        // Bright white-hot core + warm halo + one orange ring.
+        this.addFlash(x, y, 80 * scale, '#ffffff', 220, 0.9);
+        this.addFlash(x, y, 130 * scale, color, 380, 0.85);
+        this.addFlash(x, y, 180 * scale, '#ff7030', 440, 0.6);
+        this.addShockwave(x, y, 12 * scale, 160 * scale, '#ffd070', 540, 5, 0.75);
+
+        // Off-center fireballs make the blast volumetric, not a single dot.
+        for (let i = 0; i < 3; i++) {
+            const ang = Math.random() * Math.PI * 2;
+            const r = (15 + Math.random() * 35) * scale;
+            const ex = x + Math.cos(ang) * r;
+            const ey = y + Math.sin(ang) * r;
+            const col = FIRE_PALETTE[(Math.random() * FIRE_PALETTE.length) | 0];
+            this.addFlash(ex, ey, (50 + Math.random() * 35) * scale, col,
+                          280 + Math.random() * 160, 0.85);
+        }
+
+        // Chunky fire debris.
+        this.spawnBurst(x, y, Math.round(22 * scale), {
+            color: '#ffae46',
+            speedMin: 2, speedMax: 7 * scale,
+            sizeMin: 2, sizeMax: 4.5,
+            lifeMs: 600 + Math.random() * 280,
+            gravity: 0.05,
+            drag: 0.94,
+        });
+        // Bright sparks.
+        this.spawnBurst(x, y, Math.round(14 * scale), {
+            color: '#fff2c4',
+            speedMin: 4, speedMax: 11 * scale,
+            sizeMin: 1, sizeMax: 2,
+            lifeMs: 500 + Math.random() * 250,
+            gravity: 0.07,
+            drag: 0.96,
+        });
+        // A puff of rising smoke so the kill leaves a footprint, not just pop-clear.
+        this.spawnBurst(x, y, Math.round(5 * scale), {
+            color: SMOKE_PALETTE[(Math.random() * SMOKE_PALETTE.length) | 0],
+            speedMin: 0.3, speedMax: 1.2,
+            sizeMin: 8 * scale, sizeMax: 14 * scale,
+            lifeMs: 1000 + Math.random() * 300,
+            gravity: -0.04,
+            drag: 0.97,
+        });
+        this.addShake(shake, shakeMs);
     }
 };
 

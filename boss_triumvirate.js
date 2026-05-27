@@ -673,14 +673,13 @@ class Pyron extends GameObject {
     _onDeathFx() {
         const cx = this.x + this.width / 2;
         const cy = this.y + this.height / 2;
-        if (typeof bossFX !== 'undefined') {
-            bossFX.addFlash(cx, cy, 90, '#ffaa40', 420, 1.0);
-            bossFX.addShockwave(cx, cy, 20, 130, '#ff6020', 560, 4, 0.75);
-            bossFX.spawnBurst(cx, cy, 24, {
-                color: '#ffaa40', speedMin: 2, speedMax: 8,
-                sizeMin: 2, sizeMax: 4, lifeMs: 620, drag: 0.92
+        if (typeof bossFX !== 'undefined' && typeof bossFX.spawnSubKillExplosion === 'function') {
+            bossFX.spawnSubKillExplosion(cx, cy, {
+                scale: 1.0,
+                color: '#ff8030', // fire-tinted
+                shake: 11,
+                shakeMs: 260,
             });
-            bossFX.addShake(5, 240);
         }
     }
 
@@ -1571,14 +1570,13 @@ class Volthar extends GameObject {
     _onDeathFx() {
         const cx = this.x + this.width / 2;
         const cy = this.y + this.height / 2;
-        if (typeof bossFX !== 'undefined') {
-            bossFX.addFlash(cx, cy, 90, '#c0a0ff', 420, 1.0);
-            bossFX.addShockwave(cx, cy, 20, 130, '#a070ff', 560, 4, 0.75);
-            bossFX.spawnBurst(cx, cy, 24, {
-                color: '#d0b0ff', speedMin: 2, speedMax: 8,
-                sizeMin: 2, sizeMax: 4, lifeMs: 620, drag: 0.92
+        if (typeof bossFX !== 'undefined' && typeof bossFX.spawnSubKillExplosion === 'function') {
+            bossFX.spawnSubKillExplosion(cx, cy, {
+                scale: 1.0,
+                color: '#a070ff', // electric purple
+                shake: 11,
+                shakeMs: 260,
             });
-            bossFX.addShake(5, 240);
         }
     }
 
@@ -2077,14 +2075,13 @@ class Glacius extends GameObject {
     _onDeathFx() {
         const cx = this.x + this.width / 2;
         const cy = this.y + this.height / 2;
-        if (typeof bossFX !== 'undefined') {
-            bossFX.addFlash(cx, cy, 90, '#c0eeff', 420, 1.0);
-            bossFX.addShockwave(cx, cy, 20, 130, '#80c0ff', 560, 4, 0.75);
-            bossFX.spawnBurst(cx, cy, 24, {
-                color: '#c0eeff', speedMin: 2, speedMax: 8,
-                sizeMin: 2, sizeMax: 4, lifeMs: 620, drag: 0.92
+        if (typeof bossFX !== 'undefined' && typeof bossFX.spawnSubKillExplosion === 'function') {
+            bossFX.spawnSubKillExplosion(cx, cy, {
+                scale: 1.0,
+                color: '#80c0ff', // icy cyan
+                shake: 11,
+                shakeMs: 260,
             });
-            bossFX.addShake(5, 240);
         }
     }
 

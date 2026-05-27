@@ -1849,6 +1849,11 @@ class MagnusShoulderPod extends GameObject {
     _destroyVFX() {
         const cx = this.x + this.width / 2;
         const cy = this.y + this.height / 2;
+        if (typeof bossFX !== 'undefined' && typeof bossFX.spawnSubKillExplosion === 'function') {
+            bossFX.spawnSubKillExplosion(cx, cy, { scale: 0.9, shake: 9, shakeMs: 240 });
+            return;
+        }
+        // Fallback if the helper is missing.
         bossFX.addFlash(cx, cy, 60, '#ffaa30', 380, 1.0);
         bossFX.addShockwave(cx, cy, 10, 90, '#ffc060', 500, 4, 0.7);
         bossFX.spawnBurst(cx, cy, 14, {
