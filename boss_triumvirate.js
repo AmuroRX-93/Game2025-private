@@ -681,6 +681,13 @@ class Pyron extends GameObject {
                 shakeMs: 260,
             });
         }
+        // Death rattle: scorched earth where Pyron fell — burns + DoT.
+        _triProjArr().push(new PyronScorchedEarth(cx, cy, {
+            radius: 240,
+            duration: 5000,
+            dps: 8,
+            tickInterval: 1000,
+        }));
     }
 
     update() {
@@ -1578,6 +1585,17 @@ class Volthar extends GameObject {
                 shakeMs: 260,
             });
         }
+        // Death rattle: storm zone — up to 3 strikes or 7s timeout.
+        _triProjArr().push(new VoltharStormZone(cx, cy, {
+            radius: 240,
+            duration: 7000,
+            strikeCount: 3,
+            strikeInterval: 1900,
+            firstStrikeDelay: 900,
+            strikeDamage: 18,
+            strikeRadius: 80,
+            stunMs: 240,
+        }));
     }
 
     update() {
@@ -2019,6 +2037,362 @@ class IceField {
     }
 }
 
+// =====================================================================
+// Death rattles — left behind by each elemental member when it dies.
+// All three are GameObject-less ground hazards pushed into the shared
+// triumvirate projectile pool so they update/draw in the existing pipe.
+// They are passive; their owner is already gone.
+// =====================================================================
+
+// Volthar's death rattle: a wide storm field that strikes the player
+// up to STRIKE_COUNT times (one strike every STRIKE_INTERVAL_MS while
+// the player stands inside), or fades out after `duration` ms even
+// if it hasn't fired all its strikes.
+class VoltharStormZone {
+    constructor(x, y, opts) {
+        opts = opts || {};
+        this.x = x;
+        this.y = y;
+        this.radius = opts.radius || 240;
+        this.duration = opts.duration || 7000;
+        this.strikeCount = opts.strikeCount || 3;
+        this.strikeInterval = opts.strikeInterval || 1900; // ms between strikes
+        this.firstStrikeDelay = opts.firstStrikeDelay || 900;
+        this.strikeDamage = (opts.strikeDamage != null) ? opts.strikeDamage : 18;
+        this.strikeRadius = opts.strikeRadius || 80;
+        this.stunMs = (opts.stunMs != null) ? opts.stunMs : 240;
+        this.spawnAt = Date.now();
+        this._strikesFired = 0;
+        this._nextStrikeAt = this.spawnAt + this.firstStrikeDelay;
+        this.shouldDestroy = false;
+        this.belongsTo = 'volthar';
+        // Cached arc seeds for the storm-cloud rim animation.
+        this._arcSeeds = [];
+        for (let i = 0; i < 22; i++) this._arcSeeds.push(Math.random() * Math.PI * 2);
+    }
+
+    update() {
+        const now = Date.now();
+        const age = now - this.spawnAt;
+        if (age >= this.duration || this._strikesFired >= this.strikeCount) {
+            this.shouldDestroy = true;
+            return;
+        }
+        if (now < this._nextStrikeAt) return;
+        // Only strike if the player is inside the field. If they're not,
+        // hold the next-strike timer at "ready" so they get hit the
+        // moment they re-enter, rather than wasting strikes on empty
+        // ground. This makes the zone feel like a denial area.
+        const pc = _triPlayerCenter();
+        if (Math.hypot(pc.x - this.x, pc.y - this.y) > this.radius) return;
+        this._strikesFired++;
+        this._nextStrikeAt = now + this.strikeInterval;
+        // Spawn an actual LightningStrike at the player so the existing
+        // visual tells the story, and the standard AOE damage logic
+        // applies. Source = the storm cloud center.
+        const strike = new LightningStrike(pc.x, pc.y, {
+            telegraphMs: 280,
+            radius: this.strikeRadius,
+            damage: this.strikeDamage,
+            stunMs: this.stunMs,
+            magnetism: 0.55,
+            sourceX: this.x,
+            sourceY: this.y - 20,
+        });
+        _triProjArr().push(strike);
+        if (typeof bossFX !== 'undefined') {
+            bossFX.addFlash(this.x, this.y, 60, '#c0a0ff', 200, 0.6);
+            bossFX.addShake(2, 120);
+        }
+    }
+
+    draw(ctx) {
+        const now = Date.now();
+        const age = now - this.spawnAt;
+        const t = age / this.duration;
+        const fadeIn = Math.min(1, age / 260);
+        const fadeOut = Math.max(0, 1 - Math.max(0, (t - 0.78) / 0.22));
+        const a = fadeIn * fadeOut;
+        if (a <= 0) return;
+        ctx.save();
+        // Storm-cloud disc on normal blending.
+        const disc = ctx.createRadialGradient(this.x, this.y, this.radius * 0.15,
+                                              this.x, this.y, this.radius);
+        disc.addColorStop(0, `rgba(120, 90, 180, ${0.45 * a})`);
+        disc.addColorStop(0.6, `rgba(80, 50, 140, ${0.28 * a})`);
+        disc.addColorStop(1, `rgba(40, 20, 80, 0)`);
+        ctx.fillStyle = disc;
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2); ctx.fill();
+        // Rim crackle (additive).
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = `rgba(200,160,255,${0.6 * a})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2); ctx.stroke();
+        // Wandering arc lines along the rim.
+        ctx.lineWidth = 1.4;
+        for (let i = 0; i < this._arcSeeds.length; i++) {
+            const seed = this._arcSeeds[i];
+            const baseAng = (now * 0.0008 + seed) % (Math.PI * 2);
+            const rWobble = this.radius * (0.85 + 0.13 * Math.sin(now * 0.005 + seed));
+            const x0 = this.x + Math.cos(baseAng) * rWobble;
+            const y0 = this.y + Math.sin(baseAng) * rWobble;
+            const x1 = this.x + Math.cos(baseAng + 0.18) * (rWobble - 14 - Math.random() * 8);
+            const y1 = this.y + Math.sin(baseAng + 0.18) * (rWobble - 14 - Math.random() * 8);
+            ctx.strokeStyle = `rgba(220,200,255,${0.5 * a * (0.5 + Math.random() * 0.5)})`;
+            ctx.beginPath();
+            ctx.moveTo(x0, y0); ctx.lineTo(x1, y1);
+            ctx.stroke();
+        }
+        // "Charging" indicator at center: pulse intensifies as next strike approaches.
+        const tilNext = Math.max(0, this._nextStrikeAt - now);
+        const charge = 1 - Math.min(1, tilNext / 600);
+        if (charge > 0) {
+            const coreR = 20 + 14 * charge;
+            const grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, coreR);
+            grad.addColorStop(0, `rgba(255,255,255,${0.6 * a * charge})`);
+            grad.addColorStop(0.5, `rgba(180,140,255,${0.45 * a * charge})`);
+            grad.addColorStop(1, 'rgba(80,40,160,0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath(); ctx.arc(this.x, this.y, coreR, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.restore();
+    }
+}
+
+// Glacius's death rattle: a wide frost tomb. Anyone inside is slowed
+// to 70% movement and, on first contact, gets a one-shot 7s
+// vulnerability that amplifies all incoming damage by 1.5x. The
+// vulnerability is non-refreshable while it's running.
+class GlaciusFrostTomb {
+    constructor(x, y, opts) {
+        opts = opts || {};
+        this.x = x;
+        this.y = y;
+        this.radius = opts.radius || 240;
+        this.duration = opts.duration || 10000;
+        this.slowMul = (opts.slowMul != null) ? opts.slowMul : 0.7;
+        this.vulnerabilityMs = (opts.vulnerabilityMs != null) ? opts.vulnerabilityMs : 7000;
+        this.vulnerabilityMul = (opts.vulnerabilityMul != null) ? opts.vulnerabilityMul : 1.5;
+        this.spawnAt = Date.now();
+        this.shouldDestroy = false;
+        this.belongsTo = 'glacius';
+        // Cached crystalline shards for a cohesive icy look.
+        this._shards = [];
+        for (let i = 0; i < 26; i++) {
+            this._shards.push({
+                ang: Math.random() * Math.PI * 2,
+                rad: Math.random() * this.radius * 0.85,
+                len: 7 + Math.random() * 14,
+                seed: Math.random() * Math.PI * 2,
+            });
+        }
+    }
+
+    update() {
+        const now = Date.now();
+        const age = now - this.spawnAt;
+        if (age >= this.duration) { this.shouldDestroy = true; return; }
+        if (!game.player || game.player.isUntargetable) return;
+        const px = game.player.x + game.player.width / 2;
+        const py = game.player.y + game.player.height / 2;
+        if (Math.hypot(px - this.x, py - this.y) > this.radius) return;
+        // Tick slow with a short window so it auto-clears once the
+        // player walks out, matching IceField's behavior.
+        if (typeof game.player.applySlow === 'function') {
+            game.player.applySlow(220, this.slowMul);
+        }
+        // First-touch vulnerability. applyVulnerability is itself
+        // non-refreshable so repeat ticks while the player stays inside
+        // are safe — it just no-ops until the debuff expires.
+        if (typeof game.player.applyVulnerability === 'function') {
+            game.player.applyVulnerability(this.vulnerabilityMs, this.vulnerabilityMul);
+        }
+    }
+
+    draw(ctx) {
+        const now = Date.now();
+        const age = now - this.spawnAt;
+        const t = age / this.duration;
+        const fadeIn = Math.min(1, age / 300);
+        const fadeOut = Math.max(0, 1 - Math.max(0, (t - 0.85) / 0.15));
+        const a = fadeIn * fadeOut;
+        if (a <= 0) return;
+        ctx.save();
+        // Base disc.
+        const disc = ctx.createRadialGradient(this.x, this.y, this.radius * 0.2,
+                                              this.x, this.y, this.radius);
+        disc.addColorStop(0, `rgba(190,230,255,${0.5 * a})`);
+        disc.addColorStop(0.7, `rgba(120,180,240,${0.32 * a})`);
+        disc.addColorStop(1, `rgba(60,110,200,${0.06 * a})`);
+        ctx.fillStyle = disc;
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2); ctx.fill();
+        // Rim ring.
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = `rgba(220,240,255,${0.6 * a})`;
+        ctx.lineWidth = 2.4;
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2); ctx.stroke();
+        // Inner threshold ring to telegraph the danger area.
+        ctx.strokeStyle = `rgba(180,220,255,${0.35 * a})`;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius * 0.7, 0, Math.PI * 2); ctx.stroke();
+        // Crystalline shards.
+        ctx.lineWidth = 1.3;
+        for (const s of this._shards) {
+            const flick = 0.7 + 0.3 * Math.sin(now * 0.004 + s.seed);
+            const x0 = this.x + Math.cos(s.ang) * s.rad;
+            const y0 = this.y + Math.sin(s.ang) * s.rad;
+            const x1 = x0 + Math.cos(s.ang + Math.PI / 2) * s.len * flick;
+            const y1 = y0 + Math.sin(s.ang + Math.PI / 2) * s.len * flick;
+            const x2 = x0 - Math.cos(s.ang + Math.PI / 2) * s.len * flick;
+            const y2 = y0 - Math.sin(s.ang + Math.PI / 2) * s.len * flick;
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x0 + Math.cos(s.ang) * s.len * 0.95, y0 + Math.sin(s.ang) * s.len * 0.95);
+            ctx.lineTo(x2, y2);
+            ctx.closePath();
+            ctx.fillStyle = `rgba(190,230,255,${0.55 * a * flick})`;
+            ctx.fill();
+            ctx.strokeStyle = `rgba(230,250,255,${0.7 * a * flick})`;
+            ctx.stroke();
+        }
+        // Drifting frost flecks.
+        for (let i = 0; i < 22; i++) {
+            const seed = i * 17;
+            const phase = (now * 0.0004 + seed) % 1;
+            const ang = (seed + now * 0.0003) % (Math.PI * 2);
+            const rr = phase * this.radius;
+            const fx = this.x + Math.cos(ang) * rr;
+            const fy = this.y + Math.sin(ang) * rr;
+            const fa = (1 - phase) * 0.85 * a;
+            ctx.fillStyle = `rgba(220,240,255,${fa})`;
+            ctx.beginPath(); ctx.arc(fx, fy, 1.6, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.restore();
+    }
+}
+
+// Pyron's death rattle: a wide scorched-earth field. While the player
+// stands inside, they take per-second damage AND get the burning
+// status continuously refreshed (so they stay on fire while inside
+// and continue to burn briefly after walking out). Reuses the
+// player's existing applyBurn() lifecycle for the burn DoT.
+class PyronScorchedEarth {
+    constructor(x, y, opts) {
+        opts = opts || {};
+        this.x = x;
+        this.y = y;
+        this.radius = opts.radius || 240;
+        this.duration = opts.duration || 5000;
+        this.dps = (opts.dps != null) ? opts.dps : 8;
+        this.tickInterval = opts.tickInterval || 1000; // 1s per the spec
+        this.spawnAt = Date.now();
+        this._lastTickAt = this.spawnAt;
+        this.shouldDestroy = false;
+        this.belongsTo = 'pyron';
+        // Pre-rolled embers / flame seeds for visuals.
+        this._flames = [];
+        for (let i = 0; i < 24; i++) {
+            this._flames.push({
+                ang: Math.random() * Math.PI * 2,
+                rad: Math.random() * this.radius * 0.9,
+                seed: Math.random() * 1000,
+                size: 4 + Math.random() * 6,
+            });
+        }
+    }
+
+    update() {
+        const now = Date.now();
+        const age = now - this.spawnAt;
+        if (age >= this.duration) { this.shouldDestroy = true; return; }
+        if (!game.player || game.player.isUntargetable) return;
+        const px = game.player.x + game.player.width / 2;
+        const py = game.player.y + game.player.height / 2;
+        if (Math.hypot(px - this.x, py - this.y) > this.radius) return;
+        // Continuously re-apply burn so the player keeps burning while
+        // inside (and keeps a residual burn after they walk out, just
+        // like the molotov from Ugly Emperor).
+        if (typeof game.player.applyBurn === 'function') {
+            game.player.applyBurn();
+        }
+        // Per-second flat tick damage on top of the burn DoT.
+        if (now - this._lastTickAt >= this.tickInterval) {
+            const ticks = Math.floor((now - this._lastTickAt) / this.tickInterval);
+            _triHitPlayer(this.dps * ticks);
+            this._lastTickAt += ticks * this.tickInterval;
+        }
+    }
+
+    draw(ctx) {
+        const now = Date.now();
+        const age = now - this.spawnAt;
+        const t = age / this.duration;
+        const fadeIn = Math.min(1, age / 200);
+        const fadeOut = Math.max(0, 1 - Math.max(0, (t - 0.75) / 0.25));
+        const a = fadeIn * fadeOut;
+        if (a <= 0) return;
+        ctx.save();
+        // Charred ground disc on normal blending so it reads as ground.
+        const disc = ctx.createRadialGradient(this.x, this.y, this.radius * 0.15,
+                                              this.x, this.y, this.radius);
+        disc.addColorStop(0, `rgba(80, 25, 10, ${0.55 * a})`);
+        disc.addColorStop(0.55, `rgba(60, 18, 8, ${0.4 * a})`);
+        disc.addColorStop(1, `rgba(20, 8, 4, 0)`);
+        ctx.fillStyle = disc;
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2); ctx.fill();
+        // Glowing cracks: a few radial ember veins under the surface.
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.lineWidth = 2;
+        for (let i = 0; i < 8; i++) {
+            const ang = (i / 8) * Math.PI * 2 + Math.sin(now * 0.0006 + i) * 0.15;
+            const r0 = this.radius * 0.15;
+            const r1 = this.radius * (0.55 + 0.2 * Math.sin(now * 0.002 + i));
+            const x0 = this.x + Math.cos(ang) * r0;
+            const y0 = this.y + Math.sin(ang) * r0;
+            const x1 = this.x + Math.cos(ang) * r1;
+            const y1 = this.y + Math.sin(ang) * r1;
+            const grad = ctx.createLinearGradient(x0, y0, x1, y1);
+            grad.addColorStop(0, `rgba(255, 220, 120, ${0.7 * a})`);
+            grad.addColorStop(0.6, `rgba(255, 110, 30, ${0.5 * a})`);
+            grad.addColorStop(1, 'rgba(120, 30, 0, 0)');
+            ctx.strokeStyle = grad;
+            ctx.beginPath();
+            ctx.moveTo(x0, y0); ctx.lineTo(x1, y1);
+            ctx.stroke();
+        }
+        // Rim ember ring.
+        ctx.strokeStyle = `rgba(255, 140, 50, ${0.55 * a})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2); ctx.stroke();
+        // Living flame tongues.
+        for (const f of this._flames) {
+            const flick = 0.6 + 0.4 * Math.sin(now * 0.012 + f.seed);
+            const fx = this.x + Math.cos(f.ang) * f.rad;
+            const fy = this.y + Math.sin(f.ang) * f.rad;
+            const r = f.size * (0.7 + 0.4 * flick);
+            const grad = ctx.createRadialGradient(fx, fy, 0, fx, fy, r * 1.6);
+            grad.addColorStop(0, `rgba(255, 240, 180, ${0.85 * a * flick})`);
+            grad.addColorStop(0.45, `rgba(255, 130, 30, ${0.65 * a * flick})`);
+            grad.addColorStop(1, 'rgba(120, 30, 0, 0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath(); ctx.arc(fx, fy, r * 1.6, 0, Math.PI * 2); ctx.fill();
+        }
+        // Rising embers.
+        for (let i = 0; i < 16; i++) {
+            const seed = i * 29;
+            const phase = ((now * 0.0009) + seed) % 1;
+            const ang = (seed + now * 0.0004) % (Math.PI * 2);
+            const rr = (0.2 + 0.7 * phase) * this.radius;
+            const ex = this.x + Math.cos(ang) * rr;
+            const ey = this.y + Math.sin(ang) * rr - phase * 18;
+            const ea = (1 - phase) * 0.9 * a;
+            ctx.fillStyle = `rgba(255, 200, 90, ${ea})`;
+            ctx.beginPath(); ctx.arc(ex, ey, 1.4, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.restore();
+    }
+}
+
 class Glacius extends GameObject {
     constructor(x, y, parent) {
         super(x, y, 36, 36, '#a0ddff');
@@ -2083,6 +2457,14 @@ class Glacius extends GameObject {
                 shakeMs: 260,
             });
         }
+        // Death rattle: frost tomb — slow + one-shot 7s vulnerability.
+        _triProjArr().push(new GlaciusFrostTomb(cx, cy, {
+            radius: 240,
+            duration: 10000,
+            slowMul: 0.7,
+            vulnerabilityMs: 7000,
+            vulnerabilityMul: 1.5,
+        }));
     }
 
     update() {

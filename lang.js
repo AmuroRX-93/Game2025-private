@@ -155,6 +155,7 @@ const translations = {
         'weapon.decoy_clone': '诱饵分身',
         'weapon.overdrive_burst': '超限爆发',
         'weapon.repair_protocol': '应急修复',
+        'weapon.god_mode': '金手指',
 
         'weaponDesc.gun': '远程射击 | 高射速 | 预瞄功能',
         'weaponDesc.sword': '近战攻击 | 高伤害 | 刀推功能',
@@ -175,6 +176,7 @@ const translations = {
         'weaponDesc.decoy_clone': '释放3诱饵 | 4秒隐身 | 35秒冷却',
         'weaponDesc.overdrive_burst': '6秒爆发 | 伤害×3 移速×3 | 自损30%血 受伤×2 | 30秒冷却',
         'weaponDesc.repair_protocol': '5秒修复 | 移速×1.5 每秒回5血 | 期间无法攻击 | 满血溢出至+50护盾 | 35秒冷却',
+        'weaponDesc.god_mode': '【调试用】释放即瞬杀场上一切 | 无冷却 无特效',
 
         'ws.attacking': '攻击中...',
         'ws.stagger': '僵直: {0}秒',
@@ -352,6 +354,7 @@ const translations = {
         'weapon.decoy_clone': 'Decoy Clone',
         'weapon.overdrive_burst': 'Overdrive Burst',
         'weapon.repair_protocol': 'Repair Protocol',
+        'weapon.god_mode': 'God Mode',
 
         'weaponDesc.gun': 'Ranged | High ROF | Predictive Aim',
         'weaponDesc.sword': 'Melee | High DMG | Dash Attack',
@@ -372,6 +375,7 @@ const translations = {
         'weaponDesc.decoy_clone': '3 Decoys | 4s Stealth | 35s CD',
         'weaponDesc.overdrive_burst': '6s Burst | DMG×3 SPD×3 | -30% HP, Incoming×2 | 30s CD',
         'weaponDesc.repair_protocol': '5s Repair | SPD×1.5, +5 HP/s | No attacking | Spill into +50 shield | 35s CD',
+        'weaponDesc.god_mode': '[Debug] Insta-kills everything on activation | No CD, no VFX',
 
         'ws.attacking': 'Attacking...',
         'ws.stagger': 'Stagger: {0}s',
@@ -462,7 +466,7 @@ const guideData = {
                 { name: '分裂飞弹', color: '#FFD700', lines: [
                     '发射1枚母弹，持续索敌（8秒无目标自爆）',
                     '接近敌人120px分裂为8枚子弹',
-                    '子弹伤害 3 | 高追踪性 | 冷却 4秒',
+                    '子弹伤害 4 | 高追踪性 | 冷却 4秒',
                     '分裂后先扇形散开再制导',
                 ]},
                 { name: '霰弹枪', color: '#ff9040', lines: [
@@ -484,7 +488,7 @@ const guideData = {
             id: 'shoulder_weapons', name: '肩部武器', color: '#FF8800',
             items: [
                 { name: '15连导弹发射器', color: '#FFD700', lines: [
-                    '每次齐射 15枚 | 每枚 3伤害',
+                    '每次齐射 15枚 | 每枚 5伤害',
                     '前1.1秒强追踪 | 爆炸半径 80px',
                     '冷却 4秒',
                 ]},
@@ -820,7 +824,7 @@ const guideData = {
                 { name: 'Cluster Missile', color: '#FFD700', lines: [
                     'Fires 1 mother missile, continuous tracking (8s self-destruct)',
                     'Splits into 8 sub-missiles at 120px proximity',
-                    'Sub-missile DMG 3 | High tracking | 4s CD',
+                    'Sub-missile DMG 4 | High tracking | 4s CD',
                     'Fan spread after split, then guided',
                 ]},
                 { name: 'Shotgun', color: '#ff9040', lines: [
@@ -842,7 +846,7 @@ const guideData = {
             id: 'shoulder_weapons', name: 'Shoulder Weapons', color: '#FF8800',
             items: [
                 { name: 'Missile Launcher ×15', color: '#FFD700', lines: [
-                    '15 missiles per salvo | 3 DMG each',
+                    '15 missiles per salvo | 5 DMG each',
                     '1.1s strong homing | 80px blast radius',
                     'Cooldown 4s',
                 ]},

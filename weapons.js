@@ -1132,22 +1132,47 @@ class LaserSpear extends Weapon {
             if (distance <= hitDistance) {
                 // 击中敌人
                 this.hitEnemies.add(enemy);
-                const isDead = enemy.takeDamage(this.damage);
+                // Tagged as melee so anti-melee mitigations (e.g. Voidborn)
+                // apply consistently with other physical weapons.
+                const isDead = enemy.takeDamage(this.damage, 'melee');
                 gameState.score += this.damage;
                 gameState.totalDamage += this.damage;
                 
                 if (!isDead) {
-                    // 敌人未死亡，扎穿并跟随移动
-                    enemy.getImpaled(this);
-                    this.impaledEnemies.add(enemy);
-                    
-                    // 让敌人跟随玩家的冲锋移动
-                    const chargeVx = Math.cos(this.chargeDirection) * this.chargeSpeed;
-                    const chargeVy = Math.sin(this.chargeDirection) * this.chargeSpeed;
-                    enemy.vx = chargeVx;
-                    enemy.vy = chargeVy;
+                    // 敌人未死亡，扎穿并跟随移动。
+                    // Some enemy types (Triumvirate members, Voidborn,
+                    // certain summons) extend GameObject directly and
+                    // don't implement the impale interface — guard the
+                    // calls so the spear doesn't crash on contact.
+                    if (typeof enemy.getImpaled === 'function') {
+                        enemy.getImpaled(this);
+                        this.impaledEnemies.add(enemy);
+
+                        // 让敌人跟随玩家的冲锋移动
+                        const chargeVx = Math.cos(this.chargeDirection) * this.chargeSpeed;
+                        const chargeVy = Math.sin(this.chargeDirection) * this.chargeSpeed;
+                        enemy.vx = chargeVx;
+                        enemy.vy = chargeVy;
+                    }
                 } else {
-                    if (enemy instanceof Boss || enemy instanceof SublimeMoon || enemy instanceof UglyEmperor || enemy instanceof Magnus || enemy instanceof HiveMind) {
+                    // Trigger the boss-kill flow only if THIS entity IS
+                    // the active boss container. Sub-bosses (Triumvirate
+                    // members before Voidborn appears, Magnus shoulder
+                    // pods, StarDevourer floating drones) are killable
+                    // mid-fight but must NOT end the encounter — that's
+                    // owned by the main boss container's health hitting
+                    // 0, which gameCore handles centrally.
+                    if (enemy === game.boss) {
+                        handleBossKill();
+                    } else if (
+                        enemy instanceof Boss
+                        || enemy instanceof SublimeMoon
+                        || enemy instanceof UglyEmperor
+                        || enemy instanceof Magnus
+                        || enemy instanceof HiveMind
+                    ) {
+                        // Defensive fallback for older boss classes that
+                        // may not be set as game.boss for whatever reason.
                         handleBossKill();
                     } else {
                         gameState.score += 10;
@@ -1182,7 +1207,7 @@ class LaserSpear extends Weapon {
             if (chargeTime >= this.chargeDuration) {
                 // 冲锋结束，释放所有被扎穿的敌人
                 this.impaledEnemies.forEach(enemy => {
-                    enemy.releaseImpale();
+                    if (typeof enemy.releaseImpale === 'function') enemy.releaseImpale();
                 });
                 this.impaledEnemies.clear();
                 
@@ -1202,7 +1227,7 @@ class LaserSpear extends Weapon {
                 if (willHitWall) {
                     // 撞墙了，立即结束冲锋
                     this.impaledEnemies.forEach(enemy => {
-                        enemy.releaseImpale();
+                        if (typeof enemy.releaseImpale === 'function') enemy.releaseImpale();
                     });
                     this.impaledEnemies.clear();
                     
@@ -2062,7 +2087,11 @@ class MissileLauncher extends Weapon {
         super({
             type: 'missile_launcher',
             name: isShoulder ? '15连导弹发射器' : '8连导弹发射器',
-            damage: 3, // 每枚导弹3点伤害
+            // Shoulder volley hits harder per missile than the hand
+            // version (5 vs 3) — the shoulder slot eats the whole
+            // shoulder budget so it should out-damage the 8-round
+            // hand variant on a per-missile basis.
+            damage: isShoulder ? 5 : 3,
             cooldown: 4000 // 4秒冷却
         });
         
@@ -2520,6 +2549,98 @@ class EMP extends Weapon {
             return { text: t('ws.cooldown', (cooldownRemaining / 1000).toFixed(1)), color: '#CC6666' };
         }
         return { text: t('ws.ready'), color: '#66CCFF' };
+    }
+}
+
+// 金手指 (GodMode) — debug-only hidden ability that instantly kills
+// every hostile entity currently on the field. No cooldown, no VFX,
+// no animation; designed to skip fights while iterating on systems.
+//
+// Targets:
+//   - the active boss container (game.boss) and any sub-bosses
+//     pushed into game.enemies (Triumvirate members, Voidborn,
+//     Magnus shoulder pods, StarDevourer floating drones, etc.)
+//   - hive drones, hive splinters, ice clones (boss-spawned summons)
+//   - basic enemies in game.enemies
+//
+// Strategy: send a giant takeDamage() to each entity with a clearly
+// fatal value so each entity's normal "you're dead" pipeline runs
+// (death VFX, drops, score). Anything still alive after that is
+// force-zeroed and marked `shouldDestroy`, then handleBossKill() is
+// called as the canonical end-of-fight hook if the boss died.
+class GodMode extends Weapon {
+    constructor() {
+        super({
+            type: 'god_mode',
+            name: '金手指',
+            damage: 999999, // overkill on purpose
+            cooldown: 0,    // debug tool: no cooldown
+        });
+    }
+
+    canUse() {
+        // Bypass base canUse() entirely — even cooldown=0 still gates
+        // on `Date.now() - lastUseTime >= cooldown` which is fine,
+        // but we don't want any stun / charging gating either.
+        return true;
+    }
+
+    use(player) {
+        this.lastUseTime = Date.now();
+        const KILL = this.damage;
+
+        // Kill every basic + sub-boss entity in game.enemies.
+        if (Array.isArray(game.enemies)) {
+            for (const e of [...game.enemies]) {
+                this._killEntity(e, KILL);
+            }
+        }
+        // Hive-Mind summons.
+        if (Array.isArray(game.hiveDrones)) {
+            for (const d of [...game.hiveDrones]) this._killEntity(d, KILL);
+        }
+        if (Array.isArray(game.hiveSplinters)) {
+            for (const s of [...game.hiveSplinters]) this._killEntity(s, KILL);
+        }
+        // Sublime Moon clones.
+        if (Array.isArray(game.iceClones)) {
+            for (const c of [...game.iceClones]) this._killEntity(c, KILL);
+        }
+        // The active boss container.
+        if (game.boss && game.boss.health > 0) {
+            this._killEntity(game.boss, KILL);
+            // gameCore's central health<=0 check will fire
+            // handleBossKill() next tick, but call it directly here
+            // too so the cinematic starts immediately on activation.
+            if (game.boss && game.boss.health <= 0 && typeof handleBossKill === 'function') {
+                handleBossKill();
+            }
+        }
+        return true;
+    }
+
+    _killEntity(e, dmg) {
+        if (!e) return;
+        try {
+            if (typeof e.takeDamage === 'function') {
+                e.takeDamage(dmg, 'godmode');
+            }
+        } catch (err) { /* swallow — debug tool, never break the game */ }
+        // Force-finalize anything that didn't bookkeep itself.
+        if (typeof e.health === 'number') e.health = 0;
+        e.shouldDestroy = true;
+    }
+
+    update(player) {
+        // No-op: stateless, no ongoing effect.
+    }
+
+    draw(ctx, player) {
+        // No-op: debug tool intentionally has no VFX.
+    }
+
+    getStatus() {
+        return { text: t('ws.readyShort'), color: '#FFD700' };
     }
 }
 
@@ -4858,7 +4979,7 @@ class ClusterMissile {
             const targetX = this.x + Math.cos(angle) * 200;
             const targetY = this.y + Math.sin(angle) * 200;
             
-            const child = new Missile(childX, childY, targetX, targetY, 3, 13);
+            const child = new Missile(childX, childY, targetX, targetY, 4, 13);
             child.maxLifetime = 2500;
             child.trackingRadius = 250;
             child.strongTrackingDuration = 2200;
@@ -5949,3 +6070,4 @@ WEAPON_TYPES.rocket_launcher = RocketLauncher;
 WEAPON_TYPES.minigun = Minigun;
 WEAPON_TYPES.overdrive_burst = OverdriveBurst;
 WEAPON_TYPES.repair_protocol = RepairProtocol;
+WEAPON_TYPES.god_mode = GodMode;

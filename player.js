@@ -48,6 +48,14 @@ class Player extends GameObject {
         this.burnDamagePerTick = 2;
         this.burnSpeedMultiplier = 0.8; // 移速降至80%
         this.burnDuration = 5000; // 5秒
+
+        // Vulnerability (脆弱) — incoming damage * vulnerabilityMultiplier
+        // while active. Designed to be one-shot, NON-refreshable: once
+        // applied, further calls to applyVulnerability() are ignored
+        // until the current vulnerability expires. Used by Glacius's
+        // death zone (Frost Tomb).
+        this.vulnerabilityEndTime = 0;
+        this.vulnerabilityMultiplier = 1; // <=1 means no effect; >1 amplifies
         
         // 根据机甲配置创建武器实例
         this.loadDefaultWeapons();
@@ -645,6 +653,12 @@ class Player extends GameObject {
         if (this.incomingDamageMultiplier && this.incomingDamageMultiplier !== 1) {
             damage = Math.max(1, Math.round(damage * this.incomingDamageMultiplier));
         }
+
+        // Vulnerability (Glacius Frost Tomb death rattle, etc.).
+        // Stacks multiplicatively with overdrive's incoming amplifier.
+        if (this.vulnerabilityMultiplier > 1 && Date.now() < this.vulnerabilityEndTime) {
+            damage = Math.max(1, Math.round(damage * this.vulnerabilityMultiplier));
+        }
         
         // 检查护盾减伤
         let actualDamage = damage;
@@ -745,6 +759,20 @@ class Player extends GameObject {
             this.slowMultiplier = multiplier;
         }
         if (newEnd > this.slowEndTime) this.slowEndTime = newEnd;
+    }
+
+    // One-shot, non-refreshable vulnerability. While active, every call
+    // to takeDamage scales by `multiplier` (>1). If a vulnerability is
+    // already active, additional calls are ignored — players cannot get
+    // their vulnerability window "topped up" by repeated triggers from
+    // the same hazard. Used by Glacius's Frost Tomb death rattle.
+    applyVulnerability(duration = 7000, multiplier = 1.5) {
+        const now = Date.now();
+        if (now < this.vulnerabilityEndTime && this.vulnerabilityMultiplier > 1) {
+            return; // Non-refreshable: ignore while a debuff is already running.
+        }
+        this.vulnerabilityMultiplier = multiplier;
+        this.vulnerabilityEndTime = now + duration;
     }
     
     // 添加受击提示

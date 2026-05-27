@@ -34,7 +34,8 @@ class Game {
             { type: 'decoy_clone', name: t('weapon.decoy_clone'), color: '#4488FF', desc: t('weaponDesc.decoy_clone') },
             { type: 'overdrive_burst', name: t('weapon.overdrive_burst'), color: '#FF2030', desc: t('weaponDesc.overdrive_burst') },
             { type: 'repair_protocol', name: t('weapon.repair_protocol'), color: '#60FF90', desc: t('weaponDesc.repair_protocol') },
-            { type: 'moonlight_greatsword', name: t('weapon.moonlight_greatsword'), color: '#88CCFF', desc: t('weaponDesc.moonlight_greatsword') }
+            { type: 'moonlight_greatsword', name: t('weapon.moonlight_greatsword'), color: '#88CCFF', desc: t('weaponDesc.moonlight_greatsword') },
+            { type: 'god_mode', name: t('weapon.god_mode'), color: '#FFD700', desc: t('weaponDesc.god_mode') }
         ];
         return { weaponOptions, shoulderWeaponOptions, hiddenAbilityOptions };
     }
@@ -127,6 +128,12 @@ class Game {
         this.decoys = [];
         this.damageNumbers = [];
         this.boss = null;
+        // Unified boss damage stream: every hitIndicator added by any
+        // boss / sub-boss this frame gets siphoned here and rendered as
+        // a single high-visibility readout under the top boss HP bar.
+        // Each entry: { dmg, startTime, lifeMs, side, lane }.
+        this.bossDamageStream = [];
+        this._bossDamageStreamLaneCursor = 0;
     }
 
     init() {
@@ -1071,6 +1078,11 @@ class Game {
 
         // Floating damage numbers (lifetime-based fade).
         if (typeof updateDamageNumbers === 'function') updateDamageNumbers();
+
+        // Drain every boss / sub-boss hit indicator into the unified
+        // top-of-screen damage stream so each boss class's own draw
+        // method has nothing left to render in the world.
+        this._drainBossHitIndicators();
     }
 
     draw() {
@@ -2583,10 +2595,17 @@ class Game {
         // Boss HP bar (top center)
         if (this.boss) {
             this.drawBossHealthBar();
+            this.drawBossDamageStream();
+        } else if (this.bossDamageStream && this.bossDamageStream.length > 0) {
+            // Boss is gone but the last hits are still flying — keep
+            // drawing the stream until they expire (fade-out).
+            this.drawBossDamageStream();
         }
 
-        // Bottom-left buttons
-        this.drawMainMenuButton();
+        // Bottom-left pause button (the redundant Main Menu button has
+        // been removed — pausing the game already exposes a Return-to-
+        // Menu CTA, and ESC also goes home; the HUD button on top of
+        // that was redundant clutter.)
         this.drawPauseButton();
 
         // Blindness overlay
@@ -2595,6 +2614,146 @@ class Game {
         }
     }
     
+    // Pull every pending hitIndicator off the active boss and any
+    // sub-boss components, convert them into entries on the unified
+    // damage stream, and clear the source arrays so nothing else
+    // (e.g. a boss's own draw method) tries to render them in the
+    // world. This is what gives us a single, top-of-screen damage
+    // readout no matter which boss class fired the hit.
+    _drainBossHitIndicators() {
+        if (!this.boss) return;
+        const sources = [];
+        sources.push(this.boss);
+        // Triumvirate: container has its own (rarely used) array, plus
+        // each surviving member, plus the Voidborn after transition.
+        if (this.boss.isTriumvirate) {
+            if (Array.isArray(this.boss.members)) {
+                for (const m of this.boss.members) if (m) sources.push(m);
+            }
+            if (this.boss.voidborn) sources.push(this.boss.voidborn);
+        }
+        // Magnus: shoulder pods take damage independently and have
+        // their own hitIndicators arrays.
+        if (this.boss.shoulderPods && Array.isArray(this.boss.shoulderPods)) {
+            for (const p of this.boss.shoulderPods) if (p) sources.push(p);
+        }
+        for (const src of sources) {
+            const arr = src && src.hitIndicators;
+            if (!Array.isArray(arr) || arr.length === 0) continue;
+            for (const ind of arr) {
+                if (!ind || ind._streamed) continue;
+                this.bossDamageStream.push({
+                    dmg: Math.max(1, Math.round(ind.damage || 0)),
+                    startTime: ind.startTime || Date.now(),
+                    lifeMs: 1100,
+                    // Alternate left / right of the bar so adjacent hits
+                    // don't pile on top of each other.
+                    side: (this._bossDamageStreamLaneCursor++ % 2 === 0) ? -1 : 1,
+                    lane: (this._bossDamageStreamLaneCursor % 4),
+                });
+                ind._streamed = true;
+            }
+            // Clear the source so the boss's own draw can't double-render
+            // these in the world.
+            arr.length = 0;
+        }
+        // Expire stream entries.
+        const now = Date.now();
+        this.bossDamageStream = this.bossDamageStream.filter(
+            e => now - e.startTime < e.lifeMs
+        );
+    }
+
+    // Render the unified hostile-target damage readout directly under
+    // the top boss HP bar. High-contrast typography, additive glow, and
+    // alternating left / right lanes so it reads as a real combat-log
+    // ticker rather than scattered floating numbers.
+    drawBossDamageStream() {
+        if (!Array.isArray(this.bossDamageStream) || this.bossDamageStream.length === 0) return;
+        const ctx = this.ctx;
+        const W = GAME_CONFIG.WIDTH;
+        const barW = 480;
+        const barH = 22;
+        const barX = (W - barW) / 2;
+        const barY = 32;
+        // Anchor the stream just below the HP-number row (which sits
+        // at barY + barH + 6 with 13px text → ~+22 below the bar).
+        const anchorY = barY + barH + 28;
+        const anchorX = W / 2;
+        const now = Date.now();
+
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        for (const e of this.bossDamageStream) {
+            const age = now - e.startTime;
+            const t = Math.min(1, Math.max(0, age / e.lifeMs));
+            // Easing: pop in fast, drift out slow.
+            const popIn = Math.min(1, age / 90);
+            const fadeOut = t > 0.65 ? 1 - (t - 0.65) / 0.35 : 1;
+            const alpha = popIn * fadeOut;
+            if (alpha <= 0.02) continue;
+
+            // Lateral drift outward from center, with a small upward rise.
+            const driftX = e.side * (12 + 64 * t);
+            const driftY = -16 * t + (e.lane % 2 === 0 ? 0 : 12);
+            const x = anchorX + driftX;
+            const y = anchorY + driftY;
+
+            // Scale punch: starts a touch larger, settles.
+            const scale = 1.15 - 0.15 * popIn;
+
+            const big = e.dmg >= 50;       // crits get extra emphasis
+            const huge = e.dmg >= 150;
+            const baseSize = huge ? 28 : (big ? 24 : 20);
+            const fontSize = Math.round(baseSize * scale);
+
+            const text = `-${e.dmg}`;
+
+            // Shadow / outer glow (additive layer).
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.globalAlpha = alpha * 0.85;
+            ctx.shadowColor = huge ? '#ffffaa' : (big ? '#ffd060' : '#ff5050');
+            ctx.shadowBlur = huge ? 18 : (big ? 14 : 10);
+            ctx.fillStyle = huge ? '#fff5b0' : (big ? '#ffd060' : '#ff7878');
+            ctx.font = `900 ${fontSize}px ${UI_THEME.font.display}`;
+            ctx.fillText(text, x, y);
+
+            // Sharp core (normal blending) for legibility against bright BG.
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.globalAlpha = alpha;
+            ctx.shadowBlur = 0;
+            // Heavy black stroke ring → makes the number readable on
+            // any backdrop (explosions, fire, lightning, etc.).
+            ctx.lineWidth = 3.5;
+            ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+            ctx.strokeText(text, x, y);
+            ctx.fillStyle = huge ? '#ffffff' : (big ? '#fff2c8' : '#ffd0d0');
+            ctx.fillText(text, x, y);
+
+            // Tiny tick mark linking the number to the bar so it reads
+            // as "this is bar damage" rather than a random score popup.
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.globalAlpha = alpha * 0.55;
+            ctx.strokeStyle = huge ? '#ffe080' : (big ? '#ffb050' : '#ff5050');
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            const tickStartX = x;
+            const tickStartY = barY + barH + 4;
+            const tickEndX = x;
+            const tickEndY = y - fontSize / 2 - 2;
+            if (tickEndY > tickStartY) {
+                ctx.moveTo(tickStartX, tickStartY);
+                ctx.lineTo(tickEndX, tickEndY);
+                ctx.stroke();
+            }
+        }
+
+        ctx.restore();
+        ctx.textAlign = 'left';
+    }
+
     drawBossHealthBar() {
         if (!this.boss) return;
         const ctx = this.ctx;
@@ -2964,18 +3123,6 @@ class Game {
         this.backButton = uiDrawButton(this.ctx, X, Y, W, H, t('menu.backArrow'), {
             accentColor: UI_THEME.color.textSecondary,
             labelFont: `bold 14px ${UI_THEME.font.mono}`,
-            chamfer: 8
-        });
-    }
-    
-    drawMainMenuButton() {
-        const W = 130;
-        const H = 40;
-        const X = 14;
-        const Y = GAME_CONFIG.HEIGHT - H - 14;
-        this.mainMenuButton = uiDrawButton(this.ctx, X, Y, W, H, t('menu.mainMenu'), {
-            accentColor: UI_THEME.color.danger,
-            labelFont: `bold 13px ${UI_THEME.font.mono}`,
             chamfer: 8
         });
     }
