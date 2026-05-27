@@ -142,36 +142,40 @@ function startBossDodge(boss) {
 
 function handleBossKill() {
     if (!game.boss) return;
+    // 玩家正在死亡演出中 → 不允许同时触发胜利
+    if (gameState.playerDying || gameState.gameOver) return;
+    // 记录 boss 中心位置用于死亡爆炸演出
+    const _b = game.boss;
+    const _bx = (_b.x || 0) + (_b.width || 0) / 2;
+    const _by = (_b.y || 0) + (_b.height || 0) / 2;
     game.boss = null;
     gameState.score += 100;
     gameState.bossKillCount++;
 
-    // Wipe every active enemy projectile / minion / dangerous floor effect on
-    // boss death so the player can't be hit after winning. Player-owned lists
-    // (game.bullets, game.missiles, game.explosions, game.decoys, ciws/cluster
-    // /plasma missiles, mines is shared but only spawned by enemies) are left
-    // alone to keep their visuals + damage numbers playing out.
+    // Clean up enemy *bodies* (drones, pods, splinters, ice clones) that would
+    // otherwise wander aimlessly with no boss to anchor them. Active *projectiles*
+    // (bullets, missiles, mines, molotovs etc.) are intentionally LEFT IN FLIGHT
+    // so the kill cinematic can play out with everything still moving — they
+    // become harmless thanks to the death-spectacle damage freeze + player
+    // invulnerability. Same on player death (see takeDamage early-out).
     const purge = (arr) => { if (Array.isArray(arr)) arr.length = 0; };
-    purge(game.enemies);              // drones / mines / shoulder pods / floating guns / splinters
+    purge(game.enemies);
     purge(game.hiveDrones);
     purge(game.hiveSplinters);
-    purge(game.bossMissiles);         // crimson king / sublime moon / magnus
-    purge(game.chaosBullets);         // ugly emperor
-    purge(game.starDevourerBullets);
-    purge(game.magnusBullets);
-    purge(game.magnusShells);
-    purge(game.hivePlasmaBullets);
-    purge(game.crescentBullets);      // sublime moon
     purge(game.iceClones);
-    purge(game.spinSlashEffects);
-    purge(game.boomerangHitEffects);
-    purge(game.mines);                // ugly emperor / boss-spawned mines
-    purge(game.molotovs);
 
-    if (gameState.selectedGameMode === 'BOSS_BATTLE') {
-        gameState.bossSpawned = false;
-        game.showVictoryAndReturnToMenu();
+    // Player is invincible from the moment of the kill onward — no trades.
+    if (game.player) {
+        game.player.isInvincible = true;
     }
+
+    // Enter the boss death spectacle phase before showing the victory screen.
+    gameState.bossDying = true;
+    gameState.bossDyingAt = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    gameState.bossDyingX = _bx;
+    gameState.bossDyingY = _by;
+    gameState._deathLastBurstAt = 0;
+    gameState.damageFrozen = true;
 }
 
 function getDistanceFromBoss(boss) {

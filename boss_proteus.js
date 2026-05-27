@@ -7,7 +7,7 @@
 // takes +25% damage. This rewards forcing him to mis-match the player
 // and punishing during the swap window.
 
-const PROTEUS_DAMAGE_MULT = 1.0;
+const PROTEUS_DAMAGE_MULT = 0.5;
 const PROTEUS_FORM_THRESH_NEAR = 350;
 const PROTEUS_FORM_THRESH_FAR  = 600;
 const PROTEUS_FORM_HYSTERESIS  = 60;     // dead-zone to prevent flicker
@@ -97,7 +97,11 @@ class Proteus extends GameObject {
         this.shieldHp = 0;
         this.shieldMaxHp = Math.round(this.maxHealth * 0.32);
         this.shieldDamageReduction = 0.8;
-        this.shieldRegenPerSec = Math.round(this.shieldMaxHp * 0.015); // ~64s full (was 0.06 / ~16s)
+        // Shield regen — extremely slow (was 0.015 / ~64s, originally 0.06 / ~16s).
+        // We compute as a fractional per-second value rather than rounding,
+        // because at small shieldMaxHp the rounded integer would clamp to 0
+        // and the shield would never tick up.
+        this.shieldRegenPerSec = this.shieldMaxHp * 0.003;          // ~333s full
         this.shieldLastRegenTick = 0;
         this.shieldBornAt = 0;
         this.shieldBrokenAt = 0;
@@ -243,6 +247,22 @@ class Proteus extends GameObject {
                 const falloff = 1 - (d / this.shieldBreakRadius) * 0.5;
                 const dmg = Math.max(1, Math.round(this.shieldBreakDamage * falloff));
                 game.player.takeDamage(dmg);
+            }
+        }
+        // Chance to immediately rebuild the shield after a brief delay.
+        // We don't call _activateShield directly here (the break VFX needs
+        // a moment to read); instead we rewind shieldBrokenAt so the
+        // existing respawn-cd path in _tickShield kicks in early.
+        if (Math.random() < 0.35) {
+            const rebuildDelay = 1200;
+            this.shieldBrokenAt = Date.now() - (this.shieldRespawnCd - rebuildDelay);
+            this._pendingShieldRebuild = true;
+            if (typeof bossFX !== 'undefined') {
+                // Telegraph the rebuild so it doesn't feel random.
+                bossFX.addFlash(cx, cy, 36, '#7fdfff', 480, 0.55);
+                if (typeof bossFX.addShockwave === 'function') {
+                    bossFX.addShockwave(cx, cy, 8, 28, '#bff0ff', 480, 1.5, 0.4);
+                }
             }
         }
     }
@@ -404,6 +424,11 @@ class Proteus extends GameObject {
             else if (this.form === 'skirmish') this._tickSkirmish(now);
             else if (this.form === 'turret') this._tickTurret(now);
         }
+
+        // Shield maintenance runs every frame so a pending rebuild after
+        // a probabilistic break can fire even when the boss has already
+        // swapped out of turret form.
+        this._tickShield(now);
 
         this._tickSwingDash(now);
         this._tickActiveSwing(now);
@@ -593,8 +618,12 @@ class Proteus extends GameObject {
                     this._activateShield(now);
                 }
             } else {
-                // Leaving turret form — drop the shield (no AOE: it's a
-                // controlled retreat, not a forced break).
+                // Leaving turret form. If the shield is still up, the
+                // boss vents the stored energy as a big shockwave on
+                // the way out (no controlled retreat any more).
+                if (this.shieldActive && this.shieldHp > 0) {
+                    this._releaseShieldShockwave(now);
+                }
                 this._deactivateShield();
                 this.pdActive = false;
             }
@@ -605,6 +634,50 @@ class Proteus extends GameObject {
         }
         // No movement, no attacks while reconfiguring.
         this.vx = 0; this.vy = 0;
+    }
+
+    // Big radial shockwave fired off when Proteus drops a still-active
+    // shield by switching forms. Damages the player based on falloff and
+    // gives a hard knockback. Distinct from _breakShield AOE so the
+    // visuals & numbers don't get mistaken for a regular shield shatter.
+    _releaseShieldShockwave(now) {
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const radius = 260;
+        const baseDmg = 38;
+        if (typeof bossFX !== 'undefined') {
+            bossFX.addFlash(cx, cy, radius * 0.6, '#bff0ff', 420, 1.0);
+            if (typeof bossFX.addShockwave === 'function') {
+                bossFX.addShockwave(cx, cy, this.width * 0.6, radius * 1.05,
+                    '#7fdfff', 620, 7, 0.9);
+                bossFX.addShockwave(cx, cy, this.width * 0.4, radius * 0.85,
+                    '#d8f0ff', 480, 4, 0.75);
+            }
+            if (typeof bossFX.spawnBurst === 'function') {
+                bossFX.spawnBurst(cx, cy, 32, {
+                    color: '#7fdfff',
+                    speedMin: 4, speedMax: 10,
+                    sizeMin: 2, sizeMax: 4.5,
+                    lifeMs: 560, drag: 0.92
+                });
+            }
+            if (typeof bossFX.addShake === 'function') bossFX.addShake(8, 320);
+        }
+        if (game.player && !game.player.isUntargetable) {
+            const px = game.player.x + game.player.width / 2;
+            const py = game.player.y + game.player.height / 2;
+            const d = Math.hypot(px - cx, py - cy);
+            if (d <= radius) {
+                const falloff = 1 - (d / radius) * 0.6;
+                const dmg = Math.max(1, Math.round(baseDmg * falloff));
+                game.player.takeDamage(dmg);
+                if (d > 0.0001) {
+                    const kx = (px - cx) / d, ky = (py - cy) / d;
+                    game.player.vx += kx * 18;
+                    game.player.vy += ky * 18;
+                }
+            }
+        }
     }
 
     _formColor() {
@@ -1584,8 +1657,9 @@ class Proteus extends GameObject {
         // Boss body becomes mostly stationary — slight drift only.
         this.vx *= 0.85;
         this.vy *= 0.85;
-        // Shield maintenance: passive regen + auto-respawn after cd.
-        this._tickShield(now);
+        // Shield maintenance is now driven from the main update() so it
+        // also runs after the boss has left turret form (needed for the
+        // probabilistic post-break rebuild).
         // Point-defense (CIWS) — picks off the nearest player missile.
         this._updateProteusPointDefense(now);
         // Boss-direct cannon shot at the player every 1300ms (predictive arc).

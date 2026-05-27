@@ -642,11 +642,16 @@ class Magnus extends GameObject {
                     };
                 }
             },
-            // Move 4: Shoulder Missile Swarm — 8 homing missiles fanned out
+            // Move 4: Shoulder Missile Swarm — DISABLED.
+            // The body used to fire 8 swarm missiles directly, but the
+            // detached shoulder pods already own the rocket launcher and
+            // we want them to be the *only* source of incoming rockets.
+            // Keep the implementation around in case we want to bring it
+            // back as a phase-2-only fallback, but never let the AI pick it.
             {
                 id: 'missileSwarm',
                 cooldown: 7000,
-                canUse: (ctx) => ctx.dist > 200,
+                canUse: (ctx) => false,
                 score: (ctx) => {
                     let s = 1.25;
                     if (ctx.dist > 400) s += 0.4;
@@ -768,7 +773,7 @@ class Magnus extends GameObject {
             // while shielded; aggressive players can break it for a punish.
             {
                 id: 'barrierUp',
-                cooldown: 14000,
+                cooldown: 70000,
                 canUse: (ctx) => {
                     // Only when not already shielded, and HP under 80%
                     if (ctx.boss.shieldActive) return false;

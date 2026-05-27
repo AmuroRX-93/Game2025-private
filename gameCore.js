@@ -398,6 +398,208 @@ class Game {
         }, 5000);
     }
 
+    _tickDeathSpectacle() {
+        const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+        const dur = gameState.deathSpectacleMs || 2200;
+
+        // Pick the active spectacle (boss death takes priority if both flagged).
+        let cx, cy, startedAt;
+        if (gameState.bossDying) {
+            cx = gameState.bossDyingX;
+            cy = gameState.bossDyingY;
+            startedAt = gameState.bossDyingAt;
+        } else {
+            cx = gameState.playerDyingX;
+            cy = gameState.playerDyingY;
+            startedAt = gameState.playerDyingAt;
+        }
+        const elapsed = now - startedAt;
+        const t = Math.max(0, Math.min(1, elapsed / dur));
+
+        // Lock invulnerability for the whole spectacle.
+        if (this.player) this.player.isInvincible = true;
+
+        if (typeof bossFX !== 'undefined') {
+            const FIRE_PALETTE  = ['#fff2b8', '#ffd35a', '#ff9030', '#ff5028', '#ff7030'];
+            const SMOKE_PALETTE = ['#5a4738', '#3a2e26', '#2a201a', '#6a5043'];
+            const EMBER_COLOR   = '#ffd070';
+
+            // Phase definition driven entirely by `t`.
+            //   t < 0.18 : ramp-in     — small pops growing in size
+            //   t < 0.65 : inferno     — dense overlapping fireballs
+            //   t == 0.65: climax      — one giant flash + one ring + heavy debris
+            //   t < 0.92 : aftermath   — billowing smoke + falling embers, no fire
+            //   t >= 0.92: settle      — no new spawns, let what's there fade
+            const phase =
+                t < 0.18 ? 'rampIn' :
+                t < 0.65 ? 'inferno' :
+                t < 0.92 ? 'aftermath' : 'settle';
+
+            // Climax kicks exactly once when crossing 0.65.
+            if (!gameState._deathClimaxFired && t >= 0.65) {
+                gameState._deathClimaxFired = true;
+                // One white-hot core flash, layered with a warm halo.
+                bossFX.addFlash(cx, cy, 620, '#ffffff', 600, 1.0);
+                bossFX.addFlash(cx, cy, 460, '#ffe7a8', 720, 0.9);
+                bossFX.addFlash(cx, cy, 320, '#ff9030', 820, 0.8);
+                // Single dominant shockwave (the only big ring of the show).
+                bossFX.addShockwave(cx, cy, 50, 820, '#ffd070', 1000, 8, 0.85);
+                // Heavy chunk debris, mostly outward.
+                bossFX.spawnBurst(cx, cy, 80, {
+                    color: '#ffd6a0',
+                    speedMin: 5, speedMax: 17,
+                    sizeMin: 3, sizeMax: 8,
+                    lifeMs: 1300,
+                    gravity: 0.06,
+                    drag: 0.96,
+                });
+                // Bright sparks that linger.
+                bossFX.spawnBurst(cx, cy, 50, {
+                    color: '#fff8d0',
+                    speedMin: 7, speedMax: 22,
+                    sizeMin: 1.5, sizeMax: 3,
+                    lifeMs: 1100,
+                    gravity: 0.08,
+                    drag: 0.97,
+                });
+                // First wave of rising smoke columns.
+                for (let i = 0; i < 14; i++) {
+                    const ang = Math.random() * Math.PI * 2;
+                    const r = Math.random() * 90;
+                    bossFX.spawnBurst(cx + Math.cos(ang) * r, cy + Math.sin(ang) * r, 4, {
+                        color: SMOKE_PALETTE[(Math.random() * SMOKE_PALETTE.length) | 0],
+                        speedMin: 0.4, speedMax: 1.6,
+                        sizeMin: 12, sizeMax: 22,
+                        lifeMs: 1500 + Math.random() * 400,
+                        gravity: -0.05,
+                        drag: 0.97,
+                    });
+                }
+                bossFX.addShake(38, 600);
+            }
+
+            // Per-frame spawning by phase. Throttle to ~50ms for inferno/rampIn,
+            // a bit slower for aftermath so smoke breathes.
+            const last = gameState._deathLastBurstAt || 0;
+            const interval = (phase === 'aftermath') ? 90 : 55;
+            if (phase !== 'settle' && now - last >= interval) {
+                gameState._deathLastBurstAt = now;
+
+                if (phase === 'rampIn') {
+                    // Ease-in scale: tiny fast pops, growing.
+                    const k = t / 0.18; // 0 → 1
+                    const popCount = 1 + Math.floor(k * 2);
+                    for (let i = 0; i < popCount; i++) {
+                        const ang = Math.random() * Math.PI * 2;
+                        const rad = 10 + Math.random() * (60 + k * 80);
+                        const ex = cx + Math.cos(ang) * rad;
+                        const ey = cy + Math.sin(ang) * rad;
+                        const col = FIRE_PALETTE[(Math.random() * FIRE_PALETTE.length) | 0];
+                        const flashR = 30 + k * 90 + Math.random() * 40;
+                        bossFX.addFlash(ex, ey, flashR, col, 360 + Math.random() * 160, 0.85);
+                        bossFX.spawnBurst(ex, ey, 6 + ((Math.random() * 6) | 0), {
+                            color: EMBER_COLOR,
+                            speedMin: 1.5, speedMax: 5.5,
+                            sizeMin: 1.5, sizeMax: 3,
+                            lifeMs: 600 + Math.random() * 300,
+                            gravity: 0.05,
+                            drag: 0.96,
+                        });
+                    }
+                    bossFX.addShake(8 + k * 10, 160);
+                } else if (phase === 'inferno') {
+                    // Overlapping radial-gradient fireballs make the volumetric
+                    // explosion mass — no shockwave rings here on purpose.
+                    const fireballs = 4 + ((Math.random() * 3) | 0);
+                    for (let i = 0; i < fireballs; i++) {
+                        const ang = Math.random() * Math.PI * 2;
+                        const rad = Math.random() * 180;
+                        const ex = cx + Math.cos(ang) * rad;
+                        const ey = cy + Math.sin(ang) * rad;
+                        const col = FIRE_PALETTE[(Math.random() * FIRE_PALETTE.length) | 0];
+                        const flashR = 70 + Math.random() * 130;
+                        bossFX.addFlash(ex, ey, flashR, col, 520 + Math.random() * 280, 0.9);
+                        // A second tighter bright core makes it look hot, not flat.
+                        bossFX.addFlash(ex, ey, flashR * 0.45, '#fff8d0',
+                                        260 + Math.random() * 160, 0.95);
+                        // Chunky debris (using particles as small fireballs).
+                        bossFX.spawnBurst(ex, ey, 10 + ((Math.random() * 10) | 0), {
+                            color: col,
+                            speedMin: 2, speedMax: 7.5,
+                            sizeMin: 3, sizeMax: 6,
+                            lifeMs: 700 + Math.random() * 400,
+                            gravity: 0.04,
+                            drag: 0.95,
+                        });
+                        // Sparks.
+                        bossFX.spawnBurst(ex, ey, 6, {
+                            color: EMBER_COLOR,
+                            speedMin: 4, speedMax: 11,
+                            sizeMin: 1, sizeMax: 2.2,
+                            lifeMs: 500 + Math.random() * 300,
+                            gravity: 0.06,
+                            drag: 0.97,
+                        });
+                    }
+                    // Persistent core fireball at the middle.
+                    bossFX.addFlash(cx, cy, 180 + Math.random() * 60, '#ffd070', 380, 0.85);
+                    bossFX.addFlash(cx, cy, 90, '#ffffff', 220, 0.9);
+                    // Subtle building smoke beneath the fire.
+                    bossFX.spawnBurst(cx, cy, 5, {
+                        color: SMOKE_PALETTE[(Math.random() * SMOKE_PALETTE.length) | 0],
+                        speedMin: 0.4, speedMax: 1.4,
+                        sizeMin: 10, sizeMax: 18,
+                        lifeMs: 1300 + Math.random() * 400,
+                        gravity: -0.04,
+                        drag: 0.97,
+                    });
+                    bossFX.addShake(14, 180);
+                } else if (phase === 'aftermath') {
+                    // Smoke + slow embers only — let the climax breathe out.
+                    for (let i = 0; i < 3; i++) {
+                        const ang = Math.random() * Math.PI * 2;
+                        const rad = Math.random() * 200;
+                        const ex = cx + Math.cos(ang) * rad;
+                        const ey = cy + Math.sin(ang) * rad;
+                        bossFX.spawnBurst(ex, ey, 5, {
+                            color: SMOKE_PALETTE[(Math.random() * SMOKE_PALETTE.length) | 0],
+                            speedMin: 0.3, speedMax: 1.3,
+                            sizeMin: 14, sizeMax: 24,
+                            lifeMs: 1500 + Math.random() * 500,
+                            gravity: -0.05,
+                            drag: 0.98,
+                        });
+                    }
+                    // Drifting embers settling out of the smoke column.
+                    bossFX.spawnBurst(cx, cy - 30, 3, {
+                        color: EMBER_COLOR,
+                        speedMin: 0.5, speedMax: 2.2,
+                        sizeMin: 1.2, sizeMax: 2.6,
+                        lifeMs: 1100,
+                        gravity: 0.04,
+                        drag: 0.97,
+                    });
+                }
+            }
+        }
+
+        // Finalize the spectacle once the timer expires.
+        if (elapsed >= dur) {
+            if (gameState.bossDying) {
+                gameState.bossDying = false;
+                gameState._deathClimaxFired = false;
+                if (gameState.selectedGameMode === 'BOSS_BATTLE') {
+                    gameState.bossSpawned = false;
+                    this.showVictoryAndReturnToMenu();
+                }
+            } else if (gameState.playerDying) {
+                gameState.playerDying = false;
+                gameState._deathClimaxFired = false;
+                gameState.gameOver = true;
+            }
+        }
+    }
+
     backToMainMenu() {
         if (this._victoryTimer) {
             clearTimeout(this._victoryTimer);
@@ -405,6 +607,11 @@ class Game {
         }
         gameState.gameOver = false;
         gameState.paused = false;
+        gameState.playerDying = false;
+        gameState.bossDying = false;
+        gameState._deathClimaxFired = false;
+        gameState._deathLastBurstAt = 0;
+        gameState.damageFrozen = false;
         gameState.showModeSelection = true;
         gameState.showLevelSelection = false;
         gameState.showWeaponConfig = false;
@@ -466,8 +673,25 @@ class Game {
             return;
         }
 
-        // 更新玩家
-        this.player.update();
+        // Death spectacle: when the boss or player dies we play the explosion
+        // animation before transitioning to the result screen. We DO let the
+        // rest of the world keep updating (projectiles, mines, explosions,
+        // particles…) so anything still in flight visually completes its arc;
+        // but `damageFrozen` makes every takeDamage a no-op so nothing can
+        // actually hurt anyone, the player loses input control, and the boss
+        // is already gone so there's nothing left to fight.
+        const inDeathSpectacle = gameState.bossDying || gameState.playerDying;
+        if (inDeathSpectacle) {
+            gameState.damageFrozen = true;
+            this._tickDeathSpectacle();
+        } else {
+            gameState.damageFrozen = false;
+        }
+
+        // 更新玩家（死亡演出期间冻结玩家输入与行动）
+        if (!inDeathSpectacle) {
+            this.player.update();
+        }
 
         // 更新敌人 - 从后往前遍历避免索引问题
         for (let i = this.enemies.length - 1; i >= 0; i--) {
@@ -904,8 +1128,8 @@ class Game {
         try {
         // Apply screen shake (offset world transform). Will be popped by postDraw.
         if (typeof bossFX !== 'undefined') bossFX.preDraw(this.ctx);
-        // 绘制玩家
-        if (this.player) {
+        // 绘制玩家（玩家死亡演出阶段不再绘制本体，只剩爆炸）
+        if (this.player && !gameState.playerDying) {
             this.player.draw(this.ctx);
         }
 
@@ -3423,6 +3647,11 @@ class Game {
         gameState.score = 0;
         gameState.totalDamage = 0;
         gameState.gameOver = false;
+        gameState.playerDying = false;
+        gameState.bossDying = false;
+        gameState._deathClimaxFired = false;
+        gameState._deathLastBurstAt = 0;
+        gameState.damageFrozen = false;
         gameState.showModeSelection = true;
         gameState.showLevelSelection = false;
         gameState.showWeaponConfig = false;

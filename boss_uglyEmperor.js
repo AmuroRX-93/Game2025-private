@@ -342,11 +342,39 @@ class UglyEmperor extends GameObject {
         if (!game.mines) {
             game.mines = [];
         }
-        
-        // 在丑皇当前位置放置机雷（使用丑皇的中心位置）
-        const mineX = this.x + this.width / 2;
-        const mineY = this.y + this.height / 2;
-        const mine = new Mine(mineX, mineY);
+
+        // Spread mines around the boss instead of stacking them on his exact
+        // position — fixes "all mines piled into one tight cluster" when the
+        // boss is hovering or laying a chain on a tight strafe.
+        // Reject candidates that overlap with an existing mine: try a few
+        // angles, then fall back to the freshest candidate so we never skip a
+        // drop. Spawn radius is intentionally wide (~140px) so a 5-mine chain
+        // ends up scattered, not single-file.
+        const baseX = this.x + this.width / 2;
+        const baseY = this.y + this.height / 2;
+        const SCATTER_MIN = 60;
+        const SCATTER_MAX = 140;
+        const MIN_SEP = 70; // keep mines at least this far apart
+
+        let chosen = null;
+        for (let attempt = 0; attempt < 6; attempt++) {
+            const ang = Math.random() * Math.PI * 2;
+            const r = SCATTER_MIN + Math.random() * (SCATTER_MAX - SCATTER_MIN);
+            const cx = baseX + Math.cos(ang) * r;
+            const cy = baseY + Math.sin(ang) * r;
+            let tooClose = false;
+            for (const m of game.mines) {
+                if (!m || m.isExploded) continue;
+                const mx = m.x + m.width / 2;
+                const my = m.y + m.height / 2;
+                const dd = (mx - cx) * (mx - cx) + (my - cy) * (my - cy);
+                if (dd < MIN_SEP * MIN_SEP) { tooClose = true; break; }
+            }
+            if (!tooClose) { chosen = { x: cx, y: cy }; break; }
+            if (!chosen) chosen = { x: cx, y: cy };
+        }
+
+        const mine = new Mine(chosen.x, chosen.y);
         game.mines.push(mine);
     }
     

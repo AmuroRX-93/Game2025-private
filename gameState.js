@@ -35,6 +35,18 @@ const gameState = {
     // 维修包系统
     repairKits: 3, // 维修包数量
     maxRepairKits: 3, // 最大维修包数量
+    // 死亡爆炸演出 — boss/玩家死亡后先放一段超级爆炸再切到结算界面
+    playerDying: false,
+    playerDyingAt: 0,
+    playerDyingX: 0,
+    playerDyingY: 0,
+    bossDying: false,
+    bossDyingAt: 0,
+    bossDyingX: 0,
+    bossDyingY: 0,
+    deathSpectacleMs: 2200,
+    _deathLastBurstAt: 0,
+    damageFrozen: false,
     // 无敌模式
     invincibleMode: true,
     // 语言设置

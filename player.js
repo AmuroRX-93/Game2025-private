@@ -632,6 +632,14 @@ class Player extends GameObject {
         if (this.isInvincible) {
             return;
         }
+        // Boss 已经被击杀（进入死亡演出/胜利）后，玩家彻底无敌
+        if (gameState.bossDying || gameState.victory) {
+            return;
+        }
+        // 玩家死亡演出期间不再吃伤
+        if (gameState.playerDying || gameState.gameOver) {
+            return;
+        }
         
         // Overdrive Burst: incoming damage amplified
         if (this.incomingDamageMultiplier && this.incomingDamageMultiplier !== 1) {
@@ -673,9 +681,18 @@ class Player extends GameObject {
         // 确保生命值不低于0
         if (this.health <= 0) {
             this.health = 0;
-            gameState.gameOver = true;
             // 玩家死亡时重置失明状态
             gameState.playerBlinded = false;
+            // 进入死亡爆炸演出阶段（不立刻进结算界面）
+            if (!gameState.playerDying && !gameState.bossDying && !gameState.gameOver && !gameState.victory) {
+                gameState.playerDying = true;
+                gameState.playerDyingAt = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+                gameState.playerDyingX = this.x + this.width / 2;
+                gameState.playerDyingY = this.y + this.height / 2;
+                gameState._deathLastBurstAt = 0;
+                gameState.damageFrozen = true;
+                this.isInvincible = true; // 死亡演出期间不再吃任何伤害
+            }
         }
         
         // 可以在这里添加受伤效果或声音
