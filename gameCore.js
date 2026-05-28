@@ -317,10 +317,10 @@ class Game {
             updateUI();
             return;
         }
-
+        
         gameState.showLevelSelection = true;
         gameState.levelScrollOffset = 0;
-
+        
         updateUI();
     }
     
@@ -725,7 +725,7 @@ class Game {
 
         // 更新玩家（死亡演出期间冻结玩家输入与行动）
         if (!inDeathSpectacle) {
-            this.player.update();
+        this.player.update();
         }
 
         // 更新敌人 - 从后往前遍历避免索引问题
@@ -1132,7 +1132,7 @@ class Game {
             uiDrawGridBackground(this.ctx, GAME_CONFIG.WIDTH, GAME_CONFIG.HEIGHT);
         } else {
             this.ctx.fillStyle = UI_THEME.color.bgDeep;
-            this.ctx.fillRect(0, 0, GAME_CONFIG.WIDTH, GAME_CONFIG.HEIGHT);
+        this.ctx.fillRect(0, 0, GAME_CONFIG.WIDTH, GAME_CONFIG.HEIGHT);
         }
 
         // 显示游戏简介界面
@@ -1448,7 +1448,7 @@ class Game {
         const W = GAME_CONFIG.WIDTH;
         const H = GAME_CONFIG.HEIGHT;
         const ctx = this.ctx;
-
+        
         const scrollY = gameState.levelScrollOffset || 0;
         const headerHeight = 160;
 
@@ -1457,19 +1457,19 @@ class Game {
         ctx.beginPath();
         ctx.rect(0, headerHeight, W, H - headerHeight);
         ctx.clip();
-
+        
         const levels = Object.values(BOSS_LEVELS);
         const buttonWidth = 540;
         const buttonHeight = 124;
         const buttonSpacing = 144;
         const startY = 200;
-
+        
         this.levelButtons = [];
-
+        
         levels.forEach((level, index) => {
             const buttonX = W / 2 - buttonWidth / 2;
             const buttonY = startY + index * buttonSpacing - scrollY;
-
+            
             if (buttonY + buttonHeight < headerHeight || buttonY > H) return;
 
             const rect = { x: buttonX, y: buttonY, width: buttonWidth, height: buttonHeight };
@@ -1503,7 +1503,7 @@ class Game {
             ctx.textBaseline = 'top';
             ctx.fillText(`OP.${String(index + 1).padStart(2, '0')}`, buttonX + 26, buttonY + 16);
             ctx.restore();
-
+            
             if (level.unlocked) {
                 // Boss name
                 ctx.save();
@@ -1568,7 +1568,7 @@ class Game {
             mainFont: `bold 38px ${UI_THEME.font.display}`,
             subFont: `13px ${UI_THEME.font.mono}`
         });
-
+        
         // Scroll indicators
         const contentHeight = startY + levels.length * buttonSpacing;
         const maxScroll = Math.max(0, contentHeight - H + 60);
@@ -1576,14 +1576,14 @@ class Game {
             const trackX = W - 18;
             const trackTop = headerHeight + 10;
             const trackHeight = H - headerHeight - 20;
-
+            
             ctx.fillStyle = 'rgba(0, 230, 200, 0.08)';
             ctx.fillRect(trackX, trackTop, 4, trackHeight);
-
+            
             const thumbRatio = (H - headerHeight) / contentHeight;
             const thumbHeight = Math.max(30, trackHeight * thumbRatio);
             const thumbY = trackTop + (scrollY / maxScroll) * (trackHeight - thumbHeight);
-
+            
             ctx.fillStyle = UI_THEME.color.primary;
             ctx.fillRect(trackX, thumbY, 4, thumbHeight);
         }
@@ -1600,7 +1600,7 @@ class Game {
         // Frame markers + scanlines
         uiDrawScreenFrame(ctx, W, H);
         uiDrawScanlines(ctx, W, H);
-
+        
         this.bossButton = null;
         this.trainingButton = null;
         this.customButton = null;
@@ -1631,9 +1631,9 @@ class Game {
             mainFont: `bold 36px ${UI_THEME.font.display}`,
             subFont: `12px ${UI_THEME.font.mono}`
         });
-
+        
         const { weaponOptions, shoulderWeaponOptions, hiddenAbilityOptions } = this.getWeaponOptions();
-
+        
         const weaponSlots = [
             { key: 'leftHand', name: t('cfg.leftHand'), keyHint: t('cfg.leftKey'), color: UI_THEME.color.primary, options: weaponOptions, currentValue: gameState.weaponConfig.leftHand },
             { key: 'rightHand', name: t('cfg.rightHand'), keyHint: t('cfg.rightKey'), color: '#ff7575', options: weaponOptions, currentValue: gameState.weaponConfig.rightHand },
@@ -1649,7 +1649,7 @@ class Game {
         const startY = H / 2 - 90;
 
         this.weaponSlotButtons = [];
-
+        
         weaponSlots.forEach((slot, index) => {
             const x = startX + index * (slotW + 14);
             const y = startY;
@@ -1722,7 +1722,7 @@ class Game {
                 slotKey: slot.key, options: slot.options
             });
         });
-
+        
         // Invincible toggle
         const toggleW = 220;
         const toggleH = 44;
@@ -1777,9 +1777,9 @@ class Game {
             mainFont: `bold 36px ${UI_THEME.font.display}`,
             subFont: `12px ${UI_THEME.font.mono}`
         });
-
+        
         const { weaponOptions, shoulderWeaponOptions, hiddenAbilityOptions } = this.getWeaponOptions();
-
+        
         const weaponSlots = [
             { key: 'leftHand', name: t('cfg.leftHand'), keyHint: t('cfg.leftKey'), color: UI_THEME.color.primary, options: weaponOptions },
             { key: 'rightHand', name: t('cfg.rightHand'), keyHint: t('cfg.rightKey'), color: '#ff7575', options: weaponOptions },
@@ -1793,9 +1793,9 @@ class Game {
         const totalW = slotW * 5 + 14 * 4;
         const startX = (W - totalW) / 2;
         const startY = H / 2 - 70;
-
+        
         this.mechCustomSlotButtons = [];
-
+        
         weaponSlots.forEach((slot, index) => {
             const x = startX + index * (slotW + 14);
             const y = startY;
@@ -1857,13 +1857,13 @@ class Game {
             ctx.textBaseline = 'bottom';
             ctx.fillText('◀ CLICK TO CYCLE ▶', x + slotW / 2, y + slotH - 10);
             ctx.restore();
-
+            
             this.mechCustomSlotButtons.push({
                 x, y, width: slotW, height: slotH,
                 slotKey: slot.key, options: slot.options
             });
         });
-
+        
         uiDrawScreenFrame(ctx, W, H);
         uiDrawScanlines(ctx, W, H);
         this.drawBackButton();
@@ -2100,16 +2100,16 @@ class Game {
 
         const now = Date.now();
         const ctx = this.ctx;
-
+        
         for (let i = this.spinSlashEffects.length - 1; i >= 0; i--) {
             const effect = this.spinSlashEffects[i];
             const elapsed = now - effect.startTime;
-
+            
             if (elapsed > effect.duration) {
                 this.spinSlashEffects.splice(i, 1);
                 continue;
             }
-
+            
             const progress = elapsed / effect.duration;
             const ease = 1 - Math.pow(1 - progress, 2.4);
             const fade = Math.pow(1 - progress, 1.4);
@@ -2254,17 +2254,17 @@ class Game {
             this.teleportEffects = [];
             return;
         }
-
+        
         const now = Date.now();
         for (let i = this.teleportEffects.length - 1; i >= 0; i--) {
             const effect = this.teleportEffects[i];
             const elapsed = now - effect.startTime;
-
+            
             if (elapsed > effect.duration) {
                 this.teleportEffects.splice(i, 1);
                 continue;
             }
-
+            
             this._drawTeleportEffect(effect, elapsed);
         }
     }
@@ -2820,7 +2820,7 @@ class Game {
         ctx.restore();
         ctx.textAlign = 'left';
     }
-
+    
     drawBossHealthBar() {
         if (!this.boss) return;
         const ctx = this.ctx;
@@ -2905,10 +2905,10 @@ class Game {
             const skill = this.boss.blindnessSkill;
             const params = this.boss.getBlindnessParams();
             const now = Date.now();
-
+            
             let statusText = '';
             let statusColor = UI_THEME.color.textPrimary;
-
+            
             if (skill.isActive) {
                 const remaining = Math.max(0, params.duration - (now - skill.startTime));
                 statusText = t('boss.blindActive', (remaining / 1000).toFixed(1));
@@ -2925,7 +2925,7 @@ class Game {
                 }
             } else {
                 const cd = Math.max(0, params.cooldown - (now - skill.lastUse));
-                const phaseInfo = this.boss.phaseTwo.activated ? t('boss.phase2label') : t('boss.phase1');
+                    const phaseInfo = this.boss.phaseTwo.activated ? t('boss.phase2label') : t('boss.phase1');
                 if (cd > 0) {
                     statusText = t('boss.blindCooldown', (cd / 1000).toFixed(1), phaseInfo);
                     statusColor = '#ff8888';
@@ -2946,7 +2946,7 @@ class Game {
             if (this.boss.phaseTwo) {
                 let phaseText = '';
                 let phaseColor = UI_THEME.color.textPrimary;
-
+                
                 if (this.boss.phaseTwo.activated) {
                     const withinRange = this.boss.isWithinDetectionRange();
                     const distance = Math.floor(this.boss.getDistanceToPlayer());
@@ -2966,7 +2966,7 @@ class Game {
                         phaseColor = UI_THEME.color.accent;
                     }
                 }
-
+                
                 if (phaseText) {
                     ctx.save();
                     ctx.fillStyle = phaseColor;
@@ -2981,7 +2981,7 @@ class Game {
 
         ctx.textAlign = 'left';
     }
-
+    
     drawPauseButton() {
         const W = 88;
         const H = 36;
@@ -3245,7 +3245,7 @@ class Game {
         const W = GAME_CONFIG.WIDTH;
         const H = GAME_CONFIG.HEIGHT;
         const ctx = this.ctx;
-
+        
         // Top status header
         ctx.save();
         ctx.fillStyle = UI_THEME.color.primary;
@@ -3254,22 +3254,22 @@ class Game {
         ctx.textBaseline = 'middle';
         ctx.fillText('// FIELD MANUAL', 50, 32);
         ctx.restore();
-
+        
         this.guideButtons = [];
-
+        
         if (!gameState.guideCategory) {
             // Main catalog
             uiDrawTitle(ctx, W / 2, 70, t('menu.guide'), 'TACTICAL DATABASE', {
                 mainFont: `bold 32px ${UI_THEME.font.display}`,
                 subFont: `12px ${UI_THEME.font.mono}`
             });
-
+            
             const categories = this.getGuideData();
             const btnW = 420;
             const btnH = 56;
             const startY = 150;
             const gap = 12;
-
+            
             categories.forEach((cat, i) => {
                 const bx = W / 2 - btnW / 2;
                 const by = startY + i * (btnH + gap);
@@ -3291,12 +3291,12 @@ class Game {
             });
 
             this._drawGuideBackButton(t('menu.backToMenu'));
-
+            
         } else if (gameState.guideSubItem === null) {
             const categories = this.getGuideData();
             const cat = categories.find(c => c.id === gameState.guideCategory);
             if (!cat) return;
-
+            
             // Section title with accent strip
             ctx.save();
             ctx.fillStyle = cat.color;
@@ -3311,7 +3311,7 @@ class Game {
             }
             ctx.fillText(cat.name, W / 2 - 224, 70);
             ctx.restore();
-
+            
             if (cat.content) {
                 // Text page (scrollable)
                 const startY = 110;
@@ -3319,7 +3319,7 @@ class Game {
                 const textX = W / 2 - 240;
                 ctx.textAlign = 'left';
                 ctx.textBaseline = 'top';
-
+                
                 cat.content.forEach((line, i) => {
                     const y = startY + i * lineH - gameState.guideScrollOffset;
                     if (y < 95 || y > H - 70) return;
@@ -3341,7 +3341,7 @@ class Game {
                 const btnH = 50;
                 const startY = 110;
                 const gap = 10;
-
+                
                 cat.items.forEach((item, i) => {
                     const bx = W / 2 - btnW / 2;
                     const by = startY + i * (btnH + gap);
@@ -3360,9 +3360,9 @@ class Game {
                     this.guideButtons.push({ ...rect, action: 'subitem', index: i });
                 });
             }
-
+            
             this._drawGuideBackButton(t('menu.backToCatalog'));
-
+            
         } else {
             // Sub-item detail
             const categories = this.getGuideData();
@@ -3370,7 +3370,7 @@ class Game {
             if (!cat || !cat.items) return;
             const item = cat.items[gameState.guideSubItem];
             if (!item) return;
-
+            
             ctx.save();
             ctx.fillStyle = item.color;
             ctx.fillRect(W / 2 - 240, 56, 4, 28);
@@ -3390,7 +3390,7 @@ class Game {
             const textX = W / 2 - 240;
             ctx.textAlign = 'left';
             ctx.textBaseline = 'top';
-
+            
             item.lines.forEach((line, i) => {
                 const y = startY + i * lineH - gameState.guideScrollOffset;
                 if (y < 95 || y > H - 70) return;
@@ -3404,7 +3404,7 @@ class Game {
                 }
                 ctx.fillText(line, textX, y);
             });
-
+            
             this._drawGuideBackButton(t('menu.backTo', cat.name));
         }
 
@@ -3412,7 +3412,7 @@ class Game {
         uiDrawScreenFrame(ctx, W, H);
         uiDrawScanlines(ctx, W, H);
     }
-
+    
     _drawGuideBackButton(text) {
         const W = 160;
         const H = 40;
@@ -3642,9 +3642,15 @@ class Game {
         // 检查模式选择按钮点击
         if (gameState.showModeSelection) {
             if (this.langButton && this.isButtonClicked(this.langButton, mouseX, mouseY)) {
-                gameState.language = gameState.language === 'zh' ? 'en' : 'zh';
+                // Cycle: zh -> ja -> en -> zh
+                const order = ['zh', 'ja', 'en'];
+                const idx = order.indexOf(gameState.language);
+                gameState.language = order[(idx + 1 + order.length) % order.length] || 'zh';
                 document.title = t('ui.gameTitle');
-                document.documentElement.lang = gameState.language === 'zh' ? 'zh-CN' : 'en';
+                document.documentElement.lang = (
+                    gameState.language === 'zh' ? 'zh-CN' :
+                    gameState.language === 'ja' ? 'ja' : 'en'
+                );
                 return true;
             }
             
@@ -3657,7 +3663,7 @@ class Game {
                 this.selectGameMode('TRAINING');
                 return true;
             }
-
+            
             if (this.customButton && this.isButtonClicked(this.customButton, mouseX, mouseY)) {
                 this.showMechCustomization();
                 return true;

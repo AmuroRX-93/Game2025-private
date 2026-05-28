@@ -1174,14 +1174,14 @@ class LaserSpear extends Weapon {
                     // don't implement the impale interface — guard the
                     // calls so the spear doesn't crash on contact.
                     if (typeof enemy.getImpaled === 'function') {
-                        enemy.getImpaled(this);
-                        this.impaledEnemies.add(enemy);
-
-                        // 让敌人跟随玩家的冲锋移动
-                        const chargeVx = Math.cos(this.chargeDirection) * this.chargeSpeed;
-                        const chargeVy = Math.sin(this.chargeDirection) * this.chargeSpeed;
-                        enemy.vx = chargeVx;
-                        enemy.vy = chargeVy;
+                    enemy.getImpaled(this);
+                    this.impaledEnemies.add(enemy);
+                    
+                    // 让敌人跟随玩家的冲锋移动
+                    const chargeVx = Math.cos(this.chargeDirection) * this.chargeSpeed;
+                    const chargeVy = Math.sin(this.chargeDirection) * this.chargeSpeed;
+                    enemy.vx = chargeVx;
+                    enemy.vy = chargeVy;
                     }
                 } else {
                     // Trigger the boss-kill flow only if THIS entity IS
@@ -1583,31 +1583,31 @@ class Missile {
                 // so missiles still home rather than fly straight.
                 const allEnemies = game.enemies.filter(e => !e.notTargetable);
                 if (game.boss && !game.boss.notTargetable) {
-                    let bossTargetable = true;
-                    if (game.boss instanceof StarDevourer) {
-                        if (game.boss.phaseTwo.activated && game.boss.phaseTwo.isInvisible &&
-                            !game.boss.isWithinDetectionRange()) {
-                            bossTargetable = false;
-                        }
-                        if (game.boss.blindnessSkill && game.boss.blindnessSkill.isActive) {
-                            bossTargetable = false;
-                        }
+                let bossTargetable = true;
+                if (game.boss instanceof StarDevourer) {
+                    if (game.boss.phaseTwo.activated && game.boss.phaseTwo.isInvisible &&
+                        !game.boss.isWithinDetectionRange()) {
+                        bossTargetable = false;
                     }
-                    if (bossTargetable) {
-                        allEnemies.push(game.boss);
+                    if (game.boss.blindnessSkill && game.boss.blindnessSkill.isActive) {
+                        bossTargetable = false;
                     }
                 }
-
-                allEnemies.forEach(enemy => {
-                    const dx = enemy.x + enemy.width / 2 - this.x;
-                    const dy = enemy.y + enemy.height / 2 - this.y;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
-
-                    if (distance < closestDistance) {
-                        closestTarget = enemy;
-                        closestDistance = distance;
-                    }
-                });
+                if (bossTargetable) {
+                    allEnemies.push(game.boss);
+                }
+            }
+            
+            allEnemies.forEach(enemy => {
+                const dx = enemy.x + enemy.width / 2 - this.x;
+                const dy = enemy.y + enemy.height / 2 - this.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance < closestDistance) {
+                    closestTarget = enemy;
+                    closestDistance = distance;
+                }
+            });
             }
         }
         
@@ -4940,7 +4940,7 @@ class ClusterMissile {
             this.currentTarget = getBossTarget(this.x, this.y) || game.player;
             return;
         }
-
+        
         // Cluster mother-missile follows the player's primary lock so the
         // payload splits over whichever target the player is shooting at.
         const lockedTarget = (game.player && typeof game.player.getCurrentTarget === 'function')
