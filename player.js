@@ -168,6 +168,24 @@ class Player extends GameObject {
         });
         return weapons;
     }
+
+    // Training-ground only: instantly top off every magazine and clear
+    // any in-flight reload, so the pilot can keep shooting without waiting
+    // out reload timers. Cooldowns / charge meters are intentionally NOT
+    // touched — only ammo capacity (currentAmmo / magazineSize) is reset.
+    refillAllAmmo() {
+        const weapons = this.getAllWeapons();
+        for (const w of weapons) {
+            if (!w) continue;
+            if (typeof w.magazineSize === 'number' && typeof w.currentAmmo === 'number') {
+                w.currentAmmo = w.magazineSize;
+            }
+            if ('reloading' in w) {
+                w.reloading = false;
+                w.reloadStartTime = 0;
+            }
+        }
+    }
     
     // 获取特定类型的武器（兼容性方法）
     getWeaponByType(type) {
@@ -537,18 +555,6 @@ class Player extends GameObject {
             }
         }
 
-        // Manual reload (R key) has been removed — every weapon now
-        // auto-reloads when its magazine is empty. We keep this block
-        // commented out as documentation of the old behavior.
-        // if (canAcceptKeyboardInput && this.canAttack() && (keys['r'] || keys['R'])) {
-        //     if (this.leftHandWeapon && this.leftHandWeapon.canReload) {
-        //         this.leftHandWeapon.reload();
-        //     }
-        //     if (this.rightHandWeapon && this.rightHandWeapon.canReload) {
-        //         this.rightHandWeapon.reload();
-        //     }
-        // }
-        
         // 隐藏机能 (Shift键) - 只有在能接受键盘输入时才处理
         if (canAcceptKeyboardInput && keys['Shift']) {
             this.useHiddenAbility();
@@ -635,7 +641,7 @@ class Player extends GameObject {
         return false; // 使用失败
     }
 
-    takeDamage(damage = 1) {
+    takeDamage(damage = 1, options = null) {
         // 无敌模式下不受伤害
         if (this.isInvincible) {
             return;
@@ -648,21 +654,27 @@ class Player extends GameObject {
         if (gameState.playerDying || gameState.gameOver) {
             return;
         }
-        
+
+        // Bypass flags (e.g. Voidborn Blackhole Cannon ignores active
+        // damage-reduction shields and incoming-damage modifiers so that
+        // the threat is consistent regardless of the player's loadout).
+        const bypassShield = !!(options && options.bypassShield);
+        const bypassReduction = !!(options && options.bypassReduction);
+
         // Overdrive Burst: incoming damage amplified
-        if (this.incomingDamageMultiplier && this.incomingDamageMultiplier !== 1) {
+        if (!bypassReduction && this.incomingDamageMultiplier && this.incomingDamageMultiplier !== 1) {
             damage = Math.max(1, Math.round(damage * this.incomingDamageMultiplier));
         }
 
         // Vulnerability (Glacius Frost Tomb death rattle, etc.).
         // Stacks multiplicatively with overdrive's incoming amplifier.
-        if (this.vulnerabilityMultiplier > 1 && Date.now() < this.vulnerabilityEndTime) {
+        if (!bypassReduction && this.vulnerabilityMultiplier > 1 && Date.now() < this.vulnerabilityEndTime) {
             damage = Math.max(1, Math.round(damage * this.vulnerabilityMultiplier));
         }
         
         // 检查护盾减伤
         let actualDamage = damage;
-        if (this.hiddenAbilityWeapon && this.hiddenAbilityWeapon.isDamageReduced && this.hiddenAbilityWeapon.isDamageReduced()) {
+        if (!bypassShield && this.hiddenAbilityWeapon && this.hiddenAbilityWeapon.isDamageReduced && this.hiddenAbilityWeapon.isDamageReduced()) {
             const reduction = this.hiddenAbilityWeapon.getDamageReduction();
             // Full immunity (reduction >= 1) skips the damage entirely instead
             // of being clamped to the 1-damage minimum below.

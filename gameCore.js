@@ -127,6 +127,12 @@ class Game {
         this.clusterMissiles = [];
         this.decoys = [];
         this.damageNumbers = [];
+        // Triumvirate ground hazards & active projectiles (Blackhole Cannon,
+        // FrostBolt, HeatLance, LightningStrike, IronSpike, scorched earth,
+        // storm zones, frost tombs, etc.). MUST be cleared between runs —
+        // otherwise leftover blackholes from a previous Triumvirate fight
+        // will still be in flight when the player re-enters the level.
+        this.triumvirateProjectiles = [];
         this.boss = null;
         // Unified boss damage stream: every hitIndicator added by any
         // boss / sub-boss this frame gets siphoned here and rendered as

@@ -3037,7 +3037,10 @@ class BlackholeProjectile {
                         this._lastTickAt = now;
                         const tickDmg = TRI.VOID_BLACKHOLE_PULL_TICK_DMG * (0.6 + k);
                         if (typeof p.takeDamage === 'function') {
-                            p.takeDamage(tickDmg);
+                            // Voidborn blackhole bypasses player shields
+                            // and damage-reduction so the gravitational
+                            // threat is consistent across loadouts.
+                            p.takeDamage(tickDmg, { bypassShield: true, bypassReduction: true });
                         }
                     }
                 }
@@ -3056,7 +3059,7 @@ class BlackholeProjectile {
             const px = p.x + p.width / 2, py = p.y + p.height / 2;
             const d = Math.hypot(px - this.x, py - this.y);
             if (d <= TRI.VOID_BLACKHOLE_AOE_R && typeof p.takeDamage === 'function') {
-                p.takeDamage(TRI.VOID_BLACKHOLE_AOE_DMG);
+                p.takeDamage(TRI.VOID_BLACKHOLE_AOE_DMG, { bypassShield: true, bypassReduction: true });
             }
         }
         if (typeof bossFX !== 'undefined') {

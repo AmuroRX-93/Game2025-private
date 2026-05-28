@@ -530,11 +530,9 @@ class Gun extends Weapon {
         }
         if (this.currentAmmo === 0) return { text: t('ws.ammoEmpty'), color: '#CC6666' };
         
-        // 始终显示弹药数量，如果不满弹则提示可以重装
-        let statusText = t('ws.ammo', this.currentAmmo, this.magazineSize);
-        if (this.currentAmmo < this.magazineSize) {
-            statusText += t('ws.pressR');
-        }
+        // Always show ammo. Auto-reload handles top-up; the training-only
+        // R-key insta-refill is intentionally undocumented here.
+        const statusText = t('ws.ammo', this.currentAmmo, this.magazineSize);
         return { text: statusText, color: 'white' };
     }
 }
@@ -1541,36 +1539,48 @@ class Missile {
                 }
             }
         } else {
-            // 玩家导弹追踪敌人和Boss
-            const allEnemies = game.enemies.filter(e => !e.notTargetable);
-            if (game.boss && !game.boss.notTargetable) {
-                let bossTargetable = true;
-                if (game.boss instanceof StarDevourer) {
-                    // 隐身状态：二阶段且不在检测范围内
-                    if (game.boss.phaseTwo.activated && game.boss.phaseTwo.isInvisible &&
-                        !game.boss.isWithinDetectionRange()) {
-                        bossTargetable = false;
+            // Player-fired missiles lock onto the SAME target the player's
+            // primary firearm is currently locking — so a single hard-lock
+            // (or soft-lock auto-pick) drives every weapon at once instead
+            // of having missiles wander off to a different nearby enemy.
+            // Range gating is intentionally bypassed here: if the player's
+            // gun can lock it, the missile should follow.
+            const lockedTarget = (game.player && typeof game.player.getCurrentTarget === 'function')
+                ? game.player.getCurrentTarget() : null;
+            if (lockedTarget && !lockedTarget.notTargetable && lockedTarget !== game.player) {
+                closestTarget = lockedTarget;
+            } else {
+                // Fallback (manual-aim mode, or no valid lock yet): keep the
+                // legacy "find the nearest enemy in tracking radius" behaviour
+                // so missiles still home rather than fly straight.
+                const allEnemies = game.enemies.filter(e => !e.notTargetable);
+                if (game.boss && !game.boss.notTargetable) {
+                    let bossTargetable = true;
+                    if (game.boss instanceof StarDevourer) {
+                        if (game.boss.phaseTwo.activated && game.boss.phaseTwo.isInvisible &&
+                            !game.boss.isWithinDetectionRange()) {
+                            bossTargetable = false;
+                        }
+                        if (game.boss.blindnessSkill && game.boss.blindnessSkill.isActive) {
+                            bossTargetable = false;
+                        }
                     }
-                    // 失明技能激活时不可锁定
-                    if (game.boss.blindnessSkill && game.boss.blindnessSkill.isActive) {
-                        bossTargetable = false;
+                    if (bossTargetable) {
+                        allEnemies.push(game.boss);
                     }
                 }
-                if (bossTargetable) {
-                    allEnemies.push(game.boss);
-                }
+
+                allEnemies.forEach(enemy => {
+                    const dx = enemy.x + enemy.width / 2 - this.x;
+                    const dy = enemy.y + enemy.height / 2 - this.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
+                    if (distance < closestDistance) {
+                        closestTarget = enemy;
+                        closestDistance = distance;
+                    }
+                });
             }
-            
-            allEnemies.forEach(enemy => {
-                const dx = enemy.x + enemy.width / 2 - this.x;
-                const dy = enemy.y + enemy.height / 2 - this.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                
-                if (distance < closestDistance) {
-                    closestTarget = enemy;
-                    closestDistance = distance;
-                }
-            });
         }
         
         this.currentTarget = closestTarget;
@@ -4400,6 +4410,16 @@ class PlasmaMissile {
             return;
         }
 
+        // Player-fired plasma missile: lock onto the same enemy the
+        // player's primary firearm is locking, so all weapons converge.
+        const lockedTarget = (game.player && typeof game.player.getCurrentTarget === 'function')
+            ? game.player.getCurrentTarget() : null;
+        if (lockedTarget && !lockedTarget.notTargetable && lockedTarget !== game.player) {
+            this.currentTarget = lockedTarget;
+            return;
+        }
+
+        // Fallback: legacy nearest-in-radius search (manual mode / no lock).
         const elapsedTime = Date.now() - this.startTime;
         let trackingRadius;
         if (elapsedTime <= this.strongTrackingDuration) {
@@ -4892,7 +4912,17 @@ class ClusterMissile {
             this.currentTarget = getBossTarget(this.x, this.y) || game.player;
             return;
         }
-        
+
+        // Cluster mother-missile follows the player's primary lock so the
+        // payload splits over whichever target the player is shooting at.
+        const lockedTarget = (game.player && typeof game.player.getCurrentTarget === 'function')
+            ? game.player.getCurrentTarget() : null;
+        if (lockedTarget && !lockedTarget.notTargetable && lockedTarget !== game.player) {
+            this.currentTarget = lockedTarget;
+            return;
+        }
+
+        // Fallback: legacy nearest-in-radius search.
         let closestTarget = null;
         let closestDistance = this.trackingRadius;
         
@@ -5389,8 +5419,7 @@ class Minigun extends Weapon {
             return { text: t('ws.reloading', (remaining / 1000).toFixed(1)), color: '#CC6666' };
         }
         if (this.currentAmmo === 0) return { text: t('ws.ammoEmpty'), color: '#CC6666' };
-        let statusText = t('ws.ammo', this.currentAmmo, this.magazineSize);
-        if (this.currentAmmo < this.magazineSize) statusText += t('ws.pressR');
+        const statusText = t('ws.ammo', this.currentAmmo, this.magazineSize);
         return { text: statusText, color: 'white' };
     }
 }
@@ -5523,8 +5552,7 @@ class Shotgun extends Weapon {
             return { text: t('ws.reloading', (remaining / 1000).toFixed(1)), color: '#CC6666' };
         }
         if (this.currentAmmo === 0) return { text: t('ws.ammoEmpty'), color: '#CC6666' };
-        let txt = t('ws.ammo', this.currentAmmo, this.magazineSize);
-        if (this.currentAmmo < this.magazineSize) txt += t('ws.pressR');
+        const txt = t('ws.ammo', this.currentAmmo, this.magazineSize);
         return { text: txt, color: 'white' };
     }
 }
@@ -5652,8 +5680,7 @@ class RocketLauncher extends Weapon {
             return { text: t('ws.reloading', (remaining / 1000).toFixed(1)), color: '#CC6666' };
         }
         if (this.currentAmmo === 0) return { text: t('ws.ammoEmpty'), color: '#CC6666' };
-        let txt = t('ws.ammo', this.currentAmmo, this.magazineSize);
-        if (this.currentAmmo < this.magazineSize) txt += t('ws.pressR');
+        const txt = t('ws.ammo', this.currentAmmo, this.magazineSize);
         return { text: txt, color: 'white' };
     }
 }

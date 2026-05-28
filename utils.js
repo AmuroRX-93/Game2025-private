@@ -338,6 +338,13 @@ document.addEventListener('DOMContentLoaded', () => {
                         updateUI(); // 更新UI显示
                     }
                 }
+            } else if (e.key === 'r' || e.key === 'R') {
+                // Training-ground only debug perk: instantly refill
+                // every weapon's magazine to full so the pilot can
+                // keep practicing without waiting out reloads.
+                if (gameState.selectedGameMode === 'TRAINING' && game && game.player) {
+                    game.player.refillAllAmmo();
+                }
             } else if (e.key === 'Shift') {
                 // Shift键使用隐藏技能
                 if (game && game.player) {
