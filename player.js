@@ -1180,9 +1180,60 @@ class Player extends GameObject {
         if (gameState.playerBlinded) {
             return;
         }
-        
-        if (gameState.lockMode === 'hard') {
-            gameState.hardLockTarget = this.findNearestEnemy();
+        if (gameState.lockMode !== 'hard') return;
+
+        // Build the same lockable-enemy roster findNearestEnemy() uses so
+        // every Yukikon clone / phase-gated boss / etc. follows the same
+        // rules. Then sort by distance and step ONE entry past the current
+        // hard-lock target so the player can cycle through the field with
+        // X regardless of which enemy was chosen first.
+        const allEnemies = (game.enemies || []).filter(e => !e.notTargetable);
+        if (game.boss && !game.boss.notTargetable) {
+            let bossTargetable = true;
+            if (typeof StarDevourer !== 'undefined' && game.boss instanceof StarDevourer) {
+                if (game.boss.blindnessSkill && game.boss.blindnessSkill.isActive) {
+                    bossTargetable = false;
+                }
+            }
+            if (bossTargetable) {
+                if (!game.boss.phaseTwo || !game.boss.phaseTwo.activated) {
+                    allEnemies.push(game.boss);
+                } else if (!game.boss.isWithinDetectionRange || game.boss.isWithinDetectionRange()) {
+                    allEnemies.push(game.boss);
+                }
+            }
+            if (typeof Yukikon !== 'undefined' && game.boss instanceof Yukikon &&
+                game.boss.shadowActive && Array.isArray(game.boss.clones)) {
+                for (const c of game.boss.clones) {
+                    if (c && !c.shouldDestroy) allEnemies.push(c);
+                }
+            }
+        }
+
+        if (allEnemies.length === 0) {
+            gameState.hardLockTarget = null;
+            return;
+        }
+
+        const px = this.x + this.width / 2;
+        const py = this.y + this.height / 2;
+        const sorted = allEnemies.slice().sort((a, b) => {
+            const ax = a.x + (a.width || 0) / 2, ay = a.y + (a.height || 0) / 2;
+            const bx = b.x + (b.width || 0) / 2, by = b.y + (b.height || 0) / 2;
+            const da = (ax - px) * (ax - px) + (ay - py) * (ay - py);
+            const db = (bx - px) * (bx - px) + (by - py) * (by - py);
+            return da - db;
+        });
+
+        const idx = sorted.indexOf(gameState.hardLockTarget);
+        if (idx === -1) {
+            // Current lock isn't in the roster (target died, despawned, or
+            // never existed) — snap to the closest enemy so X always does
+            // SOMETHING useful.
+            gameState.hardLockTarget = sorted[0];
+        } else {
+            // Step to the next enemy by distance, wrap around at the end.
+            gameState.hardLockTarget = sorted[(idx + 1) % sorted.length];
         }
     }
     

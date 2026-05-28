@@ -5215,6 +5215,490 @@ class ClusterMissileLauncher extends Weapon {
 }
 
 // ============================================================
+// HighTrackMissile (player shoulder weapon: "高诱导飞弹")
+//
+// Single-shot, slow-but-relentless homing missile inspired by Crimson King's
+// laser-guided seeker. Trades volley-rate for raw payload: deals 5x the
+// per-missile damage of the standard 15-volley shoulder launcher, flies at
+// 2/3 the speed, and tracks aggressively for the full lifetime so it WILL
+// catch its target even through evasive strafing.
+// ============================================================
+class HighTrackMissile extends Missile {
+    constructor(x, y, targetX, targetY, damage, speed) {
+        super(x, y, targetX, targetY, damage, speed);
+        // Borrow Crimson King's high-turnrate homing math + extend the
+        // strong-tracking window so the missile keeps locking even after
+        // 2+ seconds of pursuit.
+        this.enhancedHoming = true;
+        this.strongTrackingDuration = 2800;
+        this.maxLifetime = 5000;
+        this.trackingRadius = 800;     // wide late-stage acquisition radius
+        this.size = 1.4;               // slightly larger sprite to telegraph the threat
+        this.isHighTrack = true;
+    }
+}
+
+class HighTrackMissileLauncher extends Weapon {
+    constructor(isShoulder = false) {
+        super({
+            type: 'high_track_missile',
+            name: '高诱导飞弹',
+            // 5x the per-missile damage of the 15-shot shoulder launcher
+            // (which deals 5/missile when shoulder-mounted) — single shot,
+            // huge punch.
+            damage: 25,
+            cooldown: 4000,
+        });
+        // 2/3 the speed of the standard 16-unit missile.
+        this.missileSpeed = Math.round(16 * (2 / 3) * 100) / 100; // ~10.67
+    }
+
+    use(player) {
+        if (!this.canUse()) return false;
+        this.lastUseTime = Date.now();
+
+        const launchX = player.x + player.width / 2;
+        const launchY = player.y + player.height / 2;
+
+        let targetX, targetY;
+        if (gameState.lockMode === 'manual') {
+            targetX = mouse.x;
+            targetY = mouse.y;
+        } else {
+            const target = player.getCurrentTarget();
+            if (target) {
+                targetX = target.x + target.width / 2;
+                targetY = target.y + target.height / 2;
+            } else {
+                const angle = player.direction * Math.PI / 180;
+                targetX = launchX + Math.cos(angle) * 300;
+                targetY = launchY + Math.sin(angle) * 300;
+            }
+        }
+
+        const missile = new HighTrackMissile(
+            launchX, launchY,
+            targetX, targetY,
+            this.damage,
+            this.missileSpeed
+        );
+
+        if (!game.missiles) game.missiles = [];
+        game.missiles.push(missile);
+
+        this.lastMissileFireTime = Date.now();
+        this.lastMissileAngle = Math.atan2(targetY - launchY, targetX - launchX);
+        return true;
+    }
+
+    update(player) {}
+
+    draw(ctx, player) {
+        // Brief muzzle flash on launch (matches MissileLauncher feel).
+        if (this.lastMissileFireTime && Date.now() - this.lastMissileFireTime < 110) {
+            const fade = 1 - (Date.now() - this.lastMissileFireTime) / 110;
+            const cx = player.x + player.width / 2;
+            const cy = player.y + player.height / 2;
+            const ang = (this.lastMissileAngle || 0);
+            if (typeof drawMuzzleFlash === 'function') {
+                drawMuzzleFlash(ctx, {
+                    x: cx + Math.cos(ang) * (player.width / 2 + 4),
+                    y: cy + Math.sin(ang) * (player.width / 2 + 4),
+                    angle: ang,
+                    size: 18,
+                    scheme: 'gold',
+                    alpha: fade,
+                });
+            }
+        }
+    }
+
+    getStatus() {
+        const cooldownRemaining = this.getCooldownRemaining();
+        if (cooldownRemaining > 0) {
+            return { text: t('ws.cooldown', (cooldownRemaining / 1000).toFixed(1)), color: '#CC6666' };
+        }
+        return { text: t('ws.ready'), color: 'white' };
+    }
+}
+
+// ============================================================
+// ClusterBombMissile (player shoulder weapon: "集束飞弹")
+//
+// Mother bomblet-dispenser. Same chassis stats as HighTrackMissile (same
+// speed, same homing strength, 4s reload, single launch) but dirt-cheap
+// body damage (1). After arming, it fires bomblet sub-missiles in a
+// rolling salvo: alternating L30°/R45° forward-quarter, 10 shots over 4s.
+// While the salvo is unfinished the body cannot be intercepted, devoured,
+// or detonated by impact — it is purely a flying launcher.
+// ============================================================
+class ClusterBombMissile extends Missile {
+    constructor(x, y, targetX, targetY, damage, speed) {
+        super(x, y, targetX, targetY, damage, speed);
+        this.enhancedHoming = true;
+        this.strongTrackingDuration = 2800;
+        this.maxLifetime = 6000;
+        this.trackingRadius = 800;
+        this.size = 1.4;
+        this.isClusterBomb = true;
+        // Body cannot be killed/devoured/exploded until all bomblets fly.
+        this.noDevour = true;
+        this.invulnerableUntilDispersed = true;
+
+        // Salvo schedule: 10 bomblets, alternating L30°/R45°, fired evenly
+        // across a 4s window once the dispenser arms (1s after launch).
+        this.bombletDelay = 1000;
+        this.bombletInterval = 4000 / 10;
+        this.bombletsTotal = 10;
+        this.bombletsFired = 0;
+        this.lastBombletAt = 0;
+        this.bombletDamage = 8;
+        // Death after dispersal: shortly after the last bomblet, the empty
+        // shell self-destructs harmlessly (no body collision).
+        this.dispersedAt = 0;
+    }
+
+    update() {
+        if (this.shouldDestroy) return;
+
+        // Drive the parent flight + homing logic; we still want the
+        // dispenser to chase the locked target so its bomblets seed the
+        // salvo near the enemy rather than midfield.
+        const elapsed = Date.now() - this.startTime;
+
+        // Spawn bomblets on schedule once armed.
+        if (this.bombletsFired < this.bombletsTotal &&
+            elapsed >= this.bombletDelay) {
+            const since = Date.now() - (this.lastBombletAt || (this.startTime + this.bombletDelay - this.bombletInterval));
+            if (since >= this.bombletInterval) {
+                this._fireBomblet();
+                this.bombletsFired++;
+                this.lastBombletAt = Date.now();
+            }
+        }
+
+        // Track dispersal completion timestamp.
+        if (this.bombletsFired >= this.bombletsTotal && this.dispersedAt === 0) {
+            this.dispersedAt = Date.now();
+            this.invulnerableUntilDispersed = false;
+            this.noDevour = false;
+        }
+
+        // Body lifetime: explode harmlessly ~0.6s after last bomblet so the
+        // empty shell doesn't keep sniffing for collisions.
+        if (this.dispersedAt && Date.now() - this.dispersedAt > 600) {
+            this.shouldDestroy = true;
+            return;
+        }
+
+        // Reuse parent's flight + tracking logic.
+        super.update();
+    }
+
+    // While invulnerable, ignore every damage source (CIWS already skips
+    // friendly missiles, but boss hazards / void devour need this guard).
+    takeDamage(_d) {
+        if (this.invulnerableUntilDispersed) return;
+        this.shouldDestroy = true;
+    }
+
+    // Body deals no contact damage and never AoE-explodes — bomblets carry
+    // the payload. We swallow checkCollisions / explode so the parent
+    // class's impact logic cannot trigger.
+    checkCollisions() {
+        if (this.invulnerableUntilDispersed) return;
+        // After dispersal the empty shell still does nothing — let it just
+        // fly off and time out via shouldDestroy above.
+    }
+
+    explode() {
+        // No-op AoE: the cluster body never deals impact damage. We do
+        // however always honour the lifetime/dispersal cleanup — being
+        // invulnerable doesn't mean immortal.
+        this.shouldDestroy = true;
+    }
+
+    _fireBomblet() {
+        // Alternating L30° / R45° relative to current flight heading.
+        const heading = Math.atan2(this.vy, this.vx);
+        const offsetDeg = (this.bombletsFired % 2 === 0) ? -30 : 45;
+        const ang = heading + offsetDeg * Math.PI / 180;
+        // Spawn slightly to the side of the dispenser so the bomblet does
+        // not immediately re-collide with mom.
+        const spawnDist = 12;
+        const sx = this.x + Math.cos(ang) * spawnDist;
+        const sy = this.y + Math.sin(ang) * spawnDist;
+        // Bomblet: small, fast, strong homing, 4 dmg.
+        const tx = sx + Math.cos(ang) * 200;
+        const ty = sy + Math.sin(ang) * 200;
+        const bomblet = new Missile(sx, sy, tx, ty, this.bombletDamage, 14);
+        bomblet.isClusterChild = true;
+        bomblet.guidanceDelay = 180;
+        bomblet.strongTrackingDuration = 2400;
+        bomblet.trackingRadius = 600;
+        bomblet.maxLifetime = 2800;
+        if (!game.missiles) game.missiles = [];
+        game.missiles.push(bomblet);
+    }
+}
+
+class ClusterBombMissileLauncher extends Weapon {
+    constructor(isShoulder = false) {
+        super({
+            type: 'cluster_bomb_missile',
+            name: '集束飞弹',
+            damage: 1,
+            cooldown: 4000,
+        });
+        this.missileSpeed = Math.round(16 * (2 / 3) * 100) / 100;
+    }
+
+    use(player) {
+        if (!this.canUse()) return false;
+        this.lastUseTime = Date.now();
+
+        const launchX = player.x + player.width / 2;
+        const launchY = player.y + player.height / 2;
+
+        let targetX, targetY;
+        if (gameState.lockMode === 'manual') {
+            targetX = mouse.x;
+            targetY = mouse.y;
+        } else {
+            const target = player.getCurrentTarget();
+            if (target) {
+                targetX = target.x + target.width / 2;
+                targetY = target.y + target.height / 2;
+            } else {
+                const angle = player.direction * Math.PI / 180;
+                targetX = launchX + Math.cos(angle) * 300;
+                targetY = launchY + Math.sin(angle) * 300;
+            }
+        }
+
+        const m = new ClusterBombMissile(
+            launchX, launchY, targetX, targetY,
+            this.damage, this.missileSpeed
+        );
+        if (!game.missiles) game.missiles = [];
+        game.missiles.push(m);
+
+        this.lastMissileFireTime = Date.now();
+        this.lastMissileAngle = Math.atan2(targetY - launchY, targetX - launchX);
+        return true;
+    }
+
+    update(player) {}
+
+    draw(ctx, player) {
+        if (this.lastMissileFireTime && Date.now() - this.lastMissileFireTime < 110) {
+            const fade = 1 - (Date.now() - this.lastMissileFireTime) / 110;
+            const cx = player.x + player.width / 2;
+            const cy = player.y + player.height / 2;
+            const ang = (this.lastMissileAngle || 0);
+            if (typeof drawMuzzleFlash === 'function') {
+                drawMuzzleFlash(ctx, {
+                    x: cx + Math.cos(ang) * (player.width / 2 + 4),
+                    y: cy + Math.sin(ang) * (player.width / 2 + 4),
+                    angle: ang,
+                    size: 18,
+                    scheme: 'gold',
+                    alpha: fade,
+                });
+            }
+        }
+    }
+
+    getStatus() {
+        const cooldownRemaining = this.getCooldownRemaining();
+        if (cooldownRemaining > 0) {
+            return { text: t('ws.cooldown', (cooldownRemaining / 1000).toFixed(1)), color: '#CC6666' };
+        }
+        return { text: t('ws.ready'), color: 'white' };
+    }
+}
+
+// ============================================================
+// MineLayerMissile (player shoulder weapon: "布雷飞弹")
+//
+// Same chassis as HighTrackMissile (same speed, homing, lifetime) but only
+// 1 body damage. While airborne it drops a high-explosive AoE mine at its
+// own current position every 0.7 seconds, seeding the lane the missile
+// flew through with a fence of proximity charges. Body remains fully
+// interceptable / killable by enemy fire.
+// ============================================================
+class MineLayerMissile extends Missile {
+    constructor(x, y, targetX, targetY, damage, speed) {
+        super(x, y, targetX, targetY, damage, speed);
+        this.enhancedHoming = true;
+        this.strongTrackingDuration = 2800;
+        this.maxLifetime = 6000;
+        this.trackingRadius = 800;
+        this.size = 1.4;
+        this.isMineLayer = true;
+
+        this.mineDropInterval = 700;
+        this.lastMineDropAt = 0;
+        this.minesDropped = 0;
+
+        // The dispenser is invulnerable + non-detonating until at least one
+        // mine has actually been laid. This guarantees the weapon can never
+        // fizzle: even if the missile gets shot down or rams an enemy at
+        // muzzle distance, the player still gets at least one mine on the
+        // field for their cooldown.
+        this.invulnerableUntilDeployed = true;
+        this.noDevour = true;
+    }
+
+    update() {
+        if (this.shouldDestroy) return;
+
+        // Drop a mine every 0.7s along our current flight path. First mine
+        // lands one full interval after launch so we don't drop one at the
+        // pilot's feet on the very first frame.
+        const now = Date.now();
+        if (now - (this.lastMineDropAt || this.startTime) >= this.mineDropInterval) {
+            this._dropMine();
+            this.lastMineDropAt = now;
+        }
+
+        // Lift the invulnerability the moment the first mine is on the
+        // ground — from then on the missile behaves like a normal homing
+        // missile and can be shot down or detonate on contact.
+        if (this.minesDropped >= 1 && this.invulnerableUntilDeployed) {
+            this.invulnerableUntilDeployed = false;
+            this.noDevour = false;
+        }
+
+        super.update();
+    }
+
+    // Pre-deployment: ignore every damage source (CIWS skips friendly
+    // missiles already, but boss hazards / collateral / void devour need
+    // this guard). Post-deployment: behave like a normal missile.
+    takeDamage(_d) {
+        if (this.invulnerableUntilDeployed) return;
+        this.shouldDestroy = true;
+    }
+
+    checkCollisions() {
+        // Suppress impact-explosion logic until the first mine is laid;
+        // we don't want the missile detonating on a contact shield in
+        // its first 700 ms of flight.
+        if (this.invulnerableUntilDeployed) return;
+        super.checkCollisions();
+    }
+
+    explode() {
+        // While locked to "must deploy at least one mine", swallow every
+        // explode trigger (lifetime overrun, collision, etc.) so the body
+        // stays alive until the first 700 ms drop happens. After that,
+        // the parent Missile explosion logic runs normally.
+        if (this.invulnerableUntilDeployed) {
+            // Force a mine drop right now so the contract is honoured even
+            // if something tried to delete us before the first interval.
+            if (this.minesDropped < 1) {
+                this._dropMine();
+                this.lastMineDropAt = Date.now();
+                this.invulnerableUntilDeployed = false;
+                this.noDevour = false;
+            }
+            return;
+        }
+        super.explode();
+    }
+
+    _dropMine() {
+        if (typeof Mine !== 'function') return;
+        if (!game.mines) game.mines = [];
+        const mine = new Mine(this.x, this.y);
+        // Tag so anyone interested (e.g. boss-clear logic) can tell it
+        // came from a player weapon, not from Ugly Emperor. Player-laid
+        // mines also hit twice as hard as Ugly Emperor's mines.
+        mine.isPlayerMine = true;
+        mine.damage = (mine.damage || 15) * 2;
+        game.mines.push(mine);
+        this.minesDropped = (this.minesDropped || 0) + 1;
+    }
+}
+
+class MineLayerMissileLauncher extends Weapon {
+    constructor(isShoulder = false) {
+        super({
+            type: 'mine_layer_missile',
+            name: '布雷飞弹',
+            damage: 1,
+            cooldown: 4000,
+        });
+        this.missileSpeed = Math.round(16 * (2 / 3) * 100) / 100;
+    }
+
+    use(player) {
+        if (!this.canUse()) return false;
+        this.lastUseTime = Date.now();
+
+        const launchX = player.x + player.width / 2;
+        const launchY = player.y + player.height / 2;
+
+        let targetX, targetY;
+        if (gameState.lockMode === 'manual') {
+            targetX = mouse.x;
+            targetY = mouse.y;
+        } else {
+            const target = player.getCurrentTarget();
+            if (target) {
+                targetX = target.x + target.width / 2;
+                targetY = target.y + target.height / 2;
+            } else {
+                const angle = player.direction * Math.PI / 180;
+                targetX = launchX + Math.cos(angle) * 300;
+                targetY = launchY + Math.sin(angle) * 300;
+            }
+        }
+
+        const m = new MineLayerMissile(
+            launchX, launchY, targetX, targetY,
+            this.damage, this.missileSpeed
+        );
+        if (!game.missiles) game.missiles = [];
+        game.missiles.push(m);
+
+        this.lastMissileFireTime = Date.now();
+        this.lastMissileAngle = Math.atan2(targetY - launchY, targetX - launchX);
+        return true;
+    }
+
+    update(player) {}
+
+    draw(ctx, player) {
+        if (this.lastMissileFireTime && Date.now() - this.lastMissileFireTime < 110) {
+            const fade = 1 - (Date.now() - this.lastMissileFireTime) / 110;
+            const cx = player.x + player.width / 2;
+            const cy = player.y + player.height / 2;
+            const ang = (this.lastMissileAngle || 0);
+            if (typeof drawMuzzleFlash === 'function') {
+                drawMuzzleFlash(ctx, {
+                    x: cx + Math.cos(ang) * (player.width / 2 + 4),
+                    y: cy + Math.sin(ang) * (player.width / 2 + 4),
+                    angle: ang,
+                    size: 18,
+                    scheme: 'gold',
+                    alpha: fade,
+                });
+            }
+        }
+    }
+
+    getStatus() {
+        const cooldownRemaining = this.getCooldownRemaining();
+        if (cooldownRemaining > 0) {
+            return { text: t('ws.cooldown', (cooldownRemaining / 1000).toFixed(1)), color: '#CC6666' };
+        }
+        return { text: t('ws.ready'), color: 'white' };
+    }
+}
+
+// ============================================================
 // ShotgunPellet: Bullet variant whose damage decays linearly with distance.
 // At point blank it deals full base damage; at max range it drops to 20%.
 // Visual tracer also shortens/fades as the pellet loses energy.
@@ -6130,3 +6614,6 @@ WEAPON_TYPES.minigun = Minigun;
 WEAPON_TYPES.overdrive_burst = OverdriveBurst;
 WEAPON_TYPES.repair_protocol = RepairProtocol;
 WEAPON_TYPES.god_mode = GodMode;
+WEAPON_TYPES.high_track_missile = HighTrackMissileLauncher;
+WEAPON_TYPES.cluster_bomb_missile = ClusterBombMissileLauncher;
+WEAPON_TYPES.mine_layer_missile = MineLayerMissileLauncher;

@@ -1557,7 +1557,38 @@ class Mine extends GameObject {
         
         const mineCenterX = this.x + this.width / 2;
         const mineCenterY = this.y + this.height / 2;
-        
+
+        // ---- Player-laid mine: only enemies trigger it; player never does ----
+        if (this.isPlayerMine) {
+            // Always visible to the player who deployed it.
+            this.isVisible = true;
+
+            // Sniff for any hostile body within trigger range. Iterate
+            // enemies + boss + sub-boss members; the first one inside the
+            // trigger ring sets it off.
+            const candidates = [];
+            if (game.enemies) {
+                for (const e of game.enemies) {
+                    if (!e || e.health <= 0) continue;
+                    if (e.notTargetable) continue;
+                    candidates.push(e);
+                }
+            }
+            if (game.boss && game.boss.health > 0 && !game.boss.notTargetable) {
+                candidates.push(game.boss);
+            }
+            for (const e of candidates) {
+                const ex = e.x + (e.width || 0) / 2;
+                const ey = e.y + (e.height || 0) / 2;
+                const dd = Math.hypot(ex - mineCenterX, ey - mineCenterY);
+                if (dd <= this.triggerDistance) {
+                    this.explode();
+                    break;
+                }
+            }
+            return;
+        }
+
         if (game.player) {
             const playerCenterX = game.player.x + game.player.width / 2;
             const playerCenterY = game.player.y + game.player.height / 2;
@@ -1591,12 +1622,45 @@ class Mine extends GameObject {
         
         this.isExploded = true;
         this.explosionStartTime = Date.now();
-        
+
+        const mineCenterX = this.x + this.width / 2;
+        const mineCenterY = this.y + this.height / 2;
+
+        if (this.isPlayerMine) {
+            // Player-laid mine: AoE damages enemies + boss instead of the
+            // pilot. Damage falls off with distance like a real HE charge:
+            // full damage at the centre, scaling linearly to 30% at the
+            // edge of the kill radius.
+            const targets = [];
+            if (game.enemies) {
+                for (const e of game.enemies) {
+                    if (!e || e.health <= 0) continue;
+                    if (e.notTargetable) continue;
+                    targets.push(e);
+                }
+            }
+            if (game.boss && game.boss.health > 0 && !game.boss.notTargetable) {
+                targets.push(game.boss);
+            }
+            for (const e of targets) {
+                const ex = e.x + (e.width || 0) / 2;
+                const ey = e.y + (e.height || 0) / 2;
+                const dd = Math.hypot(ex - mineCenterX, ey - mineCenterY);
+                if (dd <= this.explosionRadius) {
+                    const t = 1 - dd / this.explosionRadius;
+                    const dmg = Math.max(1, Math.round(this.damage * (0.3 + 0.7 * t)));
+                    if (typeof e.takeDamage === 'function') {
+                        e.takeDamage(dmg, 'mine');
+                    }
+                }
+            }
+            this.createExplosionEffect();
+            return;
+        }
+
         if (game.player && !game.player.isUntargetable) {
             const playerCenterX = game.player.x + game.player.width / 2;
             const playerCenterY = game.player.y + game.player.height / 2;
-            const mineCenterX = this.x + this.width / 2;
-            const mineCenterY = this.y + this.height / 2;
             
             const distance = Math.sqrt(
                 Math.pow(playerCenterX - mineCenterX, 2) + 
@@ -1657,6 +1721,99 @@ class Mine extends GameObject {
         const now = Date.now();
         const pulse = 1 + Math.sin(this.pulseEffect.offset) * this.pulseEffect.intensity;
         const r = this.width / 2;
+
+        // ---- Friendly (player-laid) mine: cyan/teal palette + chevron
+        // marker so it is clearly distinguishable from Ugly Emperor's
+        // orange spiked mines on the battlefield. ----
+        if (this.isPlayerMine) {
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+
+            const halo = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 3.4 * pulse);
+            halo.addColorStop(0, 'rgba(80, 220, 255, 0.55)');
+            halo.addColorStop(0.5, 'rgba(40, 180, 255, 0.22)');
+            halo.addColorStop(1, 'rgba(40, 180, 255, 0)');
+            ctx.fillStyle = halo;
+            ctx.beginPath();
+            ctx.arc(cx, cy, r * 3.4 * pulse, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalCompositeOperation = 'source-over';
+
+            // Counter-rotating dashed friendly-IFF rings (two of them).
+            const rot = (now * 0.0028) % (Math.PI * 2);
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(rot);
+            ctx.strokeStyle = '#40d8ff';
+            ctx.lineWidth = 1.2;
+            ctx.setLineDash([5, 4]);
+            ctx.beginPath();
+            ctx.arc(0, 0, r * 1.8, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.rotate(-rot * 2);
+            ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+            ctx.lineWidth = 0.8;
+            ctx.setLineDash([3, 6]);
+            ctx.beginPath();
+            ctx.arc(0, 0, r * 2.4, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.restore();
+
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.scale(pulse, pulse);
+            ctx.translate(-cx, -cy);
+
+            // Hex body — visually distinct from Ugly Emperor's circular
+            // spiked mine. Cyan/steel gradient.
+            const hexR = r * 1.05;
+            const hexPath = (innerR) => {
+                ctx.beginPath();
+                for (let i = 0; i < 6; i++) {
+                    const a = (i / 6) * Math.PI * 2 - Math.PI / 2;
+                    const px = cx + Math.cos(a) * innerR;
+                    const py = cy + Math.sin(a) * innerR;
+                    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+                }
+                ctx.closePath();
+            };
+            const body = ctx.createRadialGradient(cx, cy, 0, cx, cy, hexR);
+            body.addColorStop(0, '#d8f4ff');
+            body.addColorStop(0.55, '#2080c8');
+            body.addColorStop(1, '#0a2840');
+            ctx.fillStyle = body;
+            hexPath(hexR);
+            ctx.fill();
+
+            // Inner chevron / arrow (points up, friendly marker).
+            ctx.fillStyle = '#80e0ff';
+            ctx.beginPath();
+            ctx.moveTo(cx, cy - r * 0.55);
+            ctx.lineTo(cx + r * 0.55, cy + r * 0.35);
+            ctx.lineTo(cx, cy + r * 0.05);
+            ctx.lineTo(cx - r * 0.55, cy + r * 0.35);
+            ctx.closePath();
+            ctx.fill();
+
+            // Hex outline
+            ctx.strokeStyle = '#b0f0ff';
+            ctx.lineWidth = 1;
+            hexPath(hexR);
+            ctx.stroke();
+
+            // Pulsing core LED (fast blink, brighter than enemy mine).
+            const coreAlpha = 0.55 + 0.45 * Math.sin(now * 0.015);
+            ctx.globalAlpha = coreAlpha;
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.restore();
+            ctx.restore();
+            return;
+        }
 
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
@@ -1751,16 +1908,18 @@ class Mine extends GameObject {
         
         ctx.save();
         ctx.globalAlpha = alpha;
-        
-        // 绘制爆炸圆环
-        ctx.strokeStyle = '#FF4500';
+
+        const isFriendly = !!this.isPlayerMine;
+        const ringColor = isFriendly ? '#40d8ff' : '#FF4500';
+        const coreColor = isFriendly ? '#80f0ff' : '#FF0000';
+
+        ctx.strokeStyle = ringColor;
         ctx.lineWidth = 3;
         ctx.beginPath();
         ctx.arc(centerX, centerY, currentRadius, 0, Math.PI * 2);
         ctx.stroke();
         
-        // 绘制爆炸中心
-        ctx.fillStyle = '#FF0000';
+        ctx.fillStyle = coreColor;
         ctx.beginPath();
         ctx.arc(centerX, centerY, currentRadius * 0.3, 0, Math.PI * 2);
         ctx.fill();

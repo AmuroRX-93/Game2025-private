@@ -3194,6 +3194,9 @@ class Voidborn extends GameObject {
             for (let i = list.length - 1; i >= 0; i--) {
                 const p = list[i];
                 if (!p || p.shouldDestroy) continue;
+                // Cluster-bomb dispenser is invulnerable+non-devourable
+                // until it finishes shedding all its bomblets.
+                if (p.noDevour) continue;
                 const px = (p.x || 0) + (p.width ? p.width / 2 : 0);
                 const py = (p.y || 0) + (p.height ? p.height / 2 : 0);
                 const dx = px - c.x, dy = py - c.y;
