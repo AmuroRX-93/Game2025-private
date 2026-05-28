@@ -4979,6 +4979,23 @@ class ClusterMissile {
     }
     
     checkProximityAndSplit() {
+        // Only split when the player's currently-locked target is in range,
+        // so the salvo always opens up next to the enemy the pilot is
+        // actively shooting at — no premature splits onto random mooks.
+        const lockedTarget = (game.player && typeof game.player.getCurrentTarget === 'function')
+            ? game.player.getCurrentTarget() : null;
+        if (lockedTarget && !lockedTarget.notTargetable && lockedTarget !== game.player) {
+            const dx = lockedTarget.x + lockedTarget.width / 2 - this.x;
+            const dy = lockedTarget.y + lockedTarget.height / 2 - this.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance < this.splitRadius) {
+                this.split();
+            }
+            return;
+        }
+
+        // Fallback (manual aim / no valid lock): keep the legacy
+        // any-enemy-in-radius trigger so the missile still splits eventually.
         const allEnemies = game.enemies.filter(e => !e.notTargetable);
         if (game.boss && game.boss.health > 0 && !game.boss.notTargetable) {
             allEnemies.push(game.boss);
