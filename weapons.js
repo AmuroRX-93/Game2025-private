@@ -5699,6 +5699,317 @@ class MineLayerMissileLauncher extends Weapon {
 }
 
 // ============================================================
+// DetCordMissile (player shoulder weapon: "爆导索飞弹")
+//
+// Same chassis as HighTrackMissile (homing strength, speed, life, damage).
+// While flying, the missile records its full flight path as a "detonation
+// cord" trail. When the warhead detonates (impact / lifetime / explode),
+// the trail rolls a chain of AoE explosions from the LAUNCH point along
+// the path to the impact point in sequence, each AoE dealing 2/3 of the
+// warhead's damage.
+// ============================================================
+class DetCordMissile extends Missile {
+    constructor(x, y, targetX, targetY, damage, speed) {
+        super(x, y, targetX, targetY, damage, speed);
+        this.enhancedHoming = true;
+        this.strongTrackingDuration = 2800;
+        this.maxLifetime = 5000;
+        this.trackingRadius = 800;
+        this.size = 1.4;
+        this.isDetCord = true;
+
+        // Flight path samples. Spaced ~30 px apart so the chain detonation
+        // covers the lane evenly without spawning hundreds of micro-AoEs.
+        this.path = [{ x: x, y: y }];
+        this.pathSampleDist = 30;
+        // Cap path length so a missile that loops endlessly can't allocate
+        // an unbounded list.
+        this.maxPathPoints = 400;
+
+        // The chain of AoEs is 2/3 of the warhead damage, per the spec.
+        this.chainDamage = Math.max(1, Math.round(damage * (2 / 3)));
+    }
+
+    update() {
+        if (this.shouldDestroy) return;
+
+        // Sample path BEFORE flight so the very first frame always has the
+        // launch point in the list.
+        const last = this.path.length ? this.path[this.path.length - 1] : null;
+        if (!last || Math.hypot(this.x - last.x, this.y - last.y) >= this.pathSampleDist) {
+            if (this.path.length >= this.maxPathPoints) {
+                // Drop the oldest 25% of points to keep the array bounded.
+                this.path.splice(0, Math.floor(this.maxPathPoints * 0.25));
+            }
+            this.path.push({ x: this.x, y: this.y });
+        }
+
+        super.update();
+    }
+
+    explode() {
+        if (this.shouldDestroy) return;
+
+        // Capture the final impact point as the last node of the cord.
+        if (this.path.length === 0 ||
+            Math.hypot(this.x - this.path[this.path.length - 1].x,
+                       this.y - this.path[this.path.length - 1].y) > 0.1) {
+            this.path.push({ x: this.x, y: this.y });
+        }
+
+        // Spawn the rolling chain BEFORE the parent explode flips
+        // shouldDestroy / nukes our path. Detonates from launch -> impact
+        // in sequence; each node deals chainDamage AoE.
+        if (this.path.length >= 2 && typeof DetCordTrail === 'function') {
+            const trail = new DetCordTrail(this.path.slice(), this.chainDamage);
+            if (!game.missiles) game.missiles = [];
+            game.missiles.push(trail);
+        }
+
+        // Fire the warhead AoE at the impact point exactly like a normal
+        // missile (uses parent Missile.explode for damage + visuals).
+        super.explode();
+    }
+
+    // ---- Visual: draw a glowing cord behind the missile so the player
+    // sees exactly where the chain will detonate. ----
+    draw(ctx) {
+        // Underlying path "fuse" line (additive glow) drawn first so the
+        // missile sprite sits on top.
+        if (this.path && this.path.length > 1) {
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.lineCap = 'round';
+            // Outer halo
+            ctx.strokeStyle = '#ff7030';
+            ctx.lineWidth = 5;
+            ctx.globalAlpha = 0.35;
+            ctx.beginPath();
+            ctx.moveTo(this.path[0].x, this.path[0].y);
+            for (let i = 1; i < this.path.length; i++) {
+                ctx.lineTo(this.path[i].x, this.path[i].y);
+            }
+            ctx.lineTo(this.x, this.y);
+            ctx.stroke();
+            // Hot core
+            ctx.strokeStyle = '#ffe070';
+            ctx.lineWidth = 1.6;
+            ctx.globalAlpha = 0.85;
+            ctx.beginPath();
+            ctx.moveTo(this.path[0].x, this.path[0].y);
+            for (let i = 1; i < this.path.length; i++) {
+                ctx.lineTo(this.path[i].x, this.path[i].y);
+            }
+            ctx.lineTo(this.x, this.y);
+            ctx.stroke();
+            // Spark dots at each sample so the cord looks "loaded"
+            ctx.fillStyle = '#ffffff';
+            ctx.globalAlpha = 0.7;
+            for (let i = 0; i < this.path.length; i++) {
+                ctx.beginPath();
+                ctx.arc(this.path[i].x, this.path[i].y, 1.6, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.restore();
+        }
+        super.draw(ctx);
+    }
+}
+
+class DetCordTrail {
+    constructor(path, perNodeDamage) {
+        this.path = path && path.length ? path : [];
+        this.damage = perNodeDamage;
+        this.nodeRadius = 70; // AoE radius per chained explosion
+        this.stepInterval = 50; // ms between successive node detonations
+        this.nextIdx = 0;
+        this.lastStepAt = Date.now() - this.stepInterval; // detonate first immediately
+        this.shouldDestroy = false;
+        // Bounding-box stand-ins so generic engine code (devour, CIWS, etc.)
+        // never picks this up as a real projectile.
+        this.x = path[0] ? path[0].x : 0;
+        this.y = path[0] ? path[0].y : 0;
+        this.width = 0; this.height = 0;
+        this.notTargetable = true;
+        this.noDevour = true;
+        // Track which nodes have already triggered for fade-out visuals.
+        this.detonatedNodes = [];
+    }
+
+    update() {
+        if (this.shouldDestroy) return;
+        const now = Date.now();
+        while (this.nextIdx < this.path.length && now - this.lastStepAt >= this.stepInterval) {
+            const node = this.path[this.nextIdx];
+            this._detonateNode(node);
+            this.detonatedNodes.push({ x: node.x, y: node.y, t: now });
+            this.nextIdx++;
+            this.lastStepAt = now;
+        }
+        if (this.nextIdx >= this.path.length) {
+            // Linger briefly so the last fade-out renders, then despawn.
+            const lastT = this.detonatedNodes.length
+                ? this.detonatedNodes[this.detonatedNodes.length - 1].t : now;
+            if (now - lastT > 600) this.shouldDestroy = true;
+        }
+    }
+
+    _detonateNode(node) {
+        const cx = node.x, cy = node.y;
+
+        // Damage every hostile in radius, with linear fall-off (matches
+        // the missile warhead's behaviour).
+        const targets = [];
+        if (game.enemies) {
+            for (const e of game.enemies) {
+                if (!e || e.health <= 0) continue;
+                if (e.notTargetable) continue;
+                targets.push(e);
+            }
+        }
+        if (game.boss && game.boss.health > 0 && !game.boss.notTargetable) {
+            targets.push(game.boss);
+        }
+        for (const e of targets) {
+            const ex = e.x + (e.width || 0) / 2;
+            const ey = e.y + (e.height || 0) / 2;
+            const dd = Math.hypot(ex - cx, ey - cy);
+            if (dd <= this.nodeRadius) {
+                const t = 1 - dd / this.nodeRadius;
+                const dmg = Math.max(1, Math.round(this.damage * (0.3 + 0.7 * t)));
+                if (typeof e.takeDamage === 'function') {
+                    e.takeDamage(dmg);
+                }
+            }
+        }
+
+        // VFX: lean on the standard missile-explosion visual so the chain
+        // reads as "this is the same payload, just rolling along the cord".
+        if (!game.explosions) game.explosions = [];
+        game.explosions.push({
+            x: cx, y: cy,
+            startTime: Date.now(),
+            duration: 380,
+            isBossMissile: false,
+            isSuperMissile: false,
+            explosionRadius: this.nodeRadius,
+        });
+        if (typeof bossFX !== 'undefined') {
+            if (typeof bossFX.addShockwave === 'function') {
+                bossFX.addShockwave(cx, cy, 12, this.nodeRadius * 1.0, '#ffb060', 320, 3, 0.85);
+            }
+            if (typeof bossFX.addFlash === 'function') {
+                bossFX.addFlash(cx, cy, this.nodeRadius * 0.55, '#ffd080', 220, 0.85);
+            }
+        }
+    }
+
+    draw(ctx) {
+        // Render the un-detonated remainder of the cord as a glowing fuse.
+        if (this.nextIdx < this.path.length - 1) {
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.lineCap = 'round';
+            ctx.strokeStyle = '#ff7030';
+            ctx.lineWidth = 4;
+            ctx.globalAlpha = 0.4;
+            ctx.beginPath();
+            ctx.moveTo(this.path[this.nextIdx].x, this.path[this.nextIdx].y);
+            for (let i = this.nextIdx + 1; i < this.path.length; i++) {
+                ctx.lineTo(this.path[i].x, this.path[i].y);
+            }
+            ctx.stroke();
+            ctx.strokeStyle = '#ffe070';
+            ctx.lineWidth = 1.4;
+            ctx.globalAlpha = 0.85;
+            ctx.beginPath();
+            ctx.moveTo(this.path[this.nextIdx].x, this.path[this.nextIdx].y);
+            for (let i = this.nextIdx + 1; i < this.path.length; i++) {
+                ctx.lineTo(this.path[i].x, this.path[i].y);
+            }
+            ctx.stroke();
+            ctx.restore();
+        }
+    }
+}
+
+class DetCordMissileLauncher extends Weapon {
+    constructor(isShoulder = false) {
+        super({
+            type: 'det_cord_missile',
+            name: '爆导索飞弹',
+            damage: 25,
+            cooldown: 4000,
+        });
+        this.missileSpeed = Math.round(16 * (2 / 3) * 100) / 100;
+    }
+
+    use(player) {
+        if (!this.canUse()) return false;
+        this.lastUseTime = Date.now();
+
+        const launchX = player.x + player.width / 2;
+        const launchY = player.y + player.height / 2;
+
+        let targetX, targetY;
+        if (gameState.lockMode === 'manual') {
+            targetX = mouse.x;
+            targetY = mouse.y;
+        } else {
+            const target = player.getCurrentTarget();
+            if (target) {
+                targetX = target.x + target.width / 2;
+                targetY = target.y + target.height / 2;
+            } else {
+                const angle = player.direction * Math.PI / 180;
+                targetX = launchX + Math.cos(angle) * 300;
+                targetY = launchY + Math.sin(angle) * 300;
+            }
+        }
+
+        const m = new DetCordMissile(
+            launchX, launchY, targetX, targetY,
+            this.damage, this.missileSpeed
+        );
+        if (!game.missiles) game.missiles = [];
+        game.missiles.push(m);
+
+        this.lastMissileFireTime = Date.now();
+        this.lastMissileAngle = Math.atan2(targetY - launchY, targetX - launchX);
+        return true;
+    }
+
+    update(player) {}
+
+    draw(ctx, player) {
+        if (this.lastMissileFireTime && Date.now() - this.lastMissileFireTime < 110) {
+            const fade = 1 - (Date.now() - this.lastMissileFireTime) / 110;
+            const cx = player.x + player.width / 2;
+            const cy = player.y + player.height / 2;
+            const ang = (this.lastMissileAngle || 0);
+            if (typeof drawMuzzleFlash === 'function') {
+                drawMuzzleFlash(ctx, {
+                    x: cx + Math.cos(ang) * (player.width / 2 + 4),
+                    y: cy + Math.sin(ang) * (player.width / 2 + 4),
+                    angle: ang,
+                    size: 18,
+                    scheme: 'gold',
+                    alpha: fade,
+                });
+            }
+        }
+    }
+
+    getStatus() {
+        const cooldownRemaining = this.getCooldownRemaining();
+        if (cooldownRemaining > 0) {
+            return { text: t('ws.cooldown', (cooldownRemaining / 1000).toFixed(1)), color: '#CC6666' };
+        }
+        return { text: t('ws.ready'), color: 'white' };
+    }
+}
+
+// ============================================================
 // ShotgunPellet: Bullet variant whose damage decays linearly with distance.
 // At point blank it deals full base damage; at max range it drops to 20%.
 // Visual tracer also shortens/fades as the pellet loses energy.
@@ -6617,3 +6928,4 @@ WEAPON_TYPES.god_mode = GodMode;
 WEAPON_TYPES.high_track_missile = HighTrackMissileLauncher;
 WEAPON_TYPES.cluster_bomb_missile = ClusterBombMissileLauncher;
 WEAPON_TYPES.mine_layer_missile = MineLayerMissileLauncher;
+WEAPON_TYPES.det_cord_missile = DetCordMissileLauncher;

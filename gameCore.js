@@ -25,6 +25,7 @@ class Game {
             { type: 'high_track_missile', name: t('weapon.high_track_missile'), color: '#FF8030', desc: t('weaponDesc.high_track_missile') },
             { type: 'cluster_bomb_missile', name: t('weapon.cluster_bomb_missile'), color: '#FFA040', desc: t('weaponDesc.cluster_bomb_missile') },
             { type: 'mine_layer_missile', name: t('weapon.mine_layer_missile'), color: '#FF6040', desc: t('weaponDesc.mine_layer_missile') },
+            { type: 'det_cord_missile', name: t('weapon.det_cord_missile'), color: '#FFB060', desc: t('weaponDesc.det_cord_missile') },
             { type: 'ciws', name: t('weapon.ciws'), color: '#00FF88', desc: t('weaponDesc.ciws') },
             { type: 'plasma_missile', name: t('weapon.plasma_missile'), color: '#00FFCC', desc: t('weaponDesc.plasma_missile') },
             { type: 'super_weapon', name: t('weapon.super_weapon'), color: '#FF0000', desc: t('weaponDesc.super_weapon') },
