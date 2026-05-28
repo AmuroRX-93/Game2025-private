@@ -5247,10 +5247,13 @@ class HighTrackMissileLauncher extends Weapon {
             // (which deals 5/missile when shoulder-mounted) — single shot,
             // huge punch.
             damage: 25,
-            cooldown: 4000,
+            cooldown: 5000,
         });
-        // 2/3 the speed of the standard 16-unit missile.
-        this.missileSpeed = Math.round(16 * (2 / 3) * 100) / 100; // ~10.67
+        // Originally 2/3 of the standard 16-unit missile (≈10.67); after a
+        // +30% buff the missile cruises at ≈13.87, still slower than the
+        // baseline missile but markedly snappier than the brick-slow first
+        // tuning that let everything outrun the warhead.
+        this.missileSpeed = Math.round(16 * (2 / 3) * 1.3 * 100) / 100;
     }
 
     use(player) {
@@ -5821,7 +5824,10 @@ class DetCordTrail {
         this.path = path && path.length ? path : [];
         this.damage = perNodeDamage;
         this.nodeRadius = 70; // AoE radius per chained explosion
-        this.stepInterval = 50; // ms between successive node detonations
+        // Time between successive node detonations. Tuned 4x faster than
+        // the original 50 ms — at 12 ms / step the chain rolls along the
+        // cord almost as a single sweeping blast wave.
+        this.stepInterval = 12;
         this.nextIdx = 0;
         this.lastStepAt = Date.now() - this.stepInterval; // detonate first immediately
         this.shouldDestroy = false;
@@ -5939,7 +5945,10 @@ class DetCordMissileLauncher extends Weapon {
             type: 'det_cord_missile',
             name: '爆导索飞弹',
             damage: 25,
-            cooldown: 4000,
+            // Reload tuned 3x longer than the standard 4 s shoulder
+            // missile slot — a full det-cord run wipes out a lane,
+            // so the cooldown should match its potency.
+            cooldown: 10000,
         });
         this.missileSpeed = Math.round(16 * (2 / 3) * 100) / 100;
     }
