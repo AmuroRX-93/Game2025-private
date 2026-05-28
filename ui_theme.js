@@ -10,6 +10,10 @@ const UI_THEME = {
         gridLine: 'rgba(0, 230, 200, 0.06)',
         scanline: 'rgba(0, 230, 200, 0.03)',
 
+        // Unified button-border color (cyan-white). Used as the stroke
+        // for every uiDrawButton call regardless of its accent color.
+        buttonBorder: '#aef0ff',
+
         primary: '#00e6c8',
         primaryDim: 'rgba(0, 230, 200, 0.35)',
         primaryGlow: 'rgba(0, 230, 200, 0.55)',
@@ -157,15 +161,15 @@ function uiDrawButton(ctx, x, y, w, h, label, opts = {}) {
     uiDrawPanel(ctx, x, y, w, h, {
         chamfer,
         fill: { from: fillFrom, to: fillTo },
-        stroke: disabled ? UI_THEME.color.textMuted : accentColor,
+        stroke: disabled ? UI_THEME.color.textMuted : UI_THEME.color.buttonBorder,
         strokeWidth: hovered ? 2.5 : 1.5,
         glow: hovered,
-        glowColor: accentColor
+        glowColor: UI_THEME.color.buttonBorder
     });
 
     // Left accent strip (hit point indicator)
     ctx.save();
-    ctx.fillStyle = disabled ? UI_THEME.color.textMuted : accentColor;
+    ctx.fillStyle = disabled ? UI_THEME.color.textMuted : UI_THEME.color.buttonBorder;
     ctx.fillRect(x + 6, y + h * 0.25, 3, h * 0.5);
     ctx.restore();
 

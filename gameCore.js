@@ -1486,10 +1486,10 @@ class Game {
                         ? (hovered ? 'rgba(60, 16, 22, 0.95)' : 'rgba(28, 10, 14, 0.85)')
                         : 'rgba(20, 24, 28, 0.7)'
                 },
-                stroke: accent,
+                stroke: level.unlocked ? UI_THEME.color.buttonBorder : UI_THEME.color.textMuted,
                 strokeWidth: hovered ? 2.5 : 1.5,
                 glow: hovered,
-                glowColor: UI_THEME.color.dangerGlow
+                glowColor: UI_THEME.color.buttonBorder
             });
 
             // Left status strip with level number
@@ -1661,15 +1661,15 @@ class Game {
             uiDrawPanel(ctx, x, y, slotW, slotH, {
                 chamfer: 12,
                 fill: { from: 'rgba(8, 14, 20, 0.9)', to: 'rgba(14, 22, 30, 0.9)' },
-                stroke: slot.color,
+                stroke: UI_THEME.color.buttonBorder,
                 strokeWidth: hovered ? 2.5 : 1.5,
                 glow: hovered,
-                glowColor: slot.color
+                glowColor: UI_THEME.color.buttonBorder
             });
 
             // Slot ID + key hint header
             ctx.save();
-            ctx.fillStyle = slot.color;
+            ctx.fillStyle = UI_THEME.color.buttonBorder;
             ctx.font = `11px ${UI_THEME.font.mono}`;
             ctx.textAlign = 'left';
             ctx.textBaseline = 'top';
@@ -1681,7 +1681,7 @@ class Game {
 
             // Divider
             ctx.save();
-            ctx.strokeStyle = slot.color;
+            ctx.strokeStyle = UI_THEME.color.buttonBorder;
             ctx.globalAlpha = 0.4;
             ctx.lineWidth = 1;
             ctx.beginPath();
@@ -1701,7 +1701,7 @@ class Game {
 
             // Equipped weapon
             ctx.save();
-            ctx.fillStyle = currentWeapon ? slot.color : UI_THEME.color.textMuted;
+            ctx.fillStyle = currentWeapon ? UI_THEME.color.buttonBorder : UI_THEME.color.textMuted;
             ctx.font = `14px ${UI_THEME.font.body}`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
@@ -1807,14 +1807,14 @@ class Game {
             uiDrawPanel(ctx, x, y, slotW, slotH, {
                 chamfer: 12,
                 fill: { from: 'rgba(8, 14, 20, 0.9)', to: 'rgba(14, 22, 30, 0.9)' },
-                stroke: slot.color,
+                stroke: UI_THEME.color.buttonBorder,
                 strokeWidth: hovered ? 2.5 : 1.5,
                 glow: hovered,
-                glowColor: slot.color
+                glowColor: UI_THEME.color.buttonBorder
             });
 
             ctx.save();
-            ctx.fillStyle = slot.color;
+            ctx.fillStyle = UI_THEME.color.buttonBorder;
             ctx.font = `11px ${UI_THEME.font.mono}`;
             ctx.textAlign = 'left';
             ctx.textBaseline = 'top';
@@ -1825,7 +1825,7 @@ class Game {
             ctx.restore();
 
             ctx.save();
-            ctx.strokeStyle = slot.color;
+            ctx.strokeStyle = UI_THEME.color.buttonBorder;
             ctx.globalAlpha = 0.4;
             ctx.lineWidth = 1;
             ctx.beginPath();
@@ -1843,7 +1843,7 @@ class Game {
             ctx.restore();
 
             ctx.save();
-            ctx.fillStyle = currentWeapon ? slot.color : UI_THEME.color.textMuted;
+            ctx.fillStyle = currentWeapon ? UI_THEME.color.buttonBorder : UI_THEME.color.textMuted;
             ctx.font = `14px ${UI_THEME.font.body}`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
