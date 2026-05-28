@@ -16,9 +16,11 @@ class Game {
             { type: 'laser_spear', name: t('weapon.laser_spear'), color: '#00FFFF', desc: t('weaponDesc.laser_spear') },
             { type: 'cluster_missile', name: t('weapon.cluster_missile'), color: '#FFD700', desc: t('weaponDesc.cluster_missile') },
             { type: 'laser_rifle', name: t('weapon.laser_rifle'), color: '#FF4444', desc: t('weaponDesc.laser_rifle') },
+            { type: 'laser_smg', name: t('weapon.laser_smg'), color: '#FF8866', desc: t('weaponDesc.laser_smg') },
             { type: 'shotgun', name: t('weapon.shotgun'), color: '#ff9040', desc: t('weaponDesc.shotgun') },
             { type: 'rocket_launcher', name: t('weapon.rocket_launcher'), color: '#ff7030', desc: t('weaponDesc.rocket_launcher') },
-            { type: 'minigun', name: t('weapon.minigun'), color: '#d4a040', desc: t('weaponDesc.minigun') }
+            { type: 'minigun', name: t('weapon.minigun'), color: '#d4a040', desc: t('weaponDesc.minigun') },
+            { type: 'flamethrower', name: t('weapon.flamethrower'), color: '#FF6020', desc: t('weaponDesc.flamethrower') }
         ];
         const shoulderWeaponOptions = [
             { type: 'missile_launcher', name: t('weapon.missile_launcher'), color: '#FFD700', desc: t('weaponDesc.missile_launcher') },
@@ -26,6 +28,7 @@ class Game {
             { type: 'cluster_bomb_missile', name: t('weapon.cluster_bomb_missile'), color: '#FFA040', desc: t('weaponDesc.cluster_bomb_missile') },
             { type: 'mine_layer_missile', name: t('weapon.mine_layer_missile'), color: '#FF6040', desc: t('weaponDesc.mine_layer_missile') },
             { type: 'det_cord_missile', name: t('weapon.det_cord_missile'), color: '#FFB060', desc: t('weaponDesc.det_cord_missile') },
+            { type: 'laser_turret', name: t('weapon.laser_turret'), color: '#88E0FF', desc: t('weaponDesc.laser_turret') },
             { type: 'ciws', name: t('weapon.ciws'), color: '#00FF88', desc: t('weaponDesc.ciws') },
             { type: 'plasma_missile', name: t('weapon.plasma_missile'), color: '#00FFCC', desc: t('weaponDesc.plasma_missile') },
             { type: 'super_weapon', name: t('weapon.super_weapon'), color: '#FF0000', desc: t('weaponDesc.super_weapon') },
@@ -130,6 +133,8 @@ class Game {
         this.plasmaFields = [];
         this.clusterMissiles = [];
         this.decoys = [];
+        // Player-deployed laser turrets (LaserTurretLauncher).
+        this.laserTurrets = [];
         this.damageNumbers = [];
         // Triumvirate ground hazards & active projectiles (Blackhole Cannon,
         // FrostBolt, HeatLance, LightningStrike, IronSpike, scorched earth,
@@ -1072,6 +1077,16 @@ class Game {
                 }
             }
         }
+
+        // Update player-deployed laser turrets.
+        if (this.laserTurrets) {
+            for (let i = this.laserTurrets.length - 1; i >= 0; i--) {
+                this.laserTurrets[i].update();
+                if (this.laserTurrets[i].shouldDestroy) {
+                    this.laserTurrets.splice(i, 1);
+                }
+            }
+        }
         
         // 更新燃烧瓶
         if (this.molotovs) {
@@ -1228,6 +1243,11 @@ class Game {
         // 绘制诱饵
         if (this.decoys) {
             this.decoys.forEach(d => d.draw(this.ctx));
+        }
+
+        // Draw player-deployed laser turrets.
+        if (this.laserTurrets) {
+            this.laserTurrets.forEach(t => t.draw(this.ctx));
         }
 
         // 绘制子弹

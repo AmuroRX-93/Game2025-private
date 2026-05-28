@@ -367,7 +367,7 @@ class Gun extends Weapon {
         super({
             type: 'gun',
             name: '自动步枪',
-            damage: 6,
+            damage: 8,
             cooldown: 0 // 枪使用射速而不是冷却时间
         });
         
@@ -1022,6 +1022,34 @@ class LaserRifle extends Weapon {
             return { text: t('ws.coolingDown'), color: '#CC6666' };
         }
         return { text: t('ws.heat', Math.round(this.heat), this.maxHeatBar), color: '#FFAA00' };
+    }
+}
+
+// ============================================================
+// LaserSMG: rapid-fire laser variant of LaserRifle.
+//
+// Reuses LaserRifle's full charge/fire/overheat/beam pipeline; only
+// rebalances the dial knobs:
+//   - lower per-shot damage
+//   - lower per-shot heat (a single shot barely warms the gun)
+//   - faster snap-out (much shorter charge + fire interval)
+// Net effect: a sustained-fire laser that taps targets quickly but
+// still overheats if you hose forever.
+// ============================================================
+class LaserSMG extends LaserRifle {
+    constructor() {
+        super();
+        this.type = 'laser_smg';
+        this.name = '镭射机枪';
+        // Per-shot damage: ~1/3 of rifle.
+        this.damage = 6;
+        // Snap-out: charge nearly instant, much shorter fire interval.
+        this.chargeTime = 120;
+        this.fireInterval = 180;
+        // Heat: smaller bite per shot so sustained fire is viable until
+        // the trigger has been mashed long enough to overheat.
+        this.heatPerShot = 14;
+        // Cooling stays on the rifle's defaults.
     }
 }
 
@@ -5729,8 +5757,15 @@ class DetCordMissile extends Missile {
         // an unbounded list.
         this.maxPathPoints = 400;
 
-        // The chain of AoEs is 2/3 of the warhead damage, per the spec.
+        // The chain of AoEs is 2/3 of the original warhead damage,
+        // computed BEFORE we halve the warhead itself — the cord's per-
+        // node DMG must stay constant when only the warhead is nerfed.
         this.chainDamage = Math.max(1, Math.round(damage * (2 / 3)));
+
+        // Halve the warhead-impact damage so the contact AoE is far less
+        // explosive than the rolling cord. The warhead now feels like a
+        // detonator — the cord is the actual payload.
+        this.damage = Math.max(1, Math.round(damage / 2));
     }
 
     update() {
@@ -6015,6 +6050,451 @@ class DetCordMissileLauncher extends Weapon {
             return { text: t('ws.cooldown', (cooldownRemaining / 1000).toFixed(1)), color: '#CC6666' };
         }
         return { text: t('ws.ready'), color: 'white' };
+    }
+}
+
+// ============================================================
+// LaserTurret + LaserTurretLauncher (player shoulder weapon: "镭射炮台")
+//
+// Drop-deploy turret: pressing the shoulder slot plants a stationary
+// laser sentry at the pilot's current position. Each turret runs for
+// 12 s, scans for the nearest enemy in range every frame, and fires a
+// 400 ms short-pulse laser beam every 1 s while a target is in range.
+// Beam DPS ≈ 8.
+//
+// Magazine of 2 deployments — once both are spent, the launcher reloads
+// the full magazine in 8 s. No cap on simultaneous turrets in the world.
+// ============================================================
+class LaserTurret {
+    constructor(x, y) {
+        this.width = 24;
+        this.height = 24;
+        // Center the turret on the launching player.
+        this.x = x - this.width / 2;
+        this.y = y - this.height / 2;
+
+        this.spawnedAt = Date.now();
+        this.lifetime = 12000;          // 12 s before self-destruct
+        this.range = 600;               // engagement range
+        this.beamDamage = 8;            // damage per pulse
+        this.fireInterval = 1000;       // ms between pulses
+        this.beamDuration = 400;        // ms each beam stays visible
+
+        this.lastFireTime = -Infinity;
+        this.beamEffect = null;
+        this.shouldDestroy = false;
+        this.notTargetable = true;      // cannot be locked / shot
+        this.noDevour = true;           // void devour ignores it
+
+        // Spin animation phase for the chassis.
+        this._spin = 0;
+    }
+
+    update() {
+        if (this.shouldDestroy) return;
+
+        const now = Date.now();
+        if (now - this.spawnedAt >= this.lifetime) {
+            this._selfDestruct();
+            return;
+        }
+
+        // Fade old beam.
+        if (this.beamEffect && now - this.beamEffect.startTime >= this.beamDuration) {
+            this.beamEffect = null;
+        }
+
+        // Acquire and fire.
+        if (now - this.lastFireTime >= this.fireInterval) {
+            const target = this._acquireTarget();
+            if (target) {
+                this._fireAt(target);
+                this.lastFireTime = now;
+            }
+        }
+
+        this._spin += 0.04;
+    }
+
+    _acquireTarget() {
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const r2 = this.range * this.range;
+        let best = null;
+        let bestD2 = Infinity;
+        const candidates = [];
+        if (game.enemies) {
+            for (const e of game.enemies) {
+                if (!e || e.health <= 0) continue;
+                if (e.notTargetable) continue;
+                candidates.push(e);
+            }
+        }
+        if (game.boss && game.boss.health > 0 && !game.boss.notTargetable) {
+            candidates.push(game.boss);
+        }
+        for (const e of candidates) {
+            const ex = e.x + (e.width || 0) / 2;
+            const ey = e.y + (e.height || 0) / 2;
+            const dd = (ex - cx) * (ex - cx) + (ey - cy) * (ey - cy);
+            if (dd <= r2 && dd < bestD2) {
+                bestD2 = dd;
+                best = e;
+            }
+        }
+        return best;
+    }
+
+    _fireAt(target) {
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const tx = target.x + (target.width || 0) / 2;
+        const ty = target.y + (target.height || 0) / 2;
+
+        if (typeof target.takeDamage === 'function') {
+            target.takeDamage(this.beamDamage, 'laser_turret');
+        }
+
+        this.beamEffect = {
+            startX: cx, startY: cy,
+            endX: tx, endY: ty,
+            startTime: Date.now(),
+        };
+
+        if (typeof bossFX !== 'undefined') {
+            if (typeof bossFX.addFlash === 'function') {
+                bossFX.addFlash(cx, cy, 14, '#88e0ff', 220, 0.8);
+                bossFX.addFlash(tx, ty, 16, '#88e0ff', 200, 0.85);
+            }
+        }
+    }
+
+    _selfDestruct() {
+        this.shouldDestroy = true;
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        if (typeof bossFX !== 'undefined') {
+            if (typeof bossFX.addFlash === 'function') {
+                bossFX.addFlash(cx, cy, 22, '#88e0ff', 320, 0.9);
+            }
+            if (typeof bossFX.spawnBurst === 'function') {
+                bossFX.spawnBurst(cx, cy, 14, {
+                    color: '#88e0ff',
+                    speedMin: 1, speedMax: 4,
+                    sizeMin: 1, sizeMax: 2.5,
+                    lifeMs: 420, drag: 0.9,
+                });
+            }
+        }
+    }
+
+    draw(ctx) {
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const now = Date.now();
+        const lifeFrac = 1 - (now - this.spawnedAt) / this.lifetime;
+        const lowOnLife = lifeFrac < 0.25;
+        // Late-life blink so the player can see it's about to expire.
+        const blinkOn = lowOnLife ? (Math.floor(now / 120) % 2 === 0) : true;
+
+        ctx.save();
+
+        // Range telegraph ring (faint).
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = 'rgba(120, 220, 255, 0.18)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(cx, cy, this.range, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalCompositeOperation = 'source-over';
+
+        // Body: hex tech shell.
+        ctx.save();
+        ctx.translate(cx, cy);
+        const r = 12;
+        const hex = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+        hex.addColorStop(0, '#cfeeff');
+        hex.addColorStop(0.55, '#3088c8');
+        hex.addColorStop(1, '#0a2440');
+        ctx.fillStyle = blinkOn ? hex : 'rgba(40,80,120,0.5)';
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+            const a = (i / 6) * Math.PI * 2 - Math.PI / 2;
+            const px = Math.cos(a) * r;
+            const py = Math.sin(a) * r;
+            if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fill();
+
+        // Inner rotating barrel.
+        ctx.rotate(this._spin);
+        ctx.fillStyle = '#a0e8ff';
+        ctx.fillRect(-1.5, -r, 3, r);
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(0, 0, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        // Beam.
+        if (this.beamEffect) {
+            const e = this.beamEffect;
+            const elapsed = now - e.startTime;
+            const t = Math.max(0, Math.min(1, elapsed / this.beamDuration));
+            const alpha = 1 - t;
+            ctx.globalCompositeOperation = 'lighter';
+
+            ctx.strokeStyle = `rgba(120, 230, 255, ${0.55 * alpha})`;
+            ctx.lineWidth = 8;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(e.startX, e.startY);
+            ctx.lineTo(e.endX, e.endY);
+            ctx.stroke();
+
+            ctx.strokeStyle = `rgba(255, 255, 255, ${0.95 * alpha})`;
+            ctx.lineWidth = 2.4;
+            ctx.beginPath();
+            ctx.moveTo(e.startX, e.startY);
+            ctx.lineTo(e.endX, e.endY);
+            ctx.stroke();
+
+            ctx.globalCompositeOperation = 'source-over';
+        }
+
+        ctx.restore();
+    }
+}
+
+class LaserTurretLauncher extends Weapon {
+    constructor(isShoulder = false) {
+        super({
+            type: 'laser_turret',
+            name: '镭射炮台',
+            damage: 8, // matches turret beam damage for HUD readout
+            cooldown: 0, // we manage reload manually
+        });
+        this.magazineSize = 2;
+        this.currentAmmo = this.magazineSize;
+        this.reloadTime = 8000;
+        this.reloading = false;
+        this.reloadStartedAt = 0;
+    }
+
+    canUse() {
+        return !this.reloading && this.currentAmmo > 0;
+    }
+
+    use(player) {
+        if (!this.canUse()) return false;
+
+        const px = player.x + player.width / 2;
+        const py = player.y + player.height / 2;
+        const turret = new LaserTurret(px, py);
+        if (!game.laserTurrets) game.laserTurrets = [];
+        game.laserTurrets.push(turret);
+
+        this.currentAmmo--;
+        this.lastUseTime = Date.now();
+
+        // Out of ammo: kick off the magazine reload.
+        if (this.currentAmmo <= 0 && !this.reloading) {
+            this.reloading = true;
+            this.reloadStartedAt = Date.now();
+        }
+
+        return true;
+    }
+
+    update(player) {
+        if (this.reloading && Date.now() - this.reloadStartedAt >= this.reloadTime) {
+            this.reloading = false;
+            this.currentAmmo = this.magazineSize;
+        }
+    }
+
+    draw(ctx, player) {}
+
+    getStatus() {
+        if (this.reloading) {
+            const remaining = this.reloadTime - (Date.now() - this.reloadStartedAt);
+            return { text: t('ws.reloading', (Math.max(0, remaining) / 1000).toFixed(1)), color: '#CC6666' };
+        }
+        return { text: t('ws.ammo', this.currentAmmo, this.magazineSize), color: 'white' };
+    }
+}
+
+// ============================================================
+// Flamethrower (player hand weapon)
+//
+// Reuses Pyron's FlameSweep visual/particle system but flips the damage
+// direction: the cone now hits enemies / bosses instead of the player.
+// Hold-to-fire: each frame the weapon is used we either spawn a fresh
+// cone or extend the active one's lifetime so the jet feels continuous.
+// Has an overheat budget so it can't be spammed forever.
+// ============================================================
+class PlayerFlameCone extends FlameSweep {
+    constructor(opts) {
+        super(opts);
+        this.belongsTo = 'player';
+        // Damage falloff at the tip: tickDamage near the muzzle, fades to
+        // tickDamage * tipDamageFactor at max range. Keeps the weapon
+        // strong up close without melting things across the whole arena.
+        this.tipDamageFactor = (opts.tipDamageFactor != null) ? opts.tipDamageFactor : 0.5;
+    }
+
+    // Override damage tick: scan all enemies (and the active boss) inside
+    // the cone, deal tickDamage with distance falloff. Boss flame hooks
+    // into _triHitPlayer; we route through takeDamage on hit entities.
+    _doTick(now, o, aim) {
+        const range = this.range;
+        const half = this.coneHalfAngle;
+        const tickDmg = this.tickDamage;
+        const minFactor = this.tipDamageFactor;
+
+        const tryHit = (e) => {
+            if (!e || e.health <= 0) return;
+            if (e.notTargetable) return;
+            const ex = e.x + (e.width || 0) / 2;
+            const ey = e.y + (e.height || 0) / 2;
+            const dx = ex - o.x, dy = ey - o.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist > range) return;
+            let rel = Math.atan2(dy, dx) - aim;
+            while (rel > Math.PI) rel -= Math.PI * 2;
+            while (rel < -Math.PI) rel += Math.PI * 2;
+            if (Math.abs(rel) > half) return;
+            // Linear falloff from muzzle (factor 1) to tip (factor minFactor).
+            const falloff = 1 - (1 - minFactor) * (dist / range);
+            const dmg = Math.max(1, Math.round(tickDmg * falloff));
+            if (typeof e.takeDamage === 'function') {
+                e.takeDamage(dmg, 'flamethrower');
+            }
+        };
+
+        if (Array.isArray(game.enemies)) {
+            for (const e of game.enemies) tryHit(e);
+        }
+        if (game.boss && game.boss.health > 0 && !game.boss.notTargetable) {
+            tryHit(game.boss);
+        }
+    }
+}
+
+class Flamethrower extends Weapon {
+    constructor() {
+        super({
+            type: 'flamethrower',
+            name: '火焰喷射器',
+            damage: 4,
+            cooldown: 0,
+        });
+        // Cone profile.
+        this.range = 240;
+        this.coneHalfAngle = Math.PI / 6; // 30° each side
+        this.tickDamage = 4;
+        this.tickInterval = 110;
+
+        // Heat budget so the player can't sustain forever.
+        this.heat = 0;
+        this.maxHeat = 100;
+        this.heatPerSecondFiring = 70;   // hits maxHeat in ~1.4 s of full fire
+        this.coolPerSecond = 35;         // recovers in ~2.9 s while idle
+        this.overheated = false;
+        this.overheatRecoverThreshold = 30;
+
+        this.activeCone = null;
+        this._lastUseTime = 0;
+        this._lastTick = Date.now();
+    }
+
+    canUse() {
+        return !this.overheated;
+    }
+
+    use(player) {
+        if (this.overheated) return false;
+        const now = Date.now();
+        this._lastUseTime = now;
+
+        // Spawn a fresh cone if none is alive, otherwise extend the
+        // existing one so the jet feels continuous while the trigger
+        // is held.
+        if (!this.activeCone || this.activeCone.shouldDestroy) {
+            this.activeCone = new PlayerFlameCone({
+                duration: 600,
+                range: this.range,
+                coneHalfAngle: this.coneHalfAngle,
+                tickDamage: this.tickDamage,
+                tickInterval: this.tickInterval,
+                getOrigin: () => this._muzzlePosition(player),
+                getAimAngle: () => this._aimAngle(player),
+            });
+        } else {
+            // Push the cone's death further into the future. We adjust
+            // spawnAt so age stays in the "sustained" middle of the
+            // intensity envelope instead of re-igniting on every frame.
+            const targetAge = this.activeCone.duration * 0.4;
+            this.activeCone.spawnAt = now - targetAge;
+        }
+        return true;
+    }
+
+    _muzzlePosition(player) {
+        const cx = player.x + player.width / 2;
+        const cy = player.y + player.height / 2;
+        // Push the origin a little forward of the chassis so the muzzle
+        // visually emerges from the player's hand, not their core.
+        const ang = (player.direction || 0) * Math.PI / 180;
+        const offset = Math.max(player.width, player.height) * 0.55;
+        return { x: cx + Math.cos(ang) * offset, y: cy + Math.sin(ang) * offset };
+    }
+
+    _aimAngle(player) {
+        return (player.direction || 0) * Math.PI / 180;
+    }
+
+    update(player) {
+        const now = Date.now();
+        let dt = (now - this._lastTick) / 1000;
+        if (dt > 0.1) dt = 0.1;
+        this._lastTick = now;
+
+        // Heat management: fire flag = used in the last frame window.
+        const recentlyFired = now - this._lastUseTime < 80;
+        if (recentlyFired) {
+            this.heat = Math.min(this.maxHeat, this.heat + this.heatPerSecondFiring * dt);
+            if (this.heat >= this.maxHeat) {
+                this.overheated = true;
+                if (this.activeCone) this.activeCone.shouldDestroy = true;
+            }
+        } else {
+            this.heat = Math.max(0, this.heat - this.coolPerSecond * dt);
+        }
+        if (this.overheated && this.heat <= this.overheatRecoverThreshold) {
+            this.overheated = false;
+        }
+
+        // Run the cone's particle sim & damage tick directly from the
+        // weapon. This keeps the flame self-contained instead of
+        // polluting the boss projectile pool.
+        if (this.activeCone) {
+            this.activeCone.update();
+            if (this.activeCone.shouldDestroy) this.activeCone = null;
+        }
+    }
+
+    draw(ctx, player) {
+        if (this.activeCone) this.activeCone.draw(ctx);
+    }
+
+    getStatus() {
+        if (this.overheated) {
+            return { text: t('ws.overheat', '...'), color: '#FF6644' };
+        }
+        const heatPct = Math.round((this.heat / this.maxHeat) * 100);
+        return { text: t('ws.ready') + ` (${heatPct}%)`, color: 'white' };
     }
 }
 
@@ -6938,3 +7418,6 @@ WEAPON_TYPES.high_track_missile = HighTrackMissileLauncher;
 WEAPON_TYPES.cluster_bomb_missile = ClusterBombMissileLauncher;
 WEAPON_TYPES.mine_layer_missile = MineLayerMissileLauncher;
 WEAPON_TYPES.det_cord_missile = DetCordMissileLauncher;
+WEAPON_TYPES.laser_turret = LaserTurretLauncher;
+WEAPON_TYPES.flamethrower = Flamethrower;
+WEAPON_TYPES.laser_smg = LaserSMG;

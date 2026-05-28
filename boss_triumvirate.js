@@ -194,20 +194,7 @@ class FlameSweep {
             this._lastTickAt = now;
             const o = this.getOrigin();
             const aim = this.getAimAngle();
-            if (game.player && !game.player.isUntargetable) {
-                const px = game.player.x + game.player.width / 2;
-                const py = game.player.y + game.player.height / 2;
-                const dx = px - o.x, dy = py - o.y;
-                const dist = Math.hypot(dx, dy);
-                if (dist <= this.range) {
-                    let toPlayer = Math.atan2(dy, dx) - aim;
-                    while (toPlayer > Math.PI) toPlayer -= Math.PI * 2;
-                    while (toPlayer < -Math.PI) toPlayer += Math.PI * 2;
-                    if (Math.abs(toPlayer) <= this.coneHalfAngle) {
-                        _triHitPlayer(this.tickDamage);
-                    }
-                }
-            }
+            this._doTick(now, o, aim);
         }
 
         // Particle simulation in jet-local space.
@@ -312,6 +299,25 @@ class FlameSweep {
         if (this._puffs.length > puffCap) this._puffs.splice(0, this._puffs.length - puffCap);
         if (this._smoke.length > smokeCap) this._smoke.splice(0, this._smoke.length - smokeCap);
         if (this._embers.length > emberCap) this._embers.splice(0, this._embers.length - emberCap);
+    }
+
+    // Per-tick damage hook. Overridable: boss flame hits the player; the
+    // player's flamethrower hand-weapon overrides this to hit enemies.
+    _doTick(now, o, aim) {
+        if (game.player && !game.player.isUntargetable) {
+            const px = game.player.x + game.player.width / 2;
+            const py = game.player.y + game.player.height / 2;
+            const dx = px - o.x, dy = py - o.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist <= this.range) {
+                let toPlayer = Math.atan2(dy, dx) - aim;
+                while (toPlayer > Math.PI) toPlayer -= Math.PI * 2;
+                while (toPlayer < -Math.PI) toPlayer += Math.PI * 2;
+                if (Math.abs(toPlayer) <= this.coneHalfAngle) {
+                    _triHitPlayer(this.tickDamage);
+                }
+            }
+        }
     }
 
     draw(ctx) {
