@@ -87,6 +87,10 @@ class TutorialDirector {
         if (cur && typeof cur.onExit === 'function') {
             try { cur.onExit(this.game, this); } catch (_) {}
         }
+        // Wipe every in-flight projectile so leftovers from the
+        // previous step (laser beams mid-charge, missiles in trail,
+        // etc.) can never carry into the next one.
+        _clearAllProjectiles(this.game);
         this.step++;
         this.markers = [];
         const next = this.currentStep;
@@ -324,7 +328,7 @@ function buildTutorialSteps() {
             }
         },
 
-        // ---------- 7 : try every lock mode ----------
+        // ---------- 7 : kill one enemy in each lock mode ----------
         {
             kind: 'playing',
             hintKey: 'tut.step.lock',
@@ -333,19 +337,18 @@ function buildTutorialSteps() {
                     leftShoulder: null, rightShoulder: null,
                     hiddenAbility: null });
                 gameState.lockMode = 'soft';
+                // Each flag flips true only after a kill confirmed under
+                // that specific lock mode. Just cycling C is no longer
+                // enough — the pilot must actually fire and finish a
+                // dummy in soft / hard / manual lock.
                 dir.lockState = { soft: false, hard: false, manual: false };
-                // Track per-step respawn timers; when a tutorial dummy
-                // dies we wait 500ms and put a fresh one somewhere else.
                 dir.lockSpawnQueue = [];
                 _spawnLockDummy(game, dir, W * 0.25, H * 0.30);
                 _spawnLockDummy(game, dir, W * 0.50, H * 0.25);
                 _spawnLockDummy(game, dir, W * 0.75, H * 0.30);
             },
             update(game, dir) {
-                const m = gameState.lockMode;
-                if (m === 'soft' || m === 'hard' || m === 'manual') {
-                    dir.lockState[m] = true;
-                }
+                _trackLockKills(game, dir);
                 _tickLockRespawn(game, dir);
             },
             isComplete(game, dir) {
@@ -480,6 +483,22 @@ function _spawnLockDummy(game, dir, x, y) {
     const d = _spawnDummy(game, x, y, { hp: 15, label: 'TGT' });
     d._lockTutDummy = true;
     d._lockSpawnRequested = false;
+    // Wrap takeDamage one more time so we can attribute the kill to
+    // the lock mode active at the moment of death — the bullet loop
+    // splices the corpse the same frame, so we can't rely on the
+    // director re-scanning enemies later.
+    const _prev = d.takeDamage.bind(d);
+    d.takeDamage = function (damage) {
+        const wasAlive = this.health > 0;
+        const r = _prev(damage);
+        if (wasAlive && this.health <= 0 && dir && dir.lockState) {
+            const m = gameState.lockMode;
+            if (m === 'soft' || m === 'hard' || m === 'manual') {
+                dir.lockState[m] = true;
+            }
+        }
+        return r;
+    };
     return d;
 }
 function _tickLockRespawn(game, dir) {
@@ -492,10 +511,19 @@ function _tickLockRespawn(game, dir) {
         if (!e || !e._lockTutDummy) continue;
         if (e.health <= 0 && !e._lockSpawnRequested) {
             e._lockSpawnRequested = true;
-            // Pick a slot at least ~180px from current alive lock dummies.
             const slot = _pickLockSlot(game, W, H);
             dir.lockSpawnQueue.push({ at: now + 500, x: slot.x, y: slot.y });
         }
+    }
+    // Top up to 3 — count alive dummies plus already-queued spawns so
+    // we don't over-queue while bullets are mid-flight at the same
+    // dummy. (Without this top-up, simultaneous deaths could leave the
+    // field empty for longer than the 500ms grace.)
+    const alive = (game.enemies || []).filter(e => e && e._lockTutDummy && e.health > 0).length;
+    const expected = alive + dir.lockSpawnQueue.length;
+    for (let i = expected; i < 3; i++) {
+        const slot = _pickLockSlot(game, W, H);
+        dir.lockSpawnQueue.push({ at: now + 500, x: slot.x, y: slot.y });
     }
     // Pop ready entries.
     for (let i = dir.lockSpawnQueue.length - 1; i >= 0; i--) {
@@ -505,6 +533,15 @@ function _tickLockRespawn(game, dir) {
             dir.lockSpawnQueue.splice(i, 1);
         }
     }
+}
+
+// A kill counts toward the current lock mode if the dummy that just
+// died was being targeted under that mode at time of death. We tag
+// kill attribution directly inside the dummy's takeDamage wrapper so
+// the bullet-collision loop (which splices killed enemies the same
+// frame) can never lose the event before director.update sees it.
+function _trackLockKills(game, dir) {
+    // No-op: attribution happens in _spawnLockDummy's takeDamage hook.
 }
 function _pickLockSlot(game, W, H) {
     const minX = W * 0.15, maxX = W * 0.85;
@@ -561,6 +598,30 @@ function _clearTutorialProjectiles(game) {
     if (game.boss && Array.isArray(game.boss.warnings)) {
         game.boss.warnings.length = 0;
     }
+}
+
+// Clear every in-flight projectile / hazard owned by the main game
+// loop. Called between tutorial steps so a step can never inherit
+// stray ammo from the previous one.
+function _clearAllProjectiles(game) {
+    if (!game) return;
+    const FIELDS = [
+        'bullets', 'missiles', 'bossMissiles', 'crescentBullets',
+        'bossCiwsBullets', 'mines', 'molotovs', 'chaosBullets',
+        'starDevourerBullets', 'magnusBullets', 'magnusShells',
+        'hivePlasmaBullets', 'hiveSplinters', 'yukikonBullets',
+        'yukikonDaggers', 'proteusBullets', 'ciwsBullets',
+        'plasmaMissiles', 'plasmaFields', 'clusterMissiles',
+        'splitMissiles', 'highTrackMissiles', 'clusterBombMissiles',
+        'clusterBombChildren', 'mineLayerMissiles', 'mineLayerMines',
+        'detCordMissiles', 'detCordTrails', 'detCordExplosions',
+        'laserTurrets'
+    ];
+    for (const k of FIELDS) {
+        if (Array.isArray(game[k])) game[k].length = 0;
+    }
+    // Boss-owned projectile lists too.
+    _clearTutorialProjectiles(game);
 }
 
 // ---- Step 6 helpers: dodge counter ----
@@ -1108,7 +1169,10 @@ function tutorialDrawHUD(ctx, dir) {
 }
 
 function _drawProgressPill(ctx, dir, W) {
-    const x = W - 240, y = 16, w = 220, h = 36;
+    const H = GAME_CONFIG.HEIGHT;
+    const w = 220, h = 36;
+    const x = W - w - 20;
+    const y = H - h - 16;
     uiDrawPanel(ctx, x, y, w, h, {
         chamfer: 8,
         fill: { from: 'rgba(8,14,20,0.85)', to: 'rgba(14,22,30,0.85)' },
@@ -1149,10 +1213,10 @@ function _objectiveSubline(dir) {
 }
 
 function _drawObjective(ctx, hint, subline) {
-    const W = GAME_CONFIG.WIDTH;
+    const W = GAME_CONFIG.WIDTH, H = GAME_CONFIG.HEIGHT;
     const w = 580, h = subline ? 88 : 64;
     const x = (W - w) / 2;
-    const y = 16;
+    const y = H - h - 16;
     uiDrawPanel(ctx, x, y, w, h, {
         chamfer: 10,
         fill: { from: 'rgba(8,14,20,0.9)', to: 'rgba(14,22,30,0.9)' },

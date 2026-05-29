@@ -951,7 +951,7 @@ class Game {
                 this.boss.markedForRemoval = true;
                 this.boss = null;
             } else {
-                handleBossKill();
+            handleBossKill();
             }
         }
 
@@ -2881,8 +2881,10 @@ class Game {
         const x = (W - barW) / 2;
         const y = 32;
 
-        // Boss name (above bar)
-        let bossName = t('boss.CRIMSON_KING');
+        // Boss name (above bar) — prefer the boss's own bossName if it
+        // exposes one (used by tutorial-only bosses like SparringDrone),
+        // otherwise fall back to the registered boss class lookup.
+        let bossName = (this.boss && this.boss.bossName) || t('boss.CRIMSON_KING');
         if (this.boss instanceof SublimeMoon) bossName = t('boss.SUBLIME_MOON');
         else if (this.boss instanceof StarDevourer) bossName = t('boss.STAR_DEVOURER');
         else if (this.boss instanceof UglyEmperor) bossName = t('boss.UGLY_EMPEROR');
