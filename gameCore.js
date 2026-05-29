@@ -160,6 +160,7 @@ class Game {
                 gameState.mechName = savedName.slice(0, 24);
             }
         } catch (_) { /* localStorage may be unavailable in private mode */ }
+
         // 等待用户选择游戏模式，不预生成敌人
         this.gameLoop();
     }
@@ -635,6 +636,11 @@ class Game {
             clearTimeout(this._victoryTimer);
             this._victoryTimer = null;
         }
+        // Tear down any active tutorial so the menu starts clean.
+        if (this.tutorialDirector && typeof tutorialExitToMenu === 'function') {
+            this.tutorialDirector = null;
+            gameState.invincibleMode = true;
+        }
         gameState.gameOver = false;
         gameState.paused = false;
         gameState.playerDying = false;
@@ -692,6 +698,17 @@ class Game {
     update() {
         if (gameState.paused || gameState.showModeSelection || gameState.showWeaponConfig || gameState.showMechCustomization || gameState.showGuide || gameState.showSettings) return;
         if (!this.player) return;
+
+        // Tutorial gating: while a briefing/debrief panel or the
+        // skip-confirmation dialog is up, freeze the world but still
+        // let the director itself advance (so key presses can dismiss
+        // panels). Player input/projectiles/AI all skip this frame.
+        if (this.tutorialDirector &&
+            (this.tutorialDirector.phase !== 'playing' ||
+             this.tutorialDirector.skipDialogOpen)) {
+            this.tutorialDirector.update();
+            return;
+        }
         
         // 游戏结束时只更新UI，不更新游戏对象
         if (gameState.gameOver) {
@@ -926,8 +943,16 @@ class Game {
         // 删除自动生成Boss的代码，让Boss死亡后直接显示胜利画面
 
         // 检查Boss是否死亡（血量为0）- 统一入口
+        // Tutorial mode handles its own boss death (no victory screen,
+        // just advance the director), so skip the global victory path
+        // when a tutorial director is active.
         if (this.boss && this.boss.health <= 0) {
-            handleBossKill();
+            if (this.tutorialDirector) {
+                this.boss.markedForRemoval = true;
+                this.boss = null;
+            } else {
+                handleBossKill();
+            }
         }
 
         // 更新Boss
@@ -1121,6 +1146,9 @@ class Game {
         // top-of-screen damage stream so each boss class's own draw
         // method has nothing left to render in the world.
         this._drainBossHitIndicators();
+
+        // Tutorial: per-frame stage progression
+        if (this.tutorialDirector) this.tutorialDirector.update();
     }
 
     draw() {
@@ -1302,6 +1330,11 @@ class Game {
         // FX overlay (particles, flashes, shockwaves) on top of world; pops shake.
         if (typeof bossFX !== 'undefined') bossFX.postDraw(this.ctx);
 
+        // Tutorial: world-space markers (rings, etc.)
+        if (this.tutorialDirector && typeof tutorialDrawWorld === 'function') {
+            tutorialDrawWorld(this.ctx, this.tutorialDirector);
+        }
+
         // Floating damage numbers — drawn after the world FX so
         // they always sit on top and stay readable.
         if (typeof drawDamageNumbers === 'function') drawDamageNumbers(this.ctx);
@@ -1317,6 +1350,13 @@ class Game {
 
         // 绘制UI信息（在失明效果之上）
         this.drawGameUI();
+
+        // Tutorial overlay (briefing/debrief panels, objective HUD).
+        // Drawn after game UI so it always sits on top, but before
+        // pause/gameover so those still take priority.
+        if (this.tutorialDirector && typeof tutorialDrawHUD === 'function') {
+            tutorialDrawHUD(this.ctx, this.tutorialDirector);
+        }
 
         // 手动锁模式下绘制准心（在失明效果之上）
         if (gameState.lockMode === 'manual') {
@@ -1364,16 +1404,25 @@ class Game {
 
         // Buttons stack
         const btnW = 460;
-        const btnH = 96;
+        const btnH = 84;
         const btnX = W / 2 - btnW / 2;
-        const gap = 22;
-        let by = H / 2 - 40;
+        const gap = 18;
+        let by = H / 2 - 110;
 
         // Boss battle button
         this.bossButton = uiDrawButton(ctx, btnX, by, btnW, btnH, t('menu.startBoss'), {
             accentColor: UI_THEME.color.danger,
             subLabel: t('menu.startBossDesc'),
-            labelFont: `bold 26px ${UI_THEME.font.display}`,
+            labelFont: `bold 24px ${UI_THEME.font.display}`,
+            labelLetterSpacing: 2
+        });
+
+        // Tutorial button (new pilot training)
+        by += btnH + gap;
+        this.tutorialButton = uiDrawButton(ctx, btnX, by, btnW, btnH, t('menu.startTutorial'), {
+            accentColor: '#69f0ae',
+            subLabel: t('menu.startTutorialDesc'),
+            labelFont: `bold 22px ${UI_THEME.font.display}`,
             labelLetterSpacing: 2
         });
 
@@ -1382,7 +1431,7 @@ class Game {
         this.trainingButton = uiDrawButton(ctx, btnX, by, btnW, btnH, t('menu.startTraining'), {
             accentColor: '#5fa3ff',
             subLabel: t('menu.startTrainingDesc'),
-            labelFont: `bold 24px ${UI_THEME.font.display}`,
+            labelFont: `bold 22px ${UI_THEME.font.display}`,
             labelLetterSpacing: 2
         });
 
@@ -1391,7 +1440,7 @@ class Game {
         this.customButton = uiDrawButton(ctx, btnX, by, btnW, btnH, t('menu.customizeMech'), {
             accentColor: UI_THEME.color.primary,
             subLabel: t('menu.customizeDesc'),
-            labelFont: `bold 24px ${UI_THEME.font.display}`,
+            labelFont: `bold 22px ${UI_THEME.font.display}`,
             labelLetterSpacing: 2
         });
 
@@ -1603,6 +1652,7 @@ class Game {
         
         this.bossButton = null;
         this.trainingButton = null;
+        this.tutorialButton = null;
         this.customButton = null;
         this.mainMenuButton = null;
         this.pauseButton = null;
@@ -1622,7 +1672,7 @@ class Game {
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         ctx.fillText('// LOADOUT CONFIGURATION', 50, 38);
-        ctx.fillStyle = currentMode.color;
+        ctx.fillStyle = (currentMode && currentMode.color) || UI_THEME.color.buttonBorder;
         ctx.fillText(t('cfg.selected', t('mode.' + gameState.selectedGameMode)).toUpperCase(), 50, 58);
         ctx.restore();
 
@@ -2651,7 +2701,7 @@ class Game {
         ctx.textBaseline = 'middle';
         ctx.fillText('// MISSION', infoX + 14, infoY + 16);
         const currentMode = GAME_MODES[gameState.selectedGameMode];
-        ctx.fillStyle = currentMode.color;
+        ctx.fillStyle = (currentMode && currentMode.color) || UI_THEME.color.buttonBorder;
         ctx.font = `bold 14px ${UI_THEME.font.display}`;
         ctx.fillText(t('hud.mode', t('mode.' + gameState.selectedGameMode)), infoX + 14, infoY + 36);
         ctx.fillStyle = UI_THEME.color.textSecondary;
@@ -3656,6 +3706,11 @@ class Game {
             
             if (this.bossButton && this.isButtonClicked(this.bossButton, mouseX, mouseY)) {
                 this.selectGameMode('BOSS_BATTLE');
+                return true;
+            }
+
+            if (this.tutorialButton && this.isButtonClicked(this.tutorialButton, mouseX, mouseY)) {
+                tutorialEnter(this);
                 return true;
             }
 

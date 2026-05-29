@@ -18,6 +18,12 @@ const GAME_MODES = {
         description: '在不会反击的假人靶上熟悉武器',
         key: 'TRAINING',
         color: '#5fa3ff'
+    },
+    TUTORIAL: {
+        name: '新手教程',
+        description: '飞行员入门训练',
+        key: 'TUTORIAL',
+        color: '#aef0ff'
     }
 };
 

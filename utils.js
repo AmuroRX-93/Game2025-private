@@ -297,6 +297,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // 机甲选择已删除
         
+        // Tutorial: intercept input while a director is active. The
+        // director handles its own briefing/debrief/skip dialogs and
+        // returns true to mean "consumed; don't fall through to game
+        // input". Movement/combat keys still pass through when the
+        // director is in the playing phase.
+        if (game && game.tutorialDirector) {
+            if (game.tutorialDirector.handleKeydown(e.key)) return;
+        }
+
         if (e.key === ' ') {
             if (gameState.gameOver) {
                 game.restart();

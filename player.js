@@ -704,6 +704,13 @@ class Player extends GameObject {
         // 添加受击提示
         this.addHitIndicator(actualDamage);
         
+        // Tutorial 1-HP floor: never let a controlled tutorial fight
+        // actually kill the player. Their feedback and damage flash
+        // still play, but HP is clamped to 1 instead of 0.
+        if (this.tutorialMinHpFloor && this.health < 1) {
+            this.health = 1;
+        }
+        
         // 确保生命值不低于0
         if (this.health <= 0) {
             this.health = 0;
