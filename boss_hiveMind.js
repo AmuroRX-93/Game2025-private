@@ -1241,28 +1241,9 @@ class HiveMind extends GameObject {
         this._drawHitIndicators(ctx);
     }
 
-    _drawHitIndicators(ctx) {
-        const now = Date.now();
-        this.hitIndicators = this.hitIndicators.filter(i => now - i.startTime < this.hitIndicatorDuration);
-        for (const ind of this.hitIndicators) {
-            const elapsed = now - ind.startTime;
-            const p = elapsed / this.hitIndicatorDuration;
-            const alpha = 1 - p;
-            const offY = p * 30;
-            ctx.save();
-            ctx.globalAlpha = alpha;
-            ctx.fillStyle = ind.deflected ? '#7fdfff' : '#caa8ff';
-            ctx.font = 'bold 20px Arial';
-            ctx.textAlign = 'center';
-            ctx.strokeStyle = '#FFFFFF';
-            ctx.lineWidth = 3;
-            const text = ind.deflected ? `DEFLECT ${ind.damage}` : `HIT ${ind.damage}`;
-            ctx.strokeText(text, ind.x, ind.y - offY);
-            ctx.fillText(text, ind.x, ind.y - offY);
-            ctx.restore();
-        }
-    }
+    _drawHitIndicators(_ctx) { /* retired: trailing ghost on HP bar replaces this */ }
 }
+
 
 // =================================================================
 // HiveSplinter - one of 4 cores spawned when HiveMind dies. Faster,
@@ -1613,22 +1594,10 @@ class HiveSplinter extends GameObject {
         ctx.fillStyle = '#caa8ff';
         ctx.fillRect(this.x, this.y - 8, bw * hp, bh);
 
-        // Hit indicators
-        this.hitIndicators = this.hitIndicators.filter(i => now - i.startTime < this.hitIndicatorDuration);
-        for (const ind of this.hitIndicators) {
-            const elapsed = now - ind.startTime;
-            const p = elapsed / this.hitIndicatorDuration;
-            const a = 1 - p;
-            ctx.save();
-            ctx.globalAlpha = a;
-            ctx.fillStyle = '#caa8ff';
-            ctx.font = 'bold 16px Arial';
-            ctx.textAlign = 'center';
-            ctx.strokeStyle = '#FFFFFF';
-            ctx.lineWidth = 2;
-            ctx.strokeText(ind.damage, ind.x, ind.y - p * 24);
-            ctx.fillText(ind.damage, ind.x, ind.y - p * 24);
-            ctx.restore();
+        // Hit indicators retired (trailing ghost on HP bar instead).
+        // Still expire stale entries so the array doesn't grow.
+        if (Array.isArray(this.hitIndicators) && this.hitIndicators.length > 0) {
+            this.hitIndicators.length = 0;
         }
     }
 }

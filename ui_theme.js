@@ -393,3 +393,109 @@ function uiDrawScreenFrame(ctx, w, h, opts = {}) {
     ctx.stroke();
     ctx.restore();
 }
+
+// Per-bar trailing-damage state: keyed by an opaque id supplied by the
+// caller (e.g. 'player', 'boss.main', 'triumvirate.pyron'). Each entry
+// remembers the lagging "ghost" hp value and the last frame timestamp,
+// so the trail drains smoothly across frames at a consistent rate.
+const _UI_SLIDING_HP_STATE = (typeof globalThis !== 'undefined' && globalThis.__UI_SLIDING_HP_STATE__)
+    || ((typeof globalThis !== 'undefined') ? (globalThis.__UI_SLIDING_HP_STATE__ = {}) : {});
+
+// Reset a sliding-hp trail (e.g. when a boss is freshly spawned, or the
+// player respawns) so we don't show a leftover ghost from the previous run.
+function uiResetSlidingHealth(id) {
+    if (id != null && _UI_SLIDING_HP_STATE[id]) {
+        delete _UI_SLIDING_HP_STATE[id];
+    }
+}
+
+// Draw a horizontal HP bar with a "ghost" trail layer that lags behind
+// the real value and drains linearly back to it. Mirrors the look the
+// designer sketched (frame 1 full -> frame 2 hp drops with leftover
+// trail -> frame 3 trail catches up).
+//
+// opts:
+//   id          : string key for trail state (REQUIRED for trail to work)
+//   bg          : background fill color (default dark translucent)
+//   color       : main fill color (REQUIRED)
+//   trailColor  : trail fill color (default neutral grey)
+//   border      : stroke color (default = color)
+//   borderWidth : stroke px (default 1, 0 to skip)
+//   drainPerSec : fraction of maxHp drained from the trail per second
+//                 (default 0.18 -> a full bar drains in ~5.5s)
+//   delayMs     : how long the trail "holds" after a hit before it
+//                 starts draining (default 280ms)
+//   pulseLowHp  : if true, fill alpha pulses when hp < 30% (default false)
+function uiDrawSlidingHealthBar(ctx, x, y, w, h, hp, maxHp, opts = {}) {
+    if (!(maxHp > 0) || w <= 0 || h <= 0) return;
+    const id = opts.id;
+    const now = (typeof performance !== 'undefined' && performance.now)
+        ? performance.now() : Date.now();
+    const cur = Math.max(0, Math.min(maxHp, hp));
+    const drainPerSec = (typeof opts.drainPerSec === 'number') ? opts.drainPerSec : 0.18;
+    const delayMs = (typeof opts.delayMs === 'number') ? opts.delayMs : 280;
+
+    let trail = cur;
+    if (id != null) {
+        let st = _UI_SLIDING_HP_STATE[id];
+        if (!st || st.maxHp !== maxHp) {
+            st = { trail: cur, lastNow: now, lastHp: cur, lastHitAt: 0, maxHp };
+            _UI_SLIDING_HP_STATE[id] = st;
+        }
+        // Detect a fresh hit: hp dropped since last frame.
+        if (cur < st.lastHp - 0.0001) {
+            st.lastHitAt = now;
+        }
+        // Heal: snap trail up so we don't show a phantom "missing" chunk.
+        if (cur > st.trail) {
+            st.trail = cur;
+        }
+        // Drain trail toward cur after the hold delay.
+        const dt = Math.max(0, (now - st.lastNow) / 1000);
+        if (st.trail > cur && (now - st.lastHitAt) >= delayMs) {
+            const drain = drainPerSec * maxHp * dt;
+            st.trail = Math.max(cur, st.trail - drain);
+        }
+        st.lastNow = now;
+        st.lastHp = cur;
+        trail = st.trail;
+    }
+
+    const bg = opts.bg || 'rgba(0, 0, 0, 0.45)';
+    const color = opts.color || '#7CFFC4';
+    const trailColor = opts.trailColor || 'rgba(190, 190, 190, 0.9)';
+    const border = (opts.border !== undefined) ? opts.border : color;
+    const borderWidth = (opts.borderWidth !== undefined) ? opts.borderWidth : 1;
+
+    ctx.save();
+    ctx.fillStyle = bg;
+    ctx.fillRect(x, y, w, h);
+
+    const hpFrac = cur / maxHp;
+    const trailFrac = Math.max(hpFrac, trail / maxHp);
+
+    // Trail layer (lighter, drains linearly).
+    if (trailFrac > hpFrac) {
+        const tx = x + w * hpFrac;
+        const tw = w * (trailFrac - hpFrac);
+        ctx.fillStyle = trailColor;
+        ctx.fillRect(tx, y, tw, h);
+    }
+
+    // Solid HP layer.
+    if (hpFrac > 0) {
+        if (opts.pulseLowHp && hpFrac < 0.3) {
+            ctx.globalAlpha = 0.6 + 0.4 * Math.sin(now / 150);
+        }
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y, w * hpFrac, h);
+        ctx.globalAlpha = 1;
+    }
+
+    if (border && borderWidth > 0) {
+        ctx.strokeStyle = border;
+        ctx.lineWidth = borderWidth;
+        ctx.strokeRect(x, y, w, h);
+    }
+    ctx.restore();
+}

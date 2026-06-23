@@ -174,7 +174,7 @@ const translations = {
         'weapon.plasma_missile': '6连电浆飞弹',
         'weapon.super_weapon': '超级导弹',
         'weapon.moonlight_greatsword': '月光大剑',
-        'weapon.pulse_shield': '脉冲护盾',
+        'weapon.pulse_shield': '脉冲振刀',
         'weapon.emp': 'EMP电磁脉冲',
         'weapon.counter_mech': '反制重击',
         'weapon.decoy_clone': '诱饵分身',
@@ -202,7 +202,7 @@ const translations = {
         'weaponDesc.plasma_missile': '近炸引信 | 电浆场持续伤害 | 可叠加',
         'weaponDesc.super_weapon': '100伤害 | 一次战斗只能用一次 | 占用双槽位',
         'weaponDesc.moonlight_greatsword': '200伤害 | 超大范围光刃 | 占用4槽位 | 一次性',
-        'weaponDesc.pulse_shield': '完全免伤 | 14.4秒持续 | 40秒冷却',
+        'weaponDesc.pulse_shield': '0.2秒振刀窗口 | 全伤害类型反弹 | 1秒冷却',
         'weaponDesc.emp': '范围伤害+僵直 | 距离越远伤害越低 | 18秒冷却',
         'weaponDesc.counter_mech': '3秒减伤40% | 反射250%伤害 | 15秒冷却',
         'weaponDesc.decoy_clone': '释放3诱饵 | 4秒隐身 | 35秒冷却',
@@ -229,6 +229,8 @@ const translations = {
         'ws.launching': '发射中... ({0}枚)',
         'ws.launchingSimple': '发射中...',
         'ws.shielding': '护盾中: {0}秒',
+        'ws.parryReady': '振刀就绪',
+        'ws.parryActive': '振刀!',
         'ws.countering': '反制中: {0}s',
         'ws.stealth': '隐身中: {0}s',
         'ws.overdriveActive': '超限爆发: {0}s',
@@ -431,7 +433,7 @@ const translations = {
         'weapon.plasma_missile': 'Plasma Missile ×6',
         'weapon.super_weapon': 'Super Missile',
         'weapon.moonlight_greatsword': 'Moonlight Greatsword',
-        'weapon.pulse_shield': 'Pulse Shield',
+        'weapon.pulse_shield': 'Pulse Parry',
         'weapon.emp': 'EMP',
         'weapon.counter_mech': 'Counter Strike',
         'weapon.decoy_clone': 'Decoy Clone',
@@ -459,7 +461,7 @@ const translations = {
         'weaponDesc.plasma_missile': 'Proximity Fuse | Plasma DoT | Stackable',
         'weaponDesc.super_weapon': '100 DMG | Single Use | Dual Slot',
         'weaponDesc.moonlight_greatsword': '200 DMG | Massive Beam | 4 Slots | Single Use',
-        'weaponDesc.pulse_shield': 'Full Immunity | 14.4s Duration | 40s CD',
+        'weaponDesc.pulse_shield': '0.2s parry window | Reflects all damage | 1s CD',
         'weaponDesc.emp': 'AoE + Stun | Damage Falloff | 18s CD',
         'weaponDesc.counter_mech': '3s -40% DMG | 250% Reflect | 15s CD',
         'weaponDesc.decoy_clone': '3 Decoys | 4s Stealth | 35s CD',
@@ -486,6 +488,8 @@ const translations = {
         'ws.launching': 'Launching... ({0} left)',
         'ws.launchingSimple': 'Launching...',
         'ws.shielding': 'Shield: {0}s',
+        'ws.parryReady': 'Parry Ready',
+        'ws.parryActive': 'PARRY!',
         'ws.countering': 'Counter: {0}s',
         'ws.stealth': 'Stealth: {0}s',
         'ws.overdriveActive': 'Overdrive: {0}s',
@@ -688,7 +692,7 @@ const translations = {
         'weapon.plasma_missile': '6連プラズマミサイル',
         'weapon.super_weapon': 'スーパーミサイル',
         'weapon.moonlight_greatsword': '月光の大剣',
-        'weapon.pulse_shield': 'パルスシールド',
+        'weapon.pulse_shield': 'パルス弾き',
         'weapon.emp': 'EMP',
         'weapon.counter_mech': 'カウンター',
         'weapon.decoy_clone': 'デコイクローン',
@@ -716,7 +720,7 @@ const translations = {
         'weaponDesc.plasma_missile': '近接信管 | プラズマ持続ダメージ | 重ねがけ可',
         'weaponDesc.super_weapon': '100ダメージ | 1戦1回限り | 両肩スロット占有',
         'weaponDesc.moonlight_greatsword': '200ダメージ | 巨大ビーム | 4スロット占有 | 1戦1回限り',
-        'weaponDesc.pulse_shield': '完全無敵 | 14.4秒持続 | 40秒CD',
+        'weaponDesc.pulse_shield': '0.2秒弾き窓 | 全ダメージ反射 | 1秒CD',
         'weaponDesc.emp': '範囲ダメージ + スタン | 距離で減衰 | 18秒CD',
         'weaponDesc.counter_mech': '3秒-40%被ダメ | 250%反射 | 15秒CD',
         'weaponDesc.decoy_clone': '3体のデコイ | 4秒間ステルス | 35秒CD',
@@ -743,6 +747,8 @@ const translations = {
         'ws.launching': '発射中... (残り{0})',
         'ws.launchingSimple': '発射中...',
         'ws.shielding': 'シールド: {0}秒',
+        'ws.parryReady': '弾き 待機',
+        'ws.parryActive': '弾き!',
         'ws.countering': 'カウンター: {0}s',
         'ws.stealth': 'ステルス: {0}s',
         'ws.overdriveActive': 'OD: {0}s',
@@ -814,58 +820,58 @@ const guideData = {
         {
             id: 'hand_weapons', name: '手部武器', color: '#4169E1',
             items: [
-                { name: '自动步枪', color: '#4169E1', lines: [
+                { name: '自动步枪', demoId: 'weapons:gun', color: '#4169E1', lines: [
                     '伤害 8/发 | 射速 5发/秒',
                     '弹匣 30发 | 重装 2秒',
                     '自动预瞄：根据目标速度预判落点',
                 ]},
-                { name: '脉冲光束军刀', color: '#ff6b6b', lines: [
+                { name: '脉冲光束军刀', demoId: 'weapons:sword', color: '#ff6b6b', lines: [
                     '伤害 50 | 120°扇形范围',
                     '冷却 4.8秒',
                     '刀推：距目标过远时自动冲刺接近',
                 ]},
-                { name: '镭射长枪', color: '#00FFFF', lines: [
+                { name: '镭射长枪', demoId: 'weapons:laser_spear', color: '#00FFFF', lines: [
                     '伤害 25 | 冲锋距离 400像素',
                     '冲锋速度 40 | 冷却 5秒',
                     '可扎穿敌人并带其一起移动',
                 ]},
-                { name: '镭射步枪', color: '#FF4444', lines: [
+                { name: '镭射步枪', demoId: 'weapons:laser_rifle', color: '#FF4444', lines: [
                     '伤害 18 | 蓄力 1秒后发射',
                     '射击间隔 0.7秒 | 射程无限',
                     '过热系统：每发+50热量，≥200过热',
                     '过热后强制散热7秒',
                 ]},
-                { name: '镭射机枪', color: '#FF8866', lines: [
+                { name: '镭射机枪', demoId: 'weapons:laser_smg', color: '#FF8866', lines: [
                     '伤害 6/发 | 蓄力极短(0.12秒) | 射击间隔 0.18秒',
                     '单发热量低(+14)，可连续点射约 14 发再过热',
                     '过热后强制散热7秒',
                     '速射型镭射，适合追打高机动目标',
                 ]},
-                { name: '分裂飞弹', color: '#FFD700', lines: [
+                { name: '分裂飞弹', demoId: 'weapons:cluster_missile', color: '#FFD700', lines: [
                     '发射1枚母弹，持续索敌（8秒无目标自爆）',
                     '锁定的目标接近时分裂为8枚子弹',
                     '子弹伤害 4 | 高追踪性 | 冷却 4秒',
                     '分裂后先扇形散开再制导',
                 ]},
-                { name: '霰弹枪', color: '#ff9040', lines: [
+                { name: '霰弹枪', demoId: 'weapons:shotgun', color: '#ff9040', lines: [
                     '伤害 8/弹 × 12颗弹丸 | 锥形扩散22°',
                     '伤害随距离线性衰减 | 满射程时降至20%',
                     '射程 700px | 射击间隔 0.7秒',
                     '弹匣 6发 | 重装 1.6秒',
                     '近距离贴脸输出爆炸',
                 ]},
-                { name: '火箭筒', color: '#ff7030', lines: [
+                { name: '火箭筒', demoId: 'weapons:rocket', color: '#ff7030', lines: [
                     '伤害 30 | 爆炸半径 180px | 中心强 边缘5%',
                     '伤害随距离平方衰减 | 射程 900px',
                     '射击间隔 1.1秒 | 单发膛 | 重装 2.6秒',
                     '高爆AOE，正中目标威力极高',
                 ]},
-                { name: '加特林', color: '#d4a040', lines: [
+                { name: '加特林', demoId: 'weapons:minigun', color: '#d4a040', lines: [
                     '200发弹链 | 单发伤害约 2 倍步枪(近距离)',
                     '远距离衰减至 30% | 装填 45 秒',
                     '需要短暂转管启动 | 持续输出极强',
                 ]},
-                { name: '火焰喷射器', color: '#FF6020', lines: [
+                { name: '火焰喷射器', demoId: 'weapons:flamethrower', color: '#FF6020', lines: [
                     '持续按住喷出 30° 火焰锥 | 射程 240',
                     'Tick 伤害 4，每 110ms 命中一次（约 36 DPS）',
                     '距离衰减：枪口 100% → 锥尖 50%',
@@ -876,63 +882,63 @@ const guideData = {
         {
             id: 'shoulder_weapons', name: '肩部武器', color: '#FF8800',
             items: [
-                { name: '15连导弹发射器', color: '#FFD700', lines: [
+                { name: '15连导弹发射器', demoId: 'shoulder:missile', color: '#FFD700', lines: [
                     '每次齐射 15枚 | 每枚 5伤害',
                     '前1.1秒强追踪 | 爆炸半径 80px',
                     '冷却 4秒',
                 ]},
-                { name: '高诱导飞弹', color: '#FF8030', lines: [
+                { name: '高诱导飞弹', demoId: 'shoulder:high_track', color: '#FF8030', lines: [
                     '单发齐射 | 爆炸半径 80px',
                     '伤害 25（约 5 倍普通飞弹）',
                     '诱导半径 800px，强诱导持续 2.8 秒',
                     '弹速比普通飞弹快 30%',
                     '冷却 4 秒',
                 ]},
-                { name: '集束飞弹', color: '#FFA040', lines: [
+                { name: '集束飞弹', demoId: 'shoulder:cluster_bomb', color: '#FFA040', lines: [
                     '本体伤害 1，飞行 1 秒后开始投放子弹',
                     '4 秒内向前方 L30°/R45° 轮流投放共 10 枚子弹',
                     '子弹伤害 8（高诱导力）',
                     '投放期间本体无敌，无法被吞噬/拦截',
                     '冷却 4 秒',
                 ]},
-                { name: '布雷飞弹', color: '#FF6040', lines: [
+                { name: '布雷飞弹', demoId: 'shoulder:mine_layer', color: '#FF6040', lines: [
                     '本体伤害 1，飞行中每 0.7 秒在身下布置一枚高爆机雷',
                     '机雷伤害 30（仅伤害敌人，不伤己）',
                     '机雷外观与丑皇不同，玩家始终可见',
                     '本体在投放第一枚雷之前不可被摧毁',
                     '冷却 4 秒',
                 ]},
-                { name: '爆导索飞弹', color: '#FFB060', lines: [
+                { name: '爆导索飞弹', demoId: 'shoulder:det_cord', color: '#FFB060', lines: [
                     '本体伤害 12，命中或自爆后激发爆导索',
                     '从发射点起沿飞行轨迹依次连环爆炸（AOE）',
                     '每节爆炸伤害 17（母弹 2/3）',
                     '连锁爆炸速度比初版快 4 倍',
                     '冷却 12 秒（重装较慢）',
                 ]},
-                { name: '镭射炮台', color: '#88E0FF', lines: [
+                { name: '镭射炮台', demoId: 'shoulder:laser_turret', color: '#88E0FF', lines: [
                     '在玩家位置部署一座静止镭射炮台',
                     '存在 12 秒，自动锁定 600 范围内最近敌人',
                     '每 1 秒发射 0.4 秒短脉冲镭射，单次伤害 8',
                     '弹仓 2 发，打完后整体重装 8 秒',
                     '炮台不可被锁定/吞噬，临死前会闪烁示警',
                 ]},
-                { name: '近防炮 (CIWS)', color: '#00FF88', lines: [
+                { name: '近防炮 (CIWS)', demoId: 'shoulder:ciws', color: '#00FF88', lines: [
                     '全自动射击 30发/秒 | 弹仓 30发',
                     '优先级：导弹 > 月牙弹 > 策反弹 > 机雷 > 敌人',
                     '对制导武器一发摧毁',
                     '对敌人本体 40%概率造成伤害',
                 ]},
-                { name: '6连电浆飞弹', color: '#00FFCC', lines: [
+                { name: '6连电浆飞弹', demoId: 'shoulder:plasma', color: '#00FFCC', lines: [
                     '6枚连射 | 近炸引信（55px引爆）',
                     '生成电浆场：持续1秒，每0.25秒造成3伤害',
                     '多个电浆场可叠加 | 冷却 5秒',
                 ]},
-                { name: '超级导弹', color: '#FF0000', lines: [
+                { name: '超级导弹', demoId: 'shoulder:super', color: '#FF0000', lines: [
                     '伤害 100 | 占用左右肩双槽位',
                     '爆炸半径 400px | 超强追踪 4.1秒',
                     '每场战斗限用1次',
                 ]},
-                { name: '月光大剑', color: '#88CCFF', lines: [
+                { name: '月光大剑', demoId: 'shoulder:moonlight', color: '#88CCFF', lines: [
                     '伤害 200 | 占用右手+双肩+隐藏机能共4槽位',
                     '光刃长度为光束军刀的7倍（1050px）',
                     '机体朝向±90°共180°范围 | 1秒完成扫击',
@@ -944,42 +950,42 @@ const guideData = {
         {
             id: 'hidden', name: '隐藏机能', color: '#00FFFF',
             items: [
-                { name: '脉冲护盾', color: '#00FFFF', lines: [
-                    '70%伤害减免 | 持续 18秒',
-                    '冷却 40秒',
+                { name: '脉冲振刀', demoId: 'hidden:pulse_shield', color: '#00FFFF', lines: [
+                    '振刀窗口 0.2秒 | 反弹所有伤害类型',
+                    '冷却 1秒',
                 ]},
-                { name: 'EMP电磁脉冲', color: '#66CCFF', lines: [
+                { name: 'EMP电磁脉冲', demoId: 'hidden:emp', color: '#66CCFF', lines: [
                     '范围 490px | 最大伤害 100',
                     '距离越远伤害越低 | 附加2秒僵直',
                     '冷却 18秒',
                 ]},
-                { name: '反制重击', color: '#FF8C00', lines: [
+                { name: '反制重击', demoId: 'hidden:counter', color: '#FF8C00', lines: [
                     '持续 3秒 | 受伤减少 40%',
                     '将受到伤害的250%反射给最近敌人',
                     '冷却 15秒',
                 ]},
-                { name: '诱饵分身', color: '#4488FF', lines: [
+                { name: '诱饵分身', demoId: 'hidden:decoy', color: '#4488FF', lines: [
                     '释放 3 个全息诱饵（等边三角形散开）',
                     '诱饵 40HP | 最多存活 7秒',
                     '玩家进入 4秒不可锁定状态',
                     '敌方AI/导弹/子弹转向攻击诱饵',
                     '冷却 35秒',
                 ]},
-                { name: '超限爆发', color: '#FF2030', lines: [
+                { name: '超限爆发', demoId: 'hidden:overdrive', color: '#FF2030', lines: [
                     '激活时立即损失30%当前血量',
                     '持续 6秒：伤害 ×3 | 移速 ×3',
                     '机身变红 | 冲刺时留下残影',
                     '代价：受到的伤害放大至 ×2',
                     '冷却 30秒',
                 ]},
-                { name: '应急修复', color: '#60FF90', lines: [
+                { name: '应急修复', demoId: 'hidden:repair', color: '#60FF90', lines: [
                     '激活时清空旧的溢出护盾',
                     '持续 5秒：移速 ×1.5 | 每秒恢复 5HP',
                     '期间无法使用任何武器和闪避',
                     '满血后溢出 HP 转为护盾，最多 +50',
                     '冷却 35秒',
                 ]},
-                { name: '金手指（调试）', color: '#FFD700', lines: [
+                { name: '金手指（调试）', demoId: 'hidden:godmode', color: '#FFD700', lines: [
                     '【调试用，无特效】',
                     '释放即瞬杀场上一切单位',
                     '无冷却时间，可随意使用',
@@ -989,7 +995,7 @@ const guideData = {
         {
             id: 'bosses', name: 'Boss图鉴', color: '#FF4444',
             items: [
-                { name: '血红之王', color: '#8B0000', lines: [
+                { name: '血红之王', demoId: 'boss:CRIMSON_KING', color: '#8B0000', lines: [
                     'HP 300 | 导弹洗地型',
                     '',
                     '— 攻击方式 —',
@@ -1007,7 +1013,7 @@ const guideData = {
                     '近防炮拦截导弹，配合近战输出',
                     '避免短时间集中火力触发高减伤',
                 ]},
-                { name: '冰之姬', color: '#4682B4', lines: [
+                { name: '冰之姬', demoId: 'boss:SUBLIME_MOON', color: '#4682B4', lines: [
                     'HP 200 | 高机动刺客型',
                     '',
                     '— 攻击方式 —',
@@ -1026,7 +1032,7 @@ const guideData = {
                     '勿过度依赖镭射步枪 / 制导武器',
                     '保持中近距离，利用霰弹/火箭筒爆发',
                 ]},
-                { name: '噬星者', color: '#333333', lines: [
+                { name: '噬星者', demoId: 'boss:STAR_DEVOURER', color: '#333333', lines: [
                     'HP 300 | 战术压制型',
                     '',
                     '— 攻击方式 —',
@@ -1043,7 +1049,7 @@ const guideData = {
                     '优先摧毁浮游炮，近防炮拦截策反导弹',
                     '信号干扰期间凭手感持续移动，二阶段需近距离作战',
                 ]},
-                { name: '丑皇', color: '#8B4513', lines: [
+                { name: '丑皇', demoId: 'boss:UGLY_EMPEROR', color: '#8B4513', lines: [
                     'HP 250 | 区域控制型',
                     '',
                     '— 攻击方式 —',
@@ -1062,7 +1068,7 @@ const guideData = {
                     '二阶段全力导弹输出（伤害翻倍）',
                     '两阶段需完全不同的武器策略',
                 ]},
-                { name: '机甲执政官 Magnus', color: '#C68C2A', lines: [
+                { name: '机甲执政官 Magnus', demoId: 'boss:MAGNUS_EXEC', color: '#C68C2A', lines: [
                     'HP 600 | 重装压制型',
                     '',
                     '— 攻击方式 —',
@@ -1084,7 +1090,7 @@ const guideData = {
                     '优先摧毁肩部炮塔，再压制本体',
                     '近防炮专门对付脱离的炮台火箭弹',
                 ]},
-                { name: '蜂巢意识', color: '#9C27B0', lines: [
+                { name: '蜂巢意识', demoId: 'boss:HIVE_MIND', color: '#9C27B0', lines: [
                     'HP 320 (本体) | 多体协同型',
                     '',
                     '— 攻击方式 —',
@@ -1107,7 +1113,7 @@ const guideData = {
                     '抓住女王暴露窗口集中爆发',
                     '残识阶段优先处理对玩家威胁最大的那只',
                 ]},
-                { name: '剑舞者 雪魂 (Yukikon)', color: '#7fc8ff', lines: [
+                { name: '剑舞者 雪魂 (Yukikon)', demoId: 'boss:YUKIKON', color: '#7fc8ff', lines: [
                     'HP 150 | 高速近战决斗者',
                     '',
                     '— 攻击方式 —',
@@ -1128,7 +1134,7 @@ const guideData = {
                     '注意她抬手挥剑的瞬间，那几帧远程基本无效',
                     '影分身阶段不要乱锁，等真身露脸',
                 ]},
-                { name: '变形机甲 普罗忒斯 (Proteus)', color: '#a0ffc0', lines: [
+                { name: '变形机甲 普罗忒斯 (Proteus)', demoId: 'boss:PROTEUS', color: '#a0ffc0', lines: [
                     'HP 360 | 形态切换型',
                     '',
                     '— 三种形态（按距离切换）—',
@@ -1152,7 +1158,7 @@ const guideData = {
                     '炮台形态破盾用大单发武器，低伤连射会被护盾吃光',
                     '别在护盾激活时贴脸逼他切换，会被反震',
                 ]},
-                { name: '元素三主神 + 虚空', color: '#c87cff', lines: [
+                { name: '元素三主神 + 虚空', demoId: 'boss:TRIUMVIRATE', color: '#c87cff', lines: [
                     '三本体各 HP 240 | 杀两个后第三个变身为虚空 HP 200',
                     '',
                     '— 火神 Pyron（中近距压制）—',
@@ -1228,58 +1234,58 @@ const guideData = {
         {
             id: 'hand_weapons', name: 'Hand Weapons', color: '#4169E1',
             items: [
-                { name: 'Auto Rifle', color: '#4169E1', lines: [
+                { name: 'Auto Rifle', demoId: 'weapons:gun', color: '#4169E1', lines: [
                     'Damage 8/shot | Fire Rate 5/sec',
                     'Magazine 30 | Reload 2s',
                     'Predictive Aim: leads target based on velocity',
                 ]},
-                { name: 'Beam Saber', color: '#ff6b6b', lines: [
+                { name: 'Beam Saber', demoId: 'weapons:sword', color: '#ff6b6b', lines: [
                     'Damage 50 | 120° arc range',
                     'Cooldown 4.8s',
                     'Dash Push: auto-dash to distant targets',
                 ]},
-                { name: 'Laser Spear', color: '#00FFFF', lines: [
+                { name: 'Laser Spear', demoId: 'weapons:laser_spear', color: '#00FFFF', lines: [
                     'Damage 25 | Charge distance 400px',
                     'Charge speed 40 | Cooldown 5s',
                     'Can impale enemies and carry them along',
                 ]},
-                { name: 'Laser Rifle', color: '#FF4444', lines: [
+                { name: 'Laser Rifle', demoId: 'weapons:laser_rifle', color: '#FF4444', lines: [
                     'Damage 18 | 1s charge before firing',
                     'Fire interval 0.7s | Infinite range',
                     'Overheat system: +50 heat/shot, ≥200 overheat',
                     'Forced 7s cooldown when overheated',
                 ]},
-                { name: 'Laser SMG', color: '#FF8866', lines: [
+                { name: 'Laser SMG', demoId: 'weapons:laser_smg', color: '#FF8866', lines: [
                     'Damage 6/shot | Snap charge (0.12s) | Fire interval 0.18s',
                     'Low heat per shot (+14): ~14 taps before overheat',
                     'Forced 7s cooldown when overheated',
                     'Rapid laser variant — chases mobile targets',
                 ]},
-                { name: 'Cluster Missile', color: '#FFD700', lines: [
+                { name: 'Cluster Missile', demoId: 'weapons:cluster_missile', color: '#FFD700', lines: [
                     'Fires 1 mother missile, continuous tracking (8s self-destruct)',
                     'Splits into 8 sub-missiles when near the LOCKED target',
                     'Sub-missile DMG 4 | High tracking | 4s CD',
                     'Fan spread after split, then guided',
                 ]},
-                { name: 'Shotgun', color: '#ff9040', lines: [
+                { name: 'Shotgun', demoId: 'weapons:shotgun', color: '#ff9040', lines: [
                     'DMG 8 × 12 pellets | 22° cone spread',
                     'Damage falls off with distance | 20% at max range',
                     'Range 700px | Fire interval 0.7s',
                     'Magazine 6 | Reload 1.6s',
                     'Devastating at point blank',
                 ]},
-                { name: 'Rocket Launcher', color: '#ff7030', lines: [
+                { name: 'Rocket Launcher', demoId: 'weapons:rocket', color: '#ff7030', lines: [
                     'DMG 30 | Blast radius 180px | Strong center, 5% edge',
                     'Quadratic falloff | Range 900px',
                     'Fire interval 1.1s | Single-shot tube | Reload 2.6s',
                     'Heavy AoE, devastating on direct hits',
                 ]},
-                { name: 'Minigun', color: '#d4a040', lines: [
+                { name: 'Minigun', demoId: 'weapons:minigun', color: '#d4a040', lines: [
                     '200-round belt | ~2× rifle DMG up close',
                     'Falloff to 30% at max range | Reload 45s',
                     'Brief spin-up before fire | Massive sustained DPS',
                 ]},
-                { name: 'Flamethrower', color: '#FF6020', lines: [
+                { name: 'Flamethrower', demoId: 'weapons:flamethrower', color: '#FF6020', lines: [
                     'Hold to spew a 30° flame cone | Range 240',
                     'Tick DMG 4 every 110ms (~36 DPS)',
                     'Damage falloff: muzzle 100% → tip 50%',
@@ -1290,63 +1296,63 @@ const guideData = {
         {
             id: 'shoulder_weapons', name: 'Shoulder Weapons', color: '#FF8800',
             items: [
-                { name: 'Missile Launcher ×15', color: '#FFD700', lines: [
+                { name: 'Missile Launcher ×15', demoId: 'shoulder:missile', color: '#FFD700', lines: [
                     '15 missiles per salvo | 5 DMG each',
                     '1.1s strong homing | 80px blast radius',
                     'Cooldown 4s',
                 ]},
-                { name: 'High-Track Missile', color: '#FF8030', lines: [
+                { name: 'High-Track Missile', demoId: 'shoulder:high_track', color: '#FF8030', lines: [
                     'Single-shot salvo | 80px blast radius',
                     'Damage 25 (~5× standard missile)',
                     '800px guidance radius, strong-tracking 2.8s',
                     'Missile speed 30% faster than standard',
                     'Cooldown 4s',
                 ]},
-                { name: 'Cluster Bomblet Missile', color: '#FFA040', lines: [
+                { name: 'Cluster Bomblet Missile', demoId: 'shoulder:cluster_bomb', color: '#FFA040', lines: [
                     'Body damage 1, begins dispersing 1s after launch',
                     'Drops 10 bomblets over 4s, alternating L30°/R45°',
                     'Bomblet damage 8 (high homing)',
                     'Body is invulnerable while dispersing',
                     'Cooldown 4s',
                 ]},
-                { name: 'Mine-Layer Missile', color: '#FF6040', lines: [
+                { name: 'Mine-Layer Missile', demoId: 'shoulder:mine_layer', color: '#FF6040', lines: [
                     'Body damage 1, drops a HE mine every 0.7s in flight',
                     'Mine damage 30 (enemies only — never harms player)',
                     'Distinct hex appearance, always visible to player',
                     'Body is invulnerable until at least one mine deploys',
                     'Cooldown 4s',
                 ]},
-                { name: 'Det-Cord Missile', color: '#FFB060', lines: [
+                { name: 'Det-Cord Missile', demoId: 'shoulder:det_cord', color: '#FFB060', lines: [
                     'Warhead damage 12; ignites a det-cord on detonation',
                     'Cord chain-explodes (AoE) along the entire flight path',
                     'Per-node damage 17 (2/3 of original warhead)',
                     'Chain detonation 4× faster than baseline',
                     'Cooldown 12s (slow reload)',
                 ]},
-                { name: 'Laser Turret', color: '#88E0FF', lines: [
+                { name: 'Laser Turret', demoId: 'shoulder:laser_turret', color: '#88E0FF', lines: [
                     'Plants a stationary laser turret at the player\'s position',
                     'Lifetime 12s, auto-targets nearest enemy in 600 range',
                     'Fires a 0.4s laser pulse every 1s, 8 damage per pulse',
                     '2-shot magazine, full reload 8s',
                     'Turret cannot be targeted/devoured; blinks before expiring',
                 ]},
-                { name: 'CIWS', color: '#00FF88', lines: [
+                { name: 'CIWS', demoId: 'shoulder:ciws', color: '#00FF88', lines: [
                     'Full-auto 30 rounds/sec | 30 round mag',
                     'Priority: Missiles > Crescents > Reversed > Mines > Enemies',
                     'One-shot kill on guided weapons',
                     '40% chance to hit enemy body',
                 ]},
-                { name: 'Plasma Missile ×6', color: '#00FFCC', lines: [
+                { name: 'Plasma Missile ×6', demoId: 'shoulder:plasma', color: '#00FFCC', lines: [
                     '6 rapid-fire | Proximity fuse (55px trigger)',
                     'Creates plasma field: 1s duration, 3 DMG per 0.25s',
                     'Multiple fields stack | Cooldown 5s',
                 ]},
-                { name: 'Super Missile', color: '#FF0000', lines: [
+                { name: 'Super Missile', demoId: 'shoulder:super', color: '#FF0000', lines: [
                     'Damage 100 | Occupies both shoulder slots',
                     '400px blast radius | 4.1s super homing',
                     'Single use per battle',
                 ]},
-                { name: 'Moonlight Greatsword', color: '#88CCFF', lines: [
+                { name: 'Moonlight Greatsword', demoId: 'shoulder:moonlight', color: '#88CCFF', lines: [
                     'Damage 200 | Occupies R-Hand + Both Shoulders + Ability (4 slots)',
                     'Blade length 7× Beam Saber (1050px)',
                     '±90° sweep (180° total) | 1s sweep time',
@@ -1358,42 +1364,42 @@ const guideData = {
         {
             id: 'hidden', name: 'Hidden Abilities', color: '#00FFFF',
             items: [
-                { name: 'Pulse Shield', color: '#00FFFF', lines: [
-                    '70% damage reduction | 18s duration',
-                    'Cooldown 40s',
+                { name: 'Pulse Parry', demoId: 'hidden:pulse_shield', color: '#00FFFF', lines: [
+                    '0.2s parry window | Reflects every damage type',
+                    'Cooldown 1s',
                 ]},
-                { name: 'EMP', color: '#66CCFF', lines: [
+                { name: 'EMP', demoId: 'hidden:emp', color: '#66CCFF', lines: [
                     'Range 490px | Max damage 100',
                     'Damage falls off with distance | 2s stagger',
                     'Cooldown 18s',
                 ]},
-                { name: 'Counter Strike', color: '#FF8C00', lines: [
+                { name: 'Counter Strike', demoId: 'hidden:counter', color: '#FF8C00', lines: [
                     '3s duration | 40% damage reduction',
                     'Reflects 250% of damage taken to nearest enemy',
                     'Cooldown 15s',
                 ]},
-                { name: 'Decoy Clone', color: '#4488FF', lines: [
+                { name: 'Decoy Clone', demoId: 'hidden:decoy', color: '#4488FF', lines: [
                     'Deploys 3 holographic decoys (triangle formation)',
                     'Decoy 40HP | Max 7s lifetime',
                     'Player becomes untargetable for 4s',
                     'Enemy AI/missiles/bullets redirect to decoys',
                     'Cooldown 35s',
                 ]},
-                { name: 'Overdrive Burst', color: '#FF2030', lines: [
+                { name: 'Overdrive Burst', demoId: 'hidden:overdrive', color: '#FF2030', lines: [
                     'On activation: lose 30% of current HP',
                     'For 6s: outgoing damage x3 | move speed x3',
                     'Mech turns crimson | leaves afterimage trail',
                     'Drawback: incoming damage amplified to x2',
                     'Cooldown 30s',
                 ]},
-                { name: 'Repair Protocol', color: '#60FF90', lines: [
+                { name: 'Repair Protocol', demoId: 'hidden:repair', color: '#60FF90', lines: [
                     'Resets banked overflow shield on activation',
                     'For 5s: move speed x1.5 | regen 5 HP/s',
                     'Cannot fire weapons or dodge while active',
                     'Surplus regen converts to overflow shield, up to +50',
                     'Cooldown 35s',
                 ]},
-                { name: 'God Mode (Debug)', color: '#FFD700', lines: [
+                { name: 'God Mode (Debug)', demoId: 'hidden:godmode', color: '#FFD700', lines: [
                     '[Debug ability — no VFX]',
                     'Insta-kills every unit on the field',
                     'No cooldown, can be spammed at will',
@@ -1403,7 +1409,7 @@ const guideData = {
         {
             id: 'bosses', name: 'Boss Guide', color: '#FF4444',
             items: [
-                { name: 'Crimson King', color: '#8B0000', lines: [
+                { name: 'Crimson King', demoId: 'boss:CRIMSON_KING', color: '#8B0000', lines: [
                     'HP 300 | Missile Barrage Type',
                     '',
                     '— Attacks —',
@@ -1421,7 +1427,7 @@ const guideData = {
                     'CIWS to intercept missiles, combine with melee',
                     'Avoid burst damage to prevent high DR',
                 ]},
-                { name: 'Sublime Moon', color: '#4682B4', lines: [
+                { name: 'Sublime Moon', demoId: 'boss:SUBLIME_MOON', color: '#4682B4', lines: [
                     'HP 200 | High-Mobility Assassin Type',
                     '',
                     '— Attacks —',
@@ -1440,7 +1446,7 @@ const guideData = {
                     'Avoid relying on Laser Rifle / homing missiles',
                     'Stay mid-close range, burst with Shotgun / Rocket Launcher',
                 ]},
-                { name: 'Star Devourer', color: '#333333', lines: [
+                { name: 'Star Devourer', demoId: 'boss:STAR_DEVOURER', color: '#333333', lines: [
                     'HP 300 | Tactical Suppression Type',
                     '',
                     '— Attacks —',
@@ -1457,7 +1463,7 @@ const guideData = {
                     'Destroy floating guns first; CIWS intercepts reversed missiles',
                     'Keep moving while jammed; Phase 2 requires close combat',
                 ]},
-                { name: 'Ugly Emperor', color: '#8B4513', lines: [
+                { name: 'Ugly Emperor', demoId: 'boss:UGLY_EMPEROR', color: '#8B4513', lines: [
                     'HP 250 | Area Control Type',
                     '',
                     '— Attacks —',
@@ -1476,7 +1482,7 @@ const guideData = {
                     'Phase 2: full missile assault (double damage)',
                     'Two phases require completely different weapon strategies',
                 ]},
-                { name: 'Magnus, Mech Executive', color: '#C68C2A', lines: [
+                { name: 'Magnus, Mech Executive', demoId: 'boss:MAGNUS_EXEC', color: '#C68C2A', lines: [
                     'HP 600 | Heavy Suppression Type',
                     '',
                     '— Attacks —',
@@ -1498,7 +1504,7 @@ const guideData = {
                     'Take down shoulder turrets first, then push the body',
                     'Use CIWS to pop the rockets fired by detached pods',
                 ]},
-                { name: 'Hive Mind', color: '#9C27B0', lines: [
+                { name: 'Hive Mind', demoId: 'boss:HIVE_MIND', color: '#9C27B0', lines: [
                     'HP 320 (Queen) | Multi-body Coordination Type',
                     '',
                     '— Attacks —',
@@ -1521,7 +1527,7 @@ const guideData = {
                     'Burst the queen during her exposed window',
                     'In splinter phase, focus the splinter that pressures you the most',
                 ]},
-                { name: 'Yukikon, the Silent Edge', color: '#7fc8ff', lines: [
+                { name: 'Yukikon, the Silent Edge', demoId: 'boss:YUKIKON', color: '#7fc8ff', lines: [
                     'HP 150 | High-Mobility Melee Duelist',
                     '',
                     '— Attacks —',
@@ -1543,7 +1549,7 @@ const guideData = {
                     'Watch for her swing windows; that\'s when ranged fizzles',
                     'During shadow phase, wait for the real one to reveal before locking',
                 ]},
-                { name: 'Proteus, the Shapeshifter', color: '#a0ffc0', lines: [
+                { name: 'Proteus, the Shapeshifter', demoId: 'boss:PROTEUS', color: '#a0ffc0', lines: [
                     'HP 360 | Adaptive Shapeshifter',
                     '',
                     '— Three Forms (distance-based) —',
@@ -1567,7 +1573,7 @@ const guideData = {
                     'Crack the turret-form shield with high single-hit weapons',
                     'Don\'t poke into melee while his shield is up — you\'ll eat the shockwave',
                 ]},
-                { name: 'Elemental Triumvirate + Voidborn', color: '#c87cff', lines: [
+                { name: 'Elemental Triumvirate + Voidborn', demoId: 'boss:TRIUMVIRATE', color: '#c87cff', lines: [
                     'Three bodies × HP 240 | Kill any 2 → the last becomes Voidborn (HP 200)',
                     '',
                     '— Pyron, the Fire God (close-mid pressure) —',
@@ -1642,58 +1648,58 @@ const guideData = {
             ]
         },
         { id: 'hand_weapons', name: '手部武器', color: '#4169E1', items: [
-            { name: 'オートライフル', color: '#4169E1', lines: [
+            { name: 'オートライフル', demoId: 'weapons:gun', color: '#4169E1', lines: [
                 'ダメージ 8/発 | 連射 5発/秒',
                 '弾倉 30発 | リロード 2秒',
                 '予測射撃：標的速度から着弾点を予測',
             ]},
-            { name: 'ビームサーベル', color: '#ff6b6b', lines: [
+            { name: 'ビームサーベル', demoId: 'weapons:sword', color: '#ff6b6b', lines: [
                 'ダメージ 50 | 120°扇形範囲',
                 'CD 4.8秒',
                 'ダッシュ突進：距離が遠い時は自動で接近',
             ]},
-            { name: 'レーザーランス', color: '#00FFFF', lines: [
+            { name: 'レーザーランス', demoId: 'weapons:laser_spear', color: '#00FFFF', lines: [
                 'ダメージ 25 | 突進距離 400px',
                 '突進速度 40 | CD 5秒',
                 '敵を貫きそのまま運ぶことが可能',
             ]},
-            { name: 'レーザーライフル', color: '#FF4444', lines: [
+            { name: 'レーザーライフル', demoId: 'weapons:laser_rifle', color: '#FF4444', lines: [
                 'ダメージ 18 | 1秒チャージ後発射',
                 '射撃間隔 0.7秒 | 射程無限',
                 'オーバーヒート：1発+50熱量、≥200で過熱',
                 '過熱後は7秒の強制冷却',
             ]},
-            { name: 'レーザーSMG', color: '#FF8866', lines: [
+            { name: 'レーザーSMG', demoId: 'weapons:laser_smg', color: '#FF8866', lines: [
                 'ダメージ 6/発 | チャージ極短(0.12秒) | 射撃間隔 0.18秒',
                 '単発熱量低(+14)、約14発で過熱',
                 '過熱後は7秒の強制冷却',
                 '速射型レーザー、機動目標の追撃に最適',
             ]},
-            { name: '分裂ミサイル', color: '#FFD700', lines: [
+            { name: '分裂ミサイル', demoId: 'weapons:cluster_missile', color: '#FFD700', lines: [
                 '母弾1発を発射、持続追尾（8秒で自爆）',
                 'ロック対象に近づいた時8発に分裂',
                 'サブ弾 ダメージ 4 | 高追尾性 | CD 4秒',
                 '分裂後は扇形展開→誘導',
             ]},
-            { name: 'ショットガン', color: '#ff9040', lines: [
+            { name: 'ショットガン', demoId: 'weapons:shotgun', color: '#ff9040', lines: [
                 'ダメージ 8/弾 × 12発 | 22°円錐拡散',
                 '距離で線形減衰 | 最大射程で20%',
                 '射程 700px | 射撃間隔 0.7秒',
                 '弾倉 6発 | リロード 1.6秒',
                 '密着射撃で大爆発',
             ]},
-            { name: 'ロケットランチャー', color: '#ff7030', lines: [
+            { name: 'ロケットランチャー', demoId: 'weapons:rocket', color: '#ff7030', lines: [
                 'ダメージ 30 | 爆発半径 180px | 中心強・周縁5%',
                 '距離の二乗で減衰 | 射程 900px',
                 '射撃間隔 1.1秒 | 単発装填 | リロード 2.6秒',
                 '直撃で甚大な威力',
             ]},
-            { name: 'ミニガン', color: '#d4a040', lines: [
+            { name: 'ミニガン', demoId: 'weapons:minigun', color: '#d4a040', lines: [
                 '200発リンク | 単発威力は近距離でライフルの約2倍',
                 '最大射程で30%まで減衰 | 装填 45秒',
                 'スピンアップ後に発射 | 持続火力は破格',
             ]},
-            { name: '火炎放射器', color: '#FF6020', lines: [
+            { name: '火炎放射器', demoId: 'weapons:flamethrower', color: '#FF6020', lines: [
                 '長押しで30°炎の円錐を持続噴射 | 射程 240',
                 'Tickダメージ 4、110ms毎ヒット（約36 DPS）',
                 '距離減衰：銃口100% → 円錐先端50%',
@@ -1701,63 +1707,63 @@ const guideData = {
             ]},
         ] },
         { id: 'shoulder_weapons', name: '肩部武器', color: '#FF8800', items: [
-            { name: '15連ミサイル発射機', color: '#FFD700', lines: [
+            { name: '15連ミサイル発射機', demoId: 'shoulder:missile', color: '#FFD700', lines: [
                 '1斉射 15発 | 1発5ダメージ',
                 '前1.1秒の強誘導 | 爆発半径 80px',
                 'CD 4秒',
             ]},
-            { name: '高誘導ミサイル', color: '#FF8030', lines: [
+            { name: '高誘導ミサイル', demoId: 'shoulder:high_track', color: '#FF8030', lines: [
                 '単発斉射 | 爆発半径 80px',
                 'ダメージ 25（通常ミサイル約5倍）',
                 '誘導半径 800px、強誘導持続 2.8秒',
                 '弾速は通常より30%高い',
                 'CD 4秒',
             ]},
-            { name: 'クラスターミサイル', color: '#FFA040', lines: [
+            { name: 'クラスターミサイル', demoId: 'shoulder:cluster_bomb', color: '#FFA040', lines: [
                 '本体ダメージ 1、発射1秒後にサブ弾散布開始',
                 '4秒間でL30°/R45°交互に計10発投下',
                 'サブ弾ダメージ 8（高誘導）',
                 '散布中は本体無敵、迎撃・吸収不可',
                 'CD 4秒',
             ]},
-            { name: '機雷敷設ミサイル', color: '#FF6040', lines: [
+            { name: '機雷敷設ミサイル', demoId: 'shoulder:mine_layer', color: '#FF6040', lines: [
                 '本体ダメージ 1、飛行中0.7秒毎に高威力機雷を敷設',
                 '機雷ダメージ 30（敵専用、自機にダメージなし）',
                 '醜皇の機雷とは異なる外観、自機からは常時可視',
                 '最初の機雷を敷設するまで本体は破壊不可',
                 'CD 4秒',
             ]},
-            { name: '導爆索ミサイル', color: '#FFB060', lines: [
+            { name: '導爆索ミサイル', demoId: 'shoulder:det_cord', color: '#FFB060', lines: [
                 '本体ダメージ 12、命中・自爆で導爆索を起爆',
                 '発射点から飛行軌跡に沿って連鎖AOE爆発',
                 '各節爆発ダメージ 17（母弾の2/3）',
                 '連鎖速度は初期版の4倍',
                 'CD 12秒（リロード長め）',
             ]},
-            { name: 'レーザータレット', color: '#88E0FF', lines: [
+            { name: 'レーザータレット', demoId: 'shoulder:laser_turret', color: '#88E0FF', lines: [
                 '機体位置にレーザータレットを設置',
                 '寿命 12秒、射程 600 内の最寄り敵を自動追尾',
                 '1秒毎に0.4秒の短パルス、1発8ダメージ',
                 '弾倉 2発、空になると一括リロード 8秒',
                 'タレットはロック・吸収不可、消滅前に点滅警告',
             ]},
-            { name: 'CIWS', color: '#00FF88', lines: [
+            { name: 'CIWS', demoId: 'shoulder:ciws', color: '#00FF88', lines: [
                 'フルオート 30発/秒 | 弾倉 30発',
                 '優先度：ミサイル > 月牙弾 > 反転弾 > 機雷 > 敵',
                 '誘導兵器は1発で破壊',
                 '敵本体には40%確率でダメージ',
             ]},
-            { name: '6連プラズマミサイル', color: '#00FFCC', lines: [
+            { name: '6連プラズマミサイル', demoId: 'shoulder:plasma', color: '#00FFCC', lines: [
                 '6連射 | 近接信管（55pxで起爆）',
                 'プラズマ場生成：1秒持続、0.25秒毎3ダメージ',
                 '複数のプラズマ場は重複可 | CD 5秒',
             ]},
-            { name: 'スーパーミサイル', color: '#FF0000', lines: [
+            { name: 'スーパーミサイル', demoId: 'shoulder:super', color: '#FF0000', lines: [
                 'ダメージ 100 | 両肩スロット占有',
                 '爆発半径 400px | 超強誘導 4.1秒',
                 '1戦に1回のみ',
             ]},
-            { name: '月光の大剣', color: '#88CCFF', lines: [
+            { name: '月光の大剣', demoId: 'shoulder:moonlight', color: '#88CCFF', lines: [
                 'ダメージ 200 | 右手+両肩+隠しの計4スロット占有',
                 '光刃長はビームサーベルの7倍（1050px）',
                 '機体方向±90°計180°範囲 | 1秒で薙ぎ払い',
@@ -1766,49 +1772,49 @@ const guideData = {
             ]},
         ] },
         { id: 'hidden', name: '隠しアビリティ', color: '#00FFFF', items: [
-            { name: 'パルスシールド', color: '#00FFFF', lines: [
-                '70%被ダメ軽減 | 18秒持続',
-                'CD 40秒',
+            { name: 'パルス弾き', demoId: 'hidden:pulse_shield', color: '#00FFFF', lines: [
+                '弾き窓 0.2秒 | 全ダメージ反射',
+                'CD 1秒',
             ]},
-            { name: 'EMP', color: '#66CCFF', lines: [
+            { name: 'EMP', demoId: 'hidden:emp', color: '#66CCFF', lines: [
                 '範囲 490px | 最大ダメージ 100',
                 '距離で減衰 | 2秒スタン付与',
                 'CD 18秒',
             ]},
-            { name: 'カウンター', color: '#FF8C00', lines: [
+            { name: 'カウンター', demoId: 'hidden:counter', color: '#FF8C00', lines: [
                 '3秒持続 | 被ダメ 40%軽減',
                 '受けたダメージの250%を最寄り敵に反射',
                 'CD 15秒',
             ]},
-            { name: 'デコイクローン', color: '#4488FF', lines: [
+            { name: 'デコイクローン', demoId: 'hidden:decoy', color: '#4488FF', lines: [
                 'ホログラフのデコイ3体を放出（正三角配置）',
                 'デコイ40HP | 最大7秒生存',
                 'プレイヤーは4秒間ロック不可状態',
                 '敵AI/ミサイル/弾はデコイを攻撃',
                 'CD 35秒',
             ]},
-            { name: 'オーバードライブ', color: '#FF2030', lines: [
+            { name: 'オーバードライブ', demoId: 'hidden:overdrive', color: '#FF2030', lines: [
                 '発動時に現在HPの30%を即時喪失',
                 '6秒間：ダメージ×3 | 移動速度×3',
                 '機体が赤く染まり、ダッシュで残像',
                 '代償：被ダメージは×2に増幅',
                 'CD 30秒',
             ]},
-            { name: 'リペアプロトコル', color: '#60FF90', lines: [
+            { name: 'リペアプロトコル', demoId: 'hidden:repair', color: '#60FF90', lines: [
                 '発動時に既存の余剰シールドをリセット',
                 '5秒間：移動速度×1.5 | 5HP/秒回復',
                 '武器使用と回避は不可',
                 'HP満タン後の余剰は最大+50シールドに変換',
                 'CD 35秒',
             ]},
-            { name: 'ゴッドモード（デバッグ）', color: '#FFD700', lines: [
+            { name: 'ゴッドモード（デバッグ）', demoId: 'hidden:godmode', color: '#FFD700', lines: [
                 '【デバッグ用、エフェクトなし】',
                 '発動で場の全ユニットを即死',
                 'CDなし、自由に使用可',
             ]},
         ] },
         { id: 'bosses', name: 'ボス図鑑', color: '#FF4444', items: [
-            { name: '深紅の王', color: '#8B0000', lines: [
+            { name: '深紅の王', demoId: 'boss:CRIMSON_KING', color: '#8B0000', lines: [
                 'HP 300 | ミサイル弾幕型',
                 '',
                 '— 攻撃手段 —',
@@ -1826,7 +1832,7 @@ const guideData = {
                 'CIWSでミサイル迎撃、近接で削る',
                 '短時間集中火力は累積軽減を発動させる',
             ]},
-            { name: '氷姫', color: '#4682B4', lines: [
+            { name: '氷姫', demoId: 'boss:SUBLIME_MOON', color: '#4682B4', lines: [
                 'HP 200 | 高機動アサシン型',
                 '',
                 '— 攻撃手段 —',
@@ -1845,7 +1851,7 @@ const guideData = {
                 'レーザーライフル/誘導武器に頼り過ぎない',
                 '中近距離維持、ショットガン/ロケットで爆発火力',
             ]},
-            { name: '星喰らい', color: '#333333', lines: [
+            { name: '星喰らい', demoId: 'boss:STAR_DEVOURER', color: '#333333', lines: [
                 'HP 300 | 戦術制圧型',
                 '',
                 '— 攻撃手段 —',
@@ -1862,7 +1868,7 @@ const guideData = {
                 'フローティングガン優先撃破、CIWSで反転弾迎撃',
                 'シグナル妨害中は感覚で動き続け、第2段階は近距離戦',
             ]},
-            { name: '醜皇', color: '#8B4513', lines: [
+            { name: '醜皇', demoId: 'boss:UGLY_EMPEROR', color: '#8B4513', lines: [
                 'HP 250 | エリアコントロール型',
                 '',
                 '— 攻撃手段 —',
@@ -1881,7 +1887,7 @@ const guideData = {
                 '第2段階は全力ミサイル攻撃（ダメージ2倍）',
                 '段階毎に全く異なる武装戦略が必要',
             ]},
-            { name: 'メカ執政官 マグナス', color: '#C68C2A', lines: [
+            { name: 'メカ執政官 マグナス', demoId: 'boss:MAGNUS_EXEC', color: '#C68C2A', lines: [
                 'HP 600 | 重装制圧型',
                 '',
                 '— 攻撃手段 —',
@@ -1903,7 +1909,7 @@ const guideData = {
                 '肩砲塔を先に破壊し、本体を制圧',
                 'CIWSで分離砲台のロケットを迎撃',
             ]},
-            { name: 'ハイブマインド', color: '#9C27B0', lines: [
+            { name: 'ハイブマインド', demoId: 'boss:HIVE_MIND', color: '#9C27B0', lines: [
                 'HP 320 (本体) | 多体協調型',
                 '',
                 '— 攻撃手段 —',
@@ -1926,7 +1932,7 @@ const guideData = {
                 '女王の露出窓を狙い集中爆発',
                 '残識フェーズは脅威の高い1体に集中',
             ]},
-            { name: '剣舞 雪魂 (Yukikon)', color: '#7fc8ff', lines: [
+            { name: '剣舞 雪魂 (Yukikon)', demoId: 'boss:YUKIKON', color: '#7fc8ff', lines: [
                 'HP 150 | 高速近接決闘者',
                 '',
                 '— 攻撃手段 —',
@@ -1947,7 +1953,7 @@ const guideData = {
                 '振りの瞬間に注意、その数フレームは遠距離ほぼ無効',
                 '影分身フェーズは焦らず本物が出るまで待機',
             ]},
-            { name: '可変メカ プロテウス (Proteus)', color: '#a0ffc0', lines: [
+            { name: '可変メカ プロテウス (Proteus)', demoId: 'boss:PROTEUS', color: '#a0ffc0', lines: [
                 'HP 360 | 形態切替型',
                 '',
                 '— 三形態（距離で切替）—',
@@ -1971,7 +1977,7 @@ const guideData = {
                 '砲台形態のシールド破壊は大単発武器、低ダメ連射は吸収される',
                 'シールド有効時に密着で形態切替を強制しない（衝撃波で反撃される）',
             ]},
-            { name: '元素三主神 + ヴォイド', color: '#c87cff', lines: [
+            { name: '元素三主神 + ヴォイド', demoId: 'boss:TRIUMVIRATE', color: '#c87cff', lines: [
                 '本体3体 各HP 240 | 2体撃破で残り1体がヴォイド化(HP 200)',
                 '',
                 '— 火神 Pyron（中近距離制圧）—',

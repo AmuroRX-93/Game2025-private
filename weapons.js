@@ -2278,24 +2278,31 @@ class MissileLauncher extends Weapon {
     }
 }
 
-// 脉冲护盾类（隐藏机能）
+// Pulse Parry (formerly Pulse Shield) — short reflect window hidden ability
+// Pulse Shield -> reworked as a "parry" ability: tap Shift to open a brief
+// 200ms window where the player is fully immune AND every point of damage
+// the shield eats is reflected 1:1 to the nearest hostile. After the window
+// closes the shield enters a 1s cooldown. Designed as a precision tool, not
+// a long-duration damage sponge.
 class PulseShield extends Weapon {
     constructor() {
         super({
             type: 'pulse_shield',
-            name: '脉冲护盾',
-            damage: 0, // 护盾不造成伤害
-            cooldown: 40000 // 40秒冷却
+            name: '脉冲振刀',
+            damage: 0,
+            cooldown: 1000
         });
         
         this.isActive = false;
         this.activationTime = 0;
-        this.duration = 14400; // 14.4 seconds (80% of original 18s)
-        this.damageReduction = 1; // Fully immune while shield is up
+        this.duration = 200;          // ms parry window
+        this.damageReduction = 1;     // full immunity while window is open
+        this.reflectRatio = 1;        // 100% of incoming damage is bounced back
         this.shieldEffect = {
             pulsePhase: 0,
-            particles: []
+            flashes: []               // brief reflect flashes anchored to player
         };
+        this.lastReflectTime = 0;
     }
     
     canUse() {
@@ -2308,10 +2315,8 @@ class PulseShield extends Weapon {
         this.lastUseTime = Date.now();
         this.isActive = true;
         this.activationTime = Date.now();
-        
-        // 初始化护盾特效
         this.shieldEffect.pulsePhase = 0;
-        this.shieldEffect.particles = [];
+        this.shieldEffect.flashes = [];
         
         return true;
     }
@@ -2319,115 +2324,160 @@ class PulseShield extends Weapon {
     update(player) {
         if (this.isActive) {
             const elapsed = Date.now() - this.activationTime;
-            
-            // 检查护盾是否过期
             if (elapsed >= this.duration) {
                 this.isActive = false;
-                this.shieldEffect.particles = [];
+                // Cooldown is measured from lastUseTime which was stamped on
+                // activation; keep it that way so the felt rhythm is
+                // 200ms parry + 800ms recovery = 1s loop.
                 return;
             }
-            
-            // 更新护盾特效
-            this.shieldEffect.pulsePhase += 0.05;
-            
-            // 添加护盾粒子效果
-            if (Math.random() < 0.3) {
-                const angle = Math.random() * Math.PI * 2;
-                const radius = 40 + Math.sin(this.shieldEffect.pulsePhase) * 5;
-                this.shieldEffect.particles.push({
-                    x: Math.cos(angle) * radius,
-                    y: Math.sin(angle) * radius,
-                    life: 1.0,
-                    angle: angle
-                });
-            }
-            
-            // 更新粒子
-            this.shieldEffect.particles = this.shieldEffect.particles.filter(particle => {
-                particle.life -= 0.02;
-                return particle.life > 0;
-            });
+            this.shieldEffect.pulsePhase += 0.35;
         }
+
+        // Decay any reflect-spark flashes regardless of active state
+        this.shieldEffect.flashes = this.shieldEffect.flashes.filter(f => {
+            f.life -= 0.06;
+            return f.life > 0;
+        });
     }
     
     draw(ctx, player) {
-        if (!this.isActive) return;
-        
         const cx = player.x + player.width / 2;
         const cy = player.y + player.height / 2;
-        const baseR = 40;
-        const pulse = Math.sin(this.shieldEffect.pulsePhase) * 5;
-        const r = baseR + pulse;
+
+        // Active parry ring: small, sharp, fast
+        if (this.isActive) {
+            const elapsed = Date.now() - this.activationTime;
+            const k = Math.min(1, elapsed / this.duration);
+            const baseR = 36;
+            // Quick expand-then-hold: snap out in first 25% of window
+            const expand = k < 0.25 ? (k / 0.25) : 1;
+            const r = baseR * (0.6 + 0.4 * expand);
+            const fadeOut = 1 - Math.pow(k, 3); // hold opacity, drop near end
         
         ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
+            ctx.globalCompositeOperation = 'lighter';
 
-        // 1) Soft inner volume fill (cyan plasma dome)
-        const dome = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r);
-        dome.addColorStop(0, 'rgba(160,240,255,0.0)');
-        dome.addColorStop(0.6, 'rgba(80,200,255,0.18)');
-        dome.addColorStop(0.92, 'rgba(40,180,255,0.45)');
-        dome.addColorStop(1, 'rgba(0,150,255,0)');
-        ctx.fillStyle = dome;
-        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
-
-        // 2) Multi-layer ring + rotating segment highlights
-        if (typeof drawEnergyRing === 'function') {
-            drawEnergyRing(ctx, {
-                x: cx, y: cy,
-                radius: r, thickness: 4,
-                scheme: 'cyan', alpha: 0.95,
-                segments: 6,
-                spin: this.shieldEffect.pulsePhase * 0.4
-            });
-            // Inner thinner ring spinning the other way
-            drawEnergyRing(ctx, {
-                x: cx, y: cy,
-                radius: r * 0.7, thickness: 2,
-                scheme: 'cyan', alpha: 0.6,
-                segments: 3,
-                spin: -this.shieldEffect.pulsePhase * 0.6
-            });
+            // Crisp ring
+        ctx.lineWidth = 3;
+            ctx.strokeStyle = `rgba(180, 240, 255, ${0.95 * fadeOut})`;
+            ctx.shadowColor = 'rgba(120, 220, 255, 0.95)';
+            ctx.shadowBlur = 16;
+        ctx.beginPath();
+            ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.stroke();
+        
+            // Inner thin echo
+            ctx.lineWidth = 1.5;
+            ctx.strokeStyle = `rgba(255, 255, 255, ${0.7 * fadeOut})`;
+            ctx.shadowBlur = 8;
+        ctx.beginPath();
+            ctx.arc(cx, cy, r * 0.78, 0, Math.PI * 2);
+        ctx.stroke();
+        
+            ctx.restore();
         }
 
-        // 3) Floating shield particles (now glowing dots)
-        this.shieldEffect.particles.forEach(p => {
-            const x = cx + p.x;
-            const y = cy + p.y;
-            const alpha = p.life * 0.9;
-            const grad = ctx.createRadialGradient(x, y, 0, x, y, 4);
-            grad.addColorStop(0, '#ffffff');
-            grad.addColorStop(0.5, `rgba(160,230,255,${alpha})`);
-            grad.addColorStop(1, 'rgba(40,140,255,0)');
-            ctx.fillStyle = grad;
-            ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill();
-        });
-        
+        // Reflect sparks (drawn even slightly after the window closes so the
+        // VFX of the last bounced hit can finish playing).
+        if (this.shieldEffect.flashes.length > 0) {
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            for (const f of this.shieldEffect.flashes) {
+                const alpha = Math.max(0, f.life);
+                const r = 8 + (1 - f.life) * 24;
+                const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+                grad.addColorStop(0, `rgba(255,255,255,${0.9 * alpha})`);
+                grad.addColorStop(0.5, `rgba(160,230,255,${0.6 * alpha})`);
+                grad.addColorStop(1, 'rgba(40,140,255,0)');
+                ctx.fillStyle = grad;
+                ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+            }
         ctx.restore();
+        }
     }
     
-    // 检查护盾是否激活
     isDamageReduced() {
         return this.isActive;
     }
     
-    // 获取伤害减免比例
     getDamageReduction() {
         return this.isActive ? this.damageReduction : 0;
+    }
+
+    // Hook called from Player.takeDamage. Bounces the absorbed damage back
+    // to the nearest hostile target (boss / sub-bosses / regular enemies).
+    reflectDamage(absorbedDamage) {
+        if (!this.isActive) return;
+        const reflected = Math.max(1, Math.round(absorbedDamage * this.reflectRatio));
+
+        const targets = [];
+        if (typeof game !== 'undefined') {
+            if (game.boss && game.boss.health > 0 && !game.boss.notTargetable) targets.push(game.boss);
+            if (game.subBosses) {
+                for (const sb of game.subBosses) {
+                    if (sb && sb.health > 0 && !sb.notTargetable) targets.push(sb);
+                }
+            }
+            if (game.enemies) {
+                for (const e of game.enemies) {
+                    if (e && e.health > 0) targets.push(e);
+                }
+            }
+        }
+        if (targets.length === 0) return;
+
+        const px = game.player.x + game.player.width / 2;
+        const py = game.player.y + game.player.height / 2;
+        let nearest = null;
+        let nearestDist = Infinity;
+        for (const tgt of targets) {
+            const dx = tgt.x + tgt.width / 2 - px;
+            const dy = tgt.y + tgt.height / 2 - py;
+            const d = dx * dx + dy * dy;
+            if (d < nearestDist) { nearestDist = d; nearest = tgt; }
+        }
+        if (!nearest) return;
+
+        if (typeof nearest.takeDamage === 'function') {
+            nearest.takeDamage(reflected);
+        }
+
+        // VFX: pop a brief flash on the player and a tiny burst on the target
+        this.lastReflectTime = Date.now();
+        this.shieldEffect.flashes.push({ life: 1.0 });
+        if (typeof bossFX !== 'undefined' && bossFX.particles) {
+            const tx = nearest.x + nearest.width / 2;
+            const ty = nearest.y + nearest.height / 2;
+            const burstCount = 10;
+            for (let i = 0; i < burstCount; i++) {
+                const ang = (i / burstCount) * Math.PI * 2 + Math.random() * 0.4;
+                const sp = 2 + Math.random() * 3;
+                bossFX.particles.push({
+                    x: tx, y: ty,
+                    vx: Math.cos(ang) * sp,
+                    vy: Math.sin(ang) * sp,
+                    size: 2 + Math.random() * 2,
+                    color: ['#ffffff', '#bff0ff', '#7ad8ff'][Math.floor(Math.random() * 3)],
+                    lifeMs: 260 + Math.random() * 220,
+                    gravity: 0,
+                    drag: 0.9,
+                    alpha: 1,
+                    startedAt: Date.now()
+                });
+            }
+        }
     }
     
     getStatus() {
         if (this.isActive) {
-            const remaining = this.duration - (Date.now() - this.activationTime);
-            return { text: t('ws.shielding', (remaining / 1000).toFixed(1)), color: '#00FFFF' };
+            return { text: t('ws.parryActive'), color: '#00FFFF' };
         }
-        
         const cooldownRemaining = this.getCooldownRemaining();
         if (cooldownRemaining > 0) {
-            return { text: t('ws.cooldown', (cooldownRemaining / 1000).toFixed(1)), color: '#CC6666' };
+            return { text: t('ws.cooldownS', (cooldownRemaining / 1000).toFixed(1)), color: '#CC6666' };
         }
-        
-        return { text: t('ws.ready'), color: '#00FFFF' };
+        return { text: t('ws.parryReady'), color: '#00FFFF' };
     }
 }
 

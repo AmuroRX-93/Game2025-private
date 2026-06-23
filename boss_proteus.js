@@ -362,29 +362,7 @@ class Proteus extends GameObject {
         this.hitIndicators = this.hitIndicators.filter(i => now - i.startTime < this.hitIndicatorDuration);
     }
 
-    drawHitIndicators(ctx) {
-        const now = Date.now();
-        this.hitIndicators = this.hitIndicators.filter(i => now - i.startTime < this.hitIndicatorDuration);
-        this.hitIndicators.forEach(ind => {
-            const elapsed = now - ind.startTime;
-            const progress = elapsed / this.hitIndicatorDuration;
-            const alpha = 1 - progress;
-            const offsetY = progress * 28;
-            ctx.save();
-            ctx.globalAlpha = alpha;
-            const isShield = !!ind.isShield;
-            ctx.fillStyle = isShield ? '#7fdfff' : (this.reconfiguring ? '#ffd0a0' : '#a8e0c0');
-            ctx.strokeStyle = '#0a2018';
-            ctx.lineWidth = 3;
-            ctx.font = 'bold 20px Arial';
-            ctx.textAlign = 'center';
-            const dy = ind.y - offsetY;
-            const text = isShield ? `\u25a0 ${ind.damage}` : `HIT ${ind.damage}`;
-            ctx.strokeText(text, ind.x, dy);
-            ctx.fillText(text, ind.x, dy);
-            ctx.restore();
-        });
-    }
+    drawHitIndicators(_ctx) { /* retired: trailing ghost on HP bar replaces this */ }
 
     getImpaled(weapon) {
         this.isImpaled = true; this.impaledBy = weapon;

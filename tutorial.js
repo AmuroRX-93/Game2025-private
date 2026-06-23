@@ -192,7 +192,7 @@ function buildTutorialSteps() {
             kind: 'playing',
             hintKey: 'tut.step.leftHand',
             onEnter(game) {
-                _equip(game, { leftHand: 'laser_rifle', rightHand: null,
+                _equip(game, { leftHand: 'gun', rightHand: null,
                     leftShoulder: null, rightShoulder: null,
                     hiddenAbility: null });
                 _spawnDummy(game, W * 0.30, H * 0.30, { hp: 30 });
@@ -375,7 +375,7 @@ function buildTutorialSteps() {
             onEnter(game) {
                 // Full combat loadout for the final test.
                 _equip(game, {
-                    leftHand: 'laser_rifle',
+                    leftHand: 'gun',
                     rightHand: 'sword',
                     leftShoulder: 'missile_launcher',
                     rightShoulder: null,
@@ -408,8 +408,32 @@ function buildTutorialSteps() {
                 gameState.bossSpawned = false;
                 gameState.invincibleMode = true;
                 if (game.player) {
-                    game.player.isInvincible = true;
-                    game.player.tutorialMinHpFloor = false;
+                    const p = game.player;
+                    p.isInvincible = true;
+                    p.tutorialMinHpFloor = false;
+                    // Defensive reset so the outro panel does not show
+                    // a player drifting/dashing/dodging from leftover state.
+                    p.vx = 0; p.vy = 0;
+                    p.isDodging = false;
+                    p.dodgeStartTime = 0;
+                    p.burning = false;
+                    p.slowMultiplier = 1;
+                    p.slowEndTime = 0;
+                    if (p.getAllWeapons) {
+                        p.getAllWeapons().forEach(w => {
+                            if (!w) return;
+                            if (w.type === 'sword') { w.isAttacking = false; w.isDashing = false; w.dashTarget = null; w.slashes = []; }
+                            if (w.type === 'laser_spear') { w.isCharging = false; w.impaledEnemies && w.impaledEnemies.clear && w.impaledEnemies.clear(); }
+                            if (w.type === 'moonlight_greatsword') { w.isAttacking = false; }
+                        });
+                    }
+                }
+                gameState.manualLockX = null;
+                gameState.manualLockY = null;
+                if (typeof keys !== 'undefined') { for (const k in keys) keys[k] = false; }
+                if (typeof mouse !== 'undefined') { mouse.leftClick = false; mouse.rightClick = false; }
+                if (typeof bossFX !== 'undefined') {
+                    bossFX.shake = { x: 0, y: 0, until: 0, magnitude: 0, totalMs: 0 };
                 }
                 _clearTutorialProjectiles(game);
             }
@@ -1377,6 +1401,16 @@ function tutorialExitToMenu(game) {
     gameState.selectedGameMode = null;
     gameState.bossSpawned = false;
     gameState.showModeSelection = true;
+    gameState.manualLockX = null;
+    gameState.manualLockY = null;
+    if (typeof keys !== 'undefined') { for (const k in keys) keys[k] = false; }
+    if (typeof mouse !== 'undefined') { mouse.leftClick = false; mouse.rightClick = false; }
+    if (typeof bossFX !== 'undefined') {
+        bossFX.particles = [];
+        bossFX.flashes = [];
+        bossFX.shockwaves = [];
+        bossFX.shake = { x: 0, y: 0, until: 0, magnitude: 0, totalMs: 0 };
+    }
     if (typeof game.clearAllGameObjects === 'function') {
         game.clearAllGameObjects();
     } else {

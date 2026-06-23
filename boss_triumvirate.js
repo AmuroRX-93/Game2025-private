@@ -908,25 +908,7 @@ class Pyron extends GameObject {
         this._drawHitIndicators(ctx);
     }
 
-    _drawHitIndicators(ctx) {
-        const now = Date.now();
-        for (let i = this.hitIndicators.length - 1; i >= 0; i--) {
-            const h = this.hitIndicators[i];
-            const age = now - h.startTime;
-            if (age > this.hitIndicatorDuration) {
-                this.hitIndicators.splice(i, 1);
-                continue;
-            }
-            const t = age / this.hitIndicatorDuration;
-            ctx.save();
-            ctx.globalAlpha = 1 - t;
-            ctx.fillStyle = '#ffd070';
-            ctx.font = 'bold 14px monospace';
-            ctx.textAlign = 'center';
-            ctx.fillText(`-${h.damage}`, h.x, h.y - t * 18);
-            ctx.restore();
-        }
-    }
+    _drawHitIndicators(_ctx) { /* retired */ }
 }
 
 // ---------------------------------------------------------------
@@ -1749,25 +1731,7 @@ class Volthar extends GameObject {
         this._drawHitIndicators(ctx);
     }
 
-    _drawHitIndicators(ctx) {
-        const now = Date.now();
-        for (let i = this.hitIndicators.length - 1; i >= 0; i--) {
-            const h = this.hitIndicators[i];
-            const age = now - h.startTime;
-            if (age > this.hitIndicatorDuration) {
-                this.hitIndicators.splice(i, 1);
-                continue;
-            }
-            const t = age / this.hitIndicatorDuration;
-            ctx.save();
-            ctx.globalAlpha = 1 - t;
-            ctx.fillStyle = '#d0b0ff';
-            ctx.font = 'bold 14px monospace';
-            ctx.textAlign = 'center';
-            ctx.fillText(`-${h.damage}`, h.x, h.y - t * 18);
-            ctx.restore();
-        }
-    }
+    _drawHitIndicators(_ctx) { /* retired */ }
 }
 
 // ---------------------------------------------------------------
@@ -2669,25 +2633,7 @@ class Glacius extends GameObject {
         this._drawHitIndicators(ctx);
     }
 
-    _drawHitIndicators(ctx) {
-        const now = Date.now();
-        for (let i = this.hitIndicators.length - 1; i >= 0; i--) {
-            const h = this.hitIndicators[i];
-            const age = now - h.startTime;
-            if (age > this.hitIndicatorDuration) {
-                this.hitIndicators.splice(i, 1);
-                continue;
-            }
-            const t = age / this.hitIndicatorDuration;
-            ctx.save();
-            ctx.globalAlpha = 1 - t;
-            ctx.fillStyle = '#c0eeff';
-            ctx.font = 'bold 14px monospace';
-            ctx.textAlign = 'center';
-            ctx.fillText(`-${h.damage}`, h.x, h.y - t * 18);
-            ctx.restore();
-        }
-    }
+    _drawHitIndicators(_ctx) { /* retired */ }
 }
 
 // ---------------------------------------------------------------
@@ -2893,16 +2839,19 @@ class Triumvirate extends GameObject {
         for (let i = 0; i < 3; i++) {
             const m = this.members[i];
             const x = startX + i * (barW + gap);
-            ctx.fillStyle = 'rgba(0,0,0,0.55)';
-            ctx.fillRect(x, baseY, barW, barH);
-            if (m && !m.shouldDestroy) {
-                const pct = Math.max(0, m.health / m.maxHealth);
-                ctx.fillStyle = colors[i];
-                ctx.fillRect(x, baseY, barW * pct, barH);
-            }
-            ctx.strokeStyle = colors[i];
-            ctx.lineWidth = 1;
-            ctx.strokeRect(x, baseY, barW, barH);
+            const alive = m && !m.shouldDestroy;
+            const hp = alive ? m.health : 0;
+            const maxHp = alive ? m.maxHealth : (m ? m.maxHealth : 1);
+            uiDrawSlidingHealthBar(ctx, x, baseY, barW, barH, hp, maxHp, {
+                id: 'triumvirate.member.' + i,
+                bg: 'rgba(0,0,0,0.55)',
+                color: colors[i],
+                trailColor: 'rgba(190, 190, 190, 0.9)',
+                border: colors[i],
+                borderWidth: 1,
+                drainPerSec: 0.16,
+                delayMs: 320,
+            });
             ctx.fillStyle = colors[i];
             ctx.font = '9px monospace';
             ctx.textAlign = 'center';
@@ -3427,23 +3376,10 @@ class Voidborn extends GameObject {
         ctx.restore();
         // Devour FX overlay.
         for (const f of this._devourFx) f.draw(ctx);
-        // Damage numbers.
-        const now = Date.now();
-        for (let i = this.hitIndicators.length - 1; i >= 0; i--) {
-            const h = this.hitIndicators[i];
-            const age = now - h.startTime;
-            if (age >= this.hitIndicatorDuration) {
-                this.hitIndicators.splice(i, 1);
-                continue;
-            }
-            const t = age / this.hitIndicatorDuration;
-            ctx.save();
-            ctx.globalAlpha = 1 - t;
-            ctx.fillStyle = '#e0b0ff';
-            ctx.font = 'bold 14px monospace';
-            ctx.textAlign = 'center';
-            ctx.fillText(`-${h.damage}`, h.x, h.y - t * 18);
-            ctx.restore();
+        // Damage numbers retired (trailing ghost on HP bar replaces this).
+        // Still expire stale entries so the array doesn't grow forever.
+        if (Array.isArray(this.hitIndicators) && this.hitIndicators.length > 0) {
+            this.hitIndicators.length = 0;
         }
     }
 }

@@ -250,30 +250,7 @@ class Magnus extends GameObject {
         this.hitIndicators = this.hitIndicators.filter(i => now - i.startTime < this.hitIndicatorDuration);
     }
 
-    drawHitIndicators(ctx) {
-        const now = Date.now();
-        this.hitIndicators = this.hitIndicators.filter(i => now - i.startTime < this.hitIndicatorDuration);
-        this.hitIndicators.forEach(ind => {
-            const elapsed = now - ind.startTime;
-            const progress = elapsed / this.hitIndicatorDuration;
-            const alpha = 1 - progress;
-            const offsetY = progress * 30;
-            ctx.save();
-            ctx.globalAlpha = alpha;
-            const isHeal = !!ind.isHeal;
-            const isShield = !!ind.isShield;
-            ctx.fillStyle = isHeal ? '#00ff66' : (isShield ? '#7fdfff' : '#ffaa30');
-            ctx.font = 'bold 22px Arial';
-            ctx.textAlign = 'center';
-            ctx.strokeStyle = '#FFFFFF';
-            ctx.lineWidth = 3;
-            const displayY = ind.y - offsetY;
-            const text = isHeal ? `+${ind.damage}` : (isShield ? `■ ${ind.damage}` : `HIT ${ind.damage}`);
-            ctx.strokeText(text, ind.x, displayY);
-            ctx.fillText(text, ind.x, displayY);
-            ctx.restore();
-        });
-    }
+    drawHitIndicators(_ctx) { /* retired: trailing ghost on HP bar replaces this */ }
 
     getImpaled(weapon) {
         this.isImpaled = true;

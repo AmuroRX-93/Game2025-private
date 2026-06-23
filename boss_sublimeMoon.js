@@ -2333,45 +2333,7 @@ class SublimeMoon extends GameObject {
         );
     }
     
-    // 绘制受击提示
-    drawHitIndicators(ctx) {
-        const now = Date.now();
-        
-        // 清理过期的受击提示
-        this.hitIndicators = this.hitIndicators.filter(indicator => 
-            now - indicator.startTime < this.hitIndicatorDuration
-        );
-        
-        // 绘制每个受击提示
-        this.hitIndicators.forEach(indicator => {
-            const elapsed = now - indicator.startTime;
-            const progress = elapsed / this.hitIndicatorDuration;
-            
-            // 计算透明度和上浮效果
-            const alpha = 1 - progress; // 透明度从1到0
-            const offsetY = progress * 30; // 上浮30像素
-            
-            ctx.save();
-            ctx.globalAlpha = alpha;
-            
-            // 绘制青色的受击文字（冰之姬主题）
-            ctx.fillStyle = '#00CCFF';
-            ctx.font = 'bold 24px Arial';
-            ctx.textAlign = 'center';
-            ctx.strokeStyle = '#FFFFFF';
-            ctx.lineWidth = 3;
-            
-            const displayY = indicator.y - offsetY;
-            const text = `HIT ${indicator.damage}`;
-            
-            // 绘制文字描边（白色）
-            ctx.strokeText(text, indicator.x, displayY);
-            // 绘制文字填充（青色）
-            ctx.fillText(text, indicator.x, displayY);
-            
-            ctx.restore();
-        });
-    }
+    drawHitIndicators(_ctx) { /* retired: trailing ghost on HP bar replaces this */ }
 
     draw(ctx) {
         // Telegraphs render under boss body (above world)

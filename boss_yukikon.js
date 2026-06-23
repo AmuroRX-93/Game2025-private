@@ -125,28 +125,7 @@ class Yukikon extends GameObject {
         this.hitIndicators = this.hitIndicators.filter(i => now - i.startTime < this.hitIndicatorDuration);
     }
 
-    drawHitIndicators(ctx) {
-        const now = Date.now();
-        this.hitIndicators = this.hitIndicators.filter(i => now - i.startTime < this.hitIndicatorDuration);
-        this.hitIndicators.forEach(ind => {
-            const elapsed = now - ind.startTime;
-            const progress = elapsed / this.hitIndicatorDuration;
-            const alpha = 1 - progress;
-            const offsetY = progress * 28;
-            ctx.save();
-            ctx.globalAlpha = alpha;
-            ctx.fillStyle = '#a0e0ff';
-            ctx.strokeStyle = '#0a2440';
-            ctx.lineWidth = 3;
-            ctx.font = 'bold 20px Arial';
-            ctx.textAlign = 'center';
-            const text = `HIT ${ind.damage}`;
-            const dy = ind.y - offsetY;
-            ctx.strokeText(text, ind.x, dy);
-            ctx.fillText(text, ind.x, dy);
-            ctx.restore();
-        });
-    }
+    drawHitIndicators(_ctx) { /* retired: trailing ghost on HP bar replaces this */ }
 
     getImpaled(weapon) {
         this.isImpaled = true;

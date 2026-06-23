@@ -29,12 +29,21 @@ const GAME_MODES = {
 
 // Boss战关卡配置
 const BOSS_LEVELS = {
+    MAGNUS_EXEC: {
+        id: 'MAGNUS_EXEC',
+        name: '机甲执政官 Magnus',
+        description: '重装机甲执政官，肩载双炮塔、远程压制与轨道炮击',
+        bossClass: 'Magnus',
+        difficulty: 1,
+        color: '#ffb030', // 金属橙黄
+        unlocked: true
+    },
     CRIMSON_KING: {
         id: 'CRIMSON_KING',
         name: '血红之王',
         description: '深红色的恐怖统治者，掌控着黑暗的力量',
         bossClass: 'Boss', // 使用的Boss类
-        difficulty: 1,
+        difficulty: 2,
         color: '#8B0000',
         unlocked: true // 第一关默认解锁
     },
@@ -43,7 +52,7 @@ const BOSS_LEVELS = {
         name: '冰之姬',
         description: '青蓝色的神秘支配者，散发着冰冷的月光之力',
         bossClass: 'SublimeMoon', // 使用的Boss类
-        difficulty: 2,
+        difficulty: 3,
         color: '#4682B4',
         unlocked: true // 第二关解锁
     },
@@ -52,7 +61,7 @@ const BOSS_LEVELS = {
         name: '噬星者',
         description: '黑白相间的虚无毁灭者，吞噬一切光明与黑暗',
         bossClass: 'StarDevourer', // 使用的Boss类
-        difficulty: 3,
+        difficulty: 4,
         color: '#000000', // 黑色主色调
         unlocked: true // 第三关解锁
     },
@@ -61,18 +70,9 @@ const BOSS_LEVELS = {
         name: '丑皇',
         description: '丑陋扭曲的混沌统治者，掌控着扭曲与混乱的力量',
         bossClass: 'UglyEmperor', // 使用的Boss类
-        difficulty: 4,
+        difficulty: 5,
         color: '#8B4513', // 棕色主色调
         unlocked: true // 第四关解锁
-    },
-    MAGNUS_EXEC: {
-        id: 'MAGNUS_EXEC',
-        name: '机甲执政官 Magnus',
-        description: '重装机甲执政官，肩载双炮塔、远程压制与轨道炮击',
-        bossClass: 'Magnus',
-        difficulty: 5,
-        color: '#ffb030', // 金属橙黄
-        unlocked: true
     },
     HIVE_MIND: {
         id: 'HIVE_MIND',
@@ -88,7 +88,7 @@ const BOSS_LEVELS = {
         name: '剑舞者 雪魂',
         description: '高速近战决斗者，凭瞬移、突袭与影分身贴身压制，不闪避子弹只用距离换速度',
         bossClass: 'Yukikon',
-        difficulty: 4,
+        difficulty: 7,
         color: '#7fc8ff',
         unlocked: true
     },
@@ -97,7 +97,7 @@ const BOSS_LEVELS = {
         name: '变形机甲 普罗忒斯',
         description: '依玩家距离实时切换近战长戟、霰弹机动、远程炮塔三种结构，重组瞬间脆弱可乘',
         bossClass: 'Proteus',
-        difficulty: 4,
+        difficulty: 8,
         color: '#a0ffc0',
         unlocked: true
     },
@@ -106,7 +106,7 @@ const BOSS_LEVELS = {
         name: '元素三主神',
         description: '火/雷/冰三体同台，杀掉两体后最后一体崩塌为虚空体，吞噬非近战攻击并以黑洞反击',
         bossClass: 'Triumvirate',
-        difficulty: 7,
+        difficulty: 9,
         color: '#a070ff',
         unlocked: true
     }

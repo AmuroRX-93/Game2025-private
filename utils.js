@@ -191,7 +191,12 @@ function updateUI() {
 }
 
 // 初始化游戏
-let game;
+// NOTE: declared with `var` (not `let`) so it becomes a property of
+// `window`. GuideDemo needs to be able to reassign the global `game`
+// reference at runtime to swap in its sandbox proxy; with `let` that
+// assignment lives in a separate script-scope binding and weapon code
+// (which reads `game` directly) keeps seeing the real fight.
+var game;
 document.addEventListener('DOMContentLoaded', () => {
     // 设置canvas全屏
     const canvas = document.getElementById('gameCanvas');
@@ -236,12 +241,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (gameState.guideSubItem !== null) {
                     gameState.guideSubItem = null;
                     gameState.guideScrollOffset = 0;
+                    if (typeof GuideDemo !== 'undefined') GuideDemo.clear();
                 } else if (gameState.guideCategory) {
                     gameState.guideCategory = null;
                     gameState.guideScrollOffset = 0;
                 } else {
                     gameState.showGuide = false;
                     gameState.showModeSelection = true;
+                    if (typeof GuideDemo !== 'undefined') GuideDemo.clear();
                 }
             }
             return;
@@ -330,8 +337,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     game.backToMainMenu();
                 }
             } else if (e.key === 'p' || e.key === 'P') {
-                // P键暂停游戏
-                gameState.paused = !gameState.paused;
+                // P键暂停游戏 — but never during the boss/player death
+                // spectacle. Pausing mid-spectacle freezes bossFX (shake,
+                // flashes, particles) on absolute timestamps and the
+                // spectacle stops advancing toward victory/gameOver.
+                if (!gameState.bossDying && !gameState.playerDying) {
+                    gameState.paused = !gameState.paused;
+                }
             } else if (e.key === 'f' || e.key === 'F') {
                 // F键切换锁定模式
                 if (game && game.player) {

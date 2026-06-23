@@ -681,6 +681,17 @@ class Game {
         this.player = null;
         this.clearAllGameObjects();
         
+        // Clear screen-shake / particles so they don't leak into the menu
+        // (or back into the world the next time the player starts a run).
+        if (typeof bossFX !== 'undefined') {
+            bossFX.particles = [];
+            bossFX.flashes = [];
+            bossFX.shockwaves = [];
+            bossFX.shake = { x: 0, y: 0, until: 0, magnitude: 0, totalMs: 0 };
+        }
+        gameState.manualLockX = null;
+        gameState.manualLockY = null;
+
         // 清除所有键盘状态，防止角色不由自主移动
         for (let key in keys) {
             keys[key] = false;
@@ -696,7 +707,24 @@ class Game {
     // selectMech方法已删除，功能已合并到selectWeaponConfig中
 
     update() {
-        if (gameState.paused || gameState.showModeSelection || gameState.showWeaponConfig || gameState.showMechCustomization || gameState.showGuide || gameState.showSettings) return;
+        if (gameState.paused || gameState.showModeSelection || gameState.showWeaponConfig || gameState.showMechCustomization || gameState.showSettings) {
+            // While paused/menus the rest of update is skipped, but bossFX
+            // shake offsets need to be zeroed so the world doesn't render
+            // off-center for the duration of the pause (and snap back on
+            // resume). preDraw only checks shake.x/shake.y, not `until`.
+            if (gameState.paused && typeof bossFX !== 'undefined') {
+                bossFX.shake.x = 0;
+                bossFX.shake.y = 0;
+            }
+            return;
+        }
+        // While in the field-manual guide, only run the world simulation
+        // when GuideDemo has staged a live demo (i.e. an active recipe).
+        // Without an active recipe there's no demo player/dummies and we
+        // should leave the menu screen still.
+        if (gameState.showGuide) {
+            if (typeof GuideDemo === 'undefined' || !GuideDemo.isActive()) return;
+        }
         if (!this.player) return;
 
         // Tutorial gating: while a briefing/debrief panel or the
@@ -1139,13 +1167,15 @@ class Game {
         // Training Ground: keep the dummy population topped up.
         this._maintainTrainingDummies();
 
-        // Floating damage numbers (lifetime-based fade).
-        if (typeof updateDamageNumbers === 'function') updateDamageNumbers();
+        // Floating damage numbers were retired; nothing to update.
+        // (kept the hook off here on purpose; spawnDamageNumber is also a no-op now.)
 
-        // Drain every boss / sub-boss hit indicator into the unified
-        // top-of-screen damage stream so each boss class's own draw
-        // method has nothing left to render in the world.
-        this._drainBossHitIndicators();
+        // Boss hit indicators are no longer drained into a separate
+        // top-of-screen stream — the trailing-ghost on the boss HP bar
+        // shows recent damage instead. We still expire any leftover
+        // arrays so they don't grow unbounded if some boss class is
+        // still pushing into them.
+        this._expireBossHitIndicators();
 
         // Tutorial: per-frame stage progression
         if (this.tutorialDirector) this.tutorialDirector.update();
@@ -1212,121 +1242,7 @@ class Game {
         try {
         // Apply screen shake (offset world transform). Will be popped by postDraw.
         if (typeof bossFX !== 'undefined') bossFX.preDraw(this.ctx);
-        // 绘制玩家（玩家死亡演出阶段不再绘制本体，只剩爆炸）
-        if (this.player && !gameState.playerDying) {
-            this.player.draw(this.ctx);
-        }
-
-        // 绘制敌人
-        this.enemies.forEach(enemy => enemy.draw(this.ctx));
-
-        // 绘制Boss
-        if (this.boss) {
-            this.boss.draw(this.ctx);
-        }
-        
-        // 绘制混沌子弹
-        if (this.chaosBullets) {
-            this.chaosBullets.forEach(bullet => {
-                bullet.draw(this.ctx);
-            });
-        }
-        
-        // 绘制噬星者步枪子弹
-        if (this.starDevourerBullets) {
-            this.starDevourerBullets.forEach(bullet => bullet.draw(this.ctx));
-        }
-
-        // Magnus particle bullets + lobbed shells (detached pods are now in
-        // game.enemies and rendered by the enemy loop)
-        if (this.magnusBullets) this.magnusBullets.forEach(b => b.draw(this.ctx));
-        if (this.magnusShells) this.magnusShells.forEach(s => s.draw(this.ctx));
-
-        // HiveMind plasma bullets
-        if (this.hivePlasmaBullets) this.hivePlasmaBullets.forEach(b => b.draw(this.ctx));
-        if (this.yukikonBullets) this.yukikonBullets.forEach(b => b.draw(this.ctx));
-        if (this.yukikonDaggers) this.yukikonDaggers.forEach(b => b.draw(this.ctx));
-        if (this.proteusBullets) this.proteusBullets.forEach(b => b.draw(this.ctx));
-        
-        // 绘制近防炮子弹
-        if (this.ciwsBullets) {
-            this.ciwsBullets.forEach(bullet => bullet.draw(this.ctx));
-        }
-        
-        // 绘制电浆场（在飞弹之前绘制，作为地面效果）
-        if (this.plasmaFields) {
-            this.plasmaFields.forEach(field => field.draw(this.ctx));
-        }
-        
-        // 绘制电浆飞弹
-        if (this.plasmaMissiles) {
-            this.plasmaMissiles.forEach(pm => pm.draw(this.ctx));
-        }
-        
-        // 绘制分裂飞弹母弹
-        if (this.clusterMissiles) {
-            this.clusterMissiles.forEach(cm => cm.draw(this.ctx));
-        }
-
-        // 绘制诱饵
-        if (this.decoys) {
-            this.decoys.forEach(d => d.draw(this.ctx));
-        }
-
-        // Draw player-deployed laser turrets.
-        if (this.laserTurrets) {
-            this.laserTurrets.forEach(t => t.draw(this.ctx));
-        }
-
-        // 绘制子弹
-        this.bullets.forEach(bullet => bullet.draw(this.ctx));
-
-        // 绘制导弹
-        if (this.missiles) {
-            this.missiles.forEach(missile => missile.draw(this.ctx));
-        }
-
-        // 绘制Boss导弹
-        if (this.bossMissiles) {
-            this.bossMissiles.forEach(missile => missile.draw(this.ctx));
-        }
-
-        // 绘制月牙追踪弹
-        if (this.crescentBullets) {
-            this.crescentBullets.forEach(bullet => bullet.draw(this.ctx));
-        }
-
-        // Boss CIWS bullets — drawn above missiles so they're clearly visible
-        if (this.bossCiwsBullets) {
-            this.bossCiwsBullets.forEach(bullet => bullet.draw(this.ctx));
-        }
-
-        // 绘制冰之姬分身
-        if (this.iceClones) {
-            this.iceClones.forEach(clone => clone.draw(this.ctx));
-        }
-
-        // 绘制机雷
-        if (this.mines) {
-            this.mines.forEach(mine => mine.draw(this.ctx));
-        }
-        
-        // 绘制燃烧瓶
-        if (this.molotovs) {
-            this.molotovs.forEach(molotov => molotov.draw(this.ctx));
-        }
-
-        // 绘制爆炸效果
-        this.drawExplosions();
-
-        // 绘制回旋斩特效
-        this.drawSpinSlashEffects();
-        
-        // 绘制传送特效
-        this.drawTeleportEffects();
-        
-        // 绘制回旋镖命中特效
-        this.drawBoomerangHitEffects();
+        this.drawWorld();
         // FX overlay (particles, flashes, shockwaves) on top of world; pops shake.
         if (typeof bossFX !== 'undefined') bossFX.postDraw(this.ctx);
 
@@ -1335,9 +1251,8 @@ class Game {
             tutorialDrawWorld(this.ctx, this.tutorialDirector);
         }
 
-        // Floating damage numbers — drawn after the world FX so
-        // they always sit on top and stay readable.
-        if (typeof drawDamageNumbers === 'function') drawDamageNumbers(this.ctx);
+        // Floating damage numbers were retired; the per-bar trailing
+        // ghost layer now conveys recent damage.
         } catch (e) {
             console.error('游戏绘制错误:', e);
             this.ctx.restore();
@@ -1362,6 +1277,8 @@ class Game {
         if (gameState.lockMode === 'manual') {
             this.drawCrosshair();
         }
+        // Soft / hard lock: lead-point indicator was retired by user
+        // request — soft/hard mode now shows no on-screen aim marker.
 
         // 绘制暂停界面（在失明效果之上）
         if (gameState.paused) {
@@ -1398,70 +1315,160 @@ class Game {
         ctx.fillText('STATUS: STANDBY  //  PILOT: AUTHORIZED', 50, 58);
         ctx.restore();
 
-        // Title block
-        const titleY = H * 0.22;
+        // Title block (raised so we have room for the new layout)
+        const titleY = Math.max(120, H * 0.16);
         uiDrawTitle(ctx, W / 2, titleY, 'MECH COMBAT', 'TACTICAL OPERATIONS TERMINAL');
 
-        // Buttons stack
-        const btnW = 460;
-        const btnH = 84;
-        const btnX = W / 2 - btnW / 2;
-        const gap = 18;
-        let by = H / 2 - 110;
+        // -------- Section 1: PRIMARY OPERATIONS (3 large cards in a row) --------
+        // Three core "go play" actions get equal billing as side-by-side cards
+        // so they read as a single tier of choices, not a vertical pile.
+        const primaryY = Math.max(titleY + 90, H * 0.35);
+        const primarySectionW = Math.min(W - 120, 1080);
+        const primaryCardGap = 22;
+        const primaryCardW = (primarySectionW - primaryCardGap * 2) / 3;
+        const primaryCardH = 168;
+        const primaryStartX = (W - primarySectionW) / 2;
 
-        // Boss battle button
-        this.bossButton = uiDrawButton(ctx, btnX, by, btnW, btnH, t('menu.startBoss'), {
-            accentColor: UI_THEME.color.danger,
-            subLabel: t('menu.startBossDesc'),
-            labelFont: `bold 24px ${UI_THEME.font.display}`,
-            labelLetterSpacing: 2
-        });
+        // Section label for primary tier.
+        ctx.save();
+        ctx.fillStyle = UI_THEME.color.textSecondary;
+        ctx.font = `11px ${UI_THEME.font.mono}`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('▣  PRIMARY OPERATIONS', primaryStartX, primaryY - 18);
+        ctx.restore();
+        // Hairline rule on the right side of the section label so the
+        // tier reads as its own grouped block.
+        ctx.save();
+        ctx.strokeStyle = UI_THEME.color.primaryDim;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(primaryStartX + 200, primaryY - 18);
+        ctx.lineTo(primaryStartX + primarySectionW, primaryY - 18);
+        ctx.stroke();
+        ctx.restore();
 
-        // Tutorial button (new pilot training)
-        by += btnH + gap;
-        this.tutorialButton = uiDrawButton(ctx, btnX, by, btnW, btnH, t('menu.startTutorial'), {
-            accentColor: '#69f0ae',
-            subLabel: t('menu.startTutorialDesc'),
-            labelFont: `bold 22px ${UI_THEME.font.display}`,
-            labelLetterSpacing: 2
-        });
+        // Card 1: Boss campaign (red, primary action)
+        this.bossButton = uiDrawButton(
+            ctx,
+            primaryStartX,
+            primaryY,
+            primaryCardW,
+            primaryCardH,
+            t('menu.startBoss'),
+            {
+                accentColor: UI_THEME.color.danger,
+                subLabel: t('menu.startBossDesc'),
+                labelFont: `bold 22px ${UI_THEME.font.display}`,
+                labelLetterSpacing: 2,
+                chamfer: 16
+            }
+        );
 
-        // Training ground button
-        by += btnH + gap;
-        this.trainingButton = uiDrawButton(ctx, btnX, by, btnW, btnH, t('menu.startTraining'), {
-            accentColor: '#5fa3ff',
-            subLabel: t('menu.startTrainingDesc'),
-            labelFont: `bold 22px ${UI_THEME.font.display}`,
-            labelLetterSpacing: 2
-        });
+        // Card 2: Tutorial (green)
+        this.tutorialButton = uiDrawButton(
+            ctx,
+            primaryStartX + (primaryCardW + primaryCardGap),
+            primaryY,
+            primaryCardW,
+            primaryCardH,
+            t('menu.startTutorial'),
+            {
+                accentColor: '#69f0ae',
+                subLabel: t('menu.startTutorialDesc'),
+                labelFont: `bold 22px ${UI_THEME.font.display}`,
+                labelLetterSpacing: 2,
+                chamfer: 16
+            }
+        );
 
-        // Customize mech button
-        by += btnH + gap;
-        this.customButton = uiDrawButton(ctx, btnX, by, btnW, btnH, t('menu.customizeMech'), {
-            accentColor: UI_THEME.color.primary,
-            subLabel: t('menu.customizeDesc'),
-            labelFont: `bold 22px ${UI_THEME.font.display}`,
-            labelLetterSpacing: 2
-        });
+        // Card 3: Training ground (blue)
+        this.trainingButton = uiDrawButton(
+            ctx,
+            primaryStartX + (primaryCardW + primaryCardGap) * 2,
+            primaryY,
+            primaryCardW,
+            primaryCardH,
+            t('menu.startTraining'),
+            {
+                accentColor: '#5fa3ff',
+                subLabel: t('menu.startTrainingDesc'),
+                labelFont: `bold 22px ${UI_THEME.font.display}`,
+                labelLetterSpacing: 2,
+                chamfer: 16
+            }
+        );
 
-        // Guide button (smaller, secondary)
-        by += btnH + gap;
-        const guideH = 56;
-        this.guideButton = uiDrawButton(ctx, btnX, by, btnW, guideH, t('menu.guide'), {
-            accentColor: UI_THEME.color.textSecondary,
-            labelFont: `18px ${UI_THEME.font.display}`,
-            labelLetterSpacing: 3,
-            chamfer: 10
-        });
+        // -------- Section 2: AUXILIARY (smaller, side-by-side row) -------
+        // Loadout / Guide / Settings are not "play this", they're config &
+        // reference — give them a quieter row underneath the primary tier.
+        const auxRowY = primaryY + primaryCardH + 56;
+        const auxSectionW = Math.min(W - 200, 820);
+        const auxGap = 18;
+        const auxBtnW = (auxSectionW - auxGap * 2) / 3;
+        const auxBtnH = 60;
+        const auxStartX = (W - auxSectionW) / 2;
 
-        // Settings button (smaller, secondary, sits next to guide)
-        by += guideH + 12;
-        this.settingsButton = uiDrawButton(ctx, btnX, by, btnW, guideH, t('menu.settings'), {
-            accentColor: UI_THEME.color.textSecondary,
-            labelFont: `18px ${UI_THEME.font.display}`,
-            labelLetterSpacing: 3,
-            chamfer: 10
-        });
+        ctx.save();
+        ctx.fillStyle = UI_THEME.color.textSecondary;
+        ctx.font = `11px ${UI_THEME.font.mono}`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('◇  CONFIG & REFERENCE', auxStartX, auxRowY - 16);
+        ctx.restore();
+        ctx.save();
+        ctx.strokeStyle = UI_THEME.color.primaryDim;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(auxStartX + 200, auxRowY - 16);
+        ctx.lineTo(auxStartX + auxSectionW, auxRowY - 16);
+        ctx.stroke();
+        ctx.restore();
+
+        this.customButton = uiDrawButton(
+            ctx,
+            auxStartX,
+            auxRowY,
+            auxBtnW,
+            auxBtnH,
+            t('menu.customizeMech'),
+            {
+                accentColor: UI_THEME.color.primary,
+                labelFont: `16px ${UI_THEME.font.display}`,
+                labelLetterSpacing: 2,
+                chamfer: 10
+            }
+        );
+
+        this.guideButton = uiDrawButton(
+            ctx,
+            auxStartX + (auxBtnW + auxGap),
+            auxRowY,
+            auxBtnW,
+            auxBtnH,
+            t('menu.guide'),
+            {
+                accentColor: UI_THEME.color.textSecondary,
+                labelFont: `16px ${UI_THEME.font.display}`,
+                labelLetterSpacing: 2,
+                chamfer: 10
+            }
+        );
+
+        this.settingsButton = uiDrawButton(
+            ctx,
+            auxStartX + (auxBtnW + auxGap) * 2,
+            auxRowY,
+            auxBtnW,
+            auxBtnH,
+            t('menu.settings'),
+            {
+                accentColor: UI_THEME.color.textSecondary,
+                labelFont: `16px ${UI_THEME.font.display}`,
+                labelLetterSpacing: 2,
+                chamfer: 10
+            }
+        );
 
         // Language toggle (top-right)
         const langBtnW = 90;
@@ -1920,6 +1927,121 @@ class Game {
     }
 
     // drawMechSelection方法已删除，机甲选择界面已移除
+    
+    drawWorld() {
+        // 绘制玩家（玩家死亡演出阶段不再绘制本体，只剩爆炸）
+        if (this.player && !gameState.playerDying) {
+            this.player.draw(this.ctx);
+        }
+
+        // 绘制敌人
+        this.enemies.forEach(enemy => enemy.draw(this.ctx));
+
+        // 绘制Boss
+        if (this.boss) {
+            this.boss.draw(this.ctx);
+        }
+
+        // 绘制混沌子弹
+        if (this.chaosBullets) {
+            this.chaosBullets.forEach(bullet => bullet.draw(this.ctx));
+        }
+
+        // 绘制噬星者步枪子弹
+        if (this.starDevourerBullets) {
+            this.starDevourerBullets.forEach(bullet => bullet.draw(this.ctx));
+        }
+
+        // Magnus particle bullets + lobbed shells
+        if (this.magnusBullets) this.magnusBullets.forEach(b => b.draw(this.ctx));
+        if (this.magnusShells) this.magnusShells.forEach(s => s.draw(this.ctx));
+
+        // HiveMind plasma bullets / Yukikon / Proteus
+        if (this.hivePlasmaBullets) this.hivePlasmaBullets.forEach(b => b.draw(this.ctx));
+        if (this.yukikonBullets) this.yukikonBullets.forEach(b => b.draw(this.ctx));
+        if (this.yukikonDaggers) this.yukikonDaggers.forEach(b => b.draw(this.ctx));
+        if (this.proteusBullets) this.proteusBullets.forEach(b => b.draw(this.ctx));
+
+        // 绘制近防炮子弹
+        if (this.ciwsBullets) {
+            this.ciwsBullets.forEach(bullet => bullet.draw(this.ctx));
+        }
+
+        // 绘制电浆场（在飞弹之前绘制，作为地面效果）
+        if (this.plasmaFields) {
+            this.plasmaFields.forEach(field => field.draw(this.ctx));
+        }
+
+        // 绘制电浆飞弹
+        if (this.plasmaMissiles) {
+            this.plasmaMissiles.forEach(pm => pm.draw(this.ctx));
+        }
+
+        // 绘制分裂飞弹母弹
+        if (this.clusterMissiles) {
+            this.clusterMissiles.forEach(cm => cm.draw(this.ctx));
+        }
+
+        // 绘制诱饵
+        if (this.decoys) {
+            this.decoys.forEach(d => d.draw(this.ctx));
+        }
+
+        // Draw player-deployed laser turrets.
+        if (this.laserTurrets) {
+            this.laserTurrets.forEach(t => t.draw(this.ctx));
+        }
+
+        // 绘制子弹
+        this.bullets.forEach(bullet => bullet.draw(this.ctx));
+
+        // 绘制导弹
+        if (this.missiles) {
+            this.missiles.forEach(missile => missile.draw(this.ctx));
+        }
+
+        // 绘制Boss导弹
+        if (this.bossMissiles) {
+            this.bossMissiles.forEach(missile => missile.draw(this.ctx));
+        }
+
+        // 绘制月牙追踪弹
+        if (this.crescentBullets) {
+            this.crescentBullets.forEach(bullet => bullet.draw(this.ctx));
+        }
+
+        // Boss CIWS bullets — drawn above missiles so they're clearly visible
+        if (this.bossCiwsBullets) {
+            this.bossCiwsBullets.forEach(bullet => bullet.draw(this.ctx));
+        }
+
+        // 绘制冰之姬分身
+        if (this.iceClones) {
+            this.iceClones.forEach(clone => clone.draw(this.ctx));
+        }
+
+        // 绘制机雷
+        if (this.mines) {
+            this.mines.forEach(mine => mine.draw(this.ctx));
+        }
+
+        // 绘制燃烧瓶
+        if (this.molotovs) {
+            this.molotovs.forEach(molotov => molotov.draw(this.ctx));
+        }
+
+        // 绘制爆炸效果
+        this.drawExplosions();
+
+        // 绘制回旋斩特效
+        this.drawSpinSlashEffects();
+
+        // 绘制传送特效
+        this.drawTeleportEffects();
+
+        // 绘制回旋镖命中特效
+        this.drawBoomerangHitEffects();
+    }
     
     drawExplosions() {
         if (!this.explosions) {
@@ -2519,13 +2641,8 @@ class Game {
         // shown as a smaller subtitle right beneath it.
         const _callsign = (gameState && gameState.mechName) ? gameState.mechName : 'Scorchfrost';
         ctx.fillText(_callsign, panelX + 14, panelY + 36);
-        ctx.save();
-        ctx.fillStyle = UI_THEME.color.textSecondary;
-        ctx.font = `11px ${UI_THEME.font.mono}`;
-        ctx.fillText(t('hud.mech', t('mech.' + this.player.mechType)), panelX + 14, panelY + 56);
-        ctx.restore();
 
-        // Divider (sits just below the chassis subtitle)
+        // Divider (sits just below the callsign)
         ctx.strokeStyle = UI_THEME.color.primaryDim;
         ctx.lineWidth = 1;
         ctx.beginPath();
@@ -2555,17 +2672,18 @@ class Game {
         ctx.fillText(`${this.player.health} / ${this.player.maxHealth}`, hpBarX + hpBarW, hpBarY - 2);
         ctx.restore();
 
-        // HP bar background + fill (segmented)
+        // HP bar (sliding ghost layer + solid fill).
         ctx.save();
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
-        ctx.fillRect(hpBarX, hpBarY, hpBarW, hpBarH);
-        ctx.fillStyle = hpColor;
-        if (hpPct < 0.3) {
-            const pulse = 0.6 + 0.4 * Math.sin(Date.now() / 150);
-            ctx.globalAlpha = pulse;
-        }
-        ctx.fillRect(hpBarX, hpBarY, hpBarW * hpPct, hpBarH);
-        ctx.globalAlpha = 1;
+        uiDrawSlidingHealthBar(ctx, hpBarX, hpBarY, hpBarW, hpBarH,
+            this.player.health, this.player.maxHealth, {
+                id: 'player.hp',
+                color: hpColor,
+                trailColor: 'rgba(190, 190, 190, 0.9)',
+                border: hpColor,
+                pulseLowHp: true,
+                drainPerSec: 0.16,
+                delayMs: 320,
+            });
         // Segment ticks
         ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
         ctx.lineWidth = 1;
@@ -2576,10 +2694,6 @@ class Game {
             ctx.lineTo(sx, hpBarY + hpBarH);
             ctx.stroke();
         }
-        // Border
-        ctx.strokeStyle = hpColor;
-        ctx.lineWidth = 1;
-        ctx.strokeRect(hpBarX, hpBarY, hpBarW, hpBarH);
 
         // Overflow HP overlay (Repair Protocol bank): green chevrons stacked
         // on top of the HP bar, scaled to overflowHpMax (not maxHealth) so it
@@ -2709,167 +2823,62 @@ class Game {
         ctx.fillText(t('hud.bossKills', gameState.bossKillCount), infoX + 14, infoY + 52);
         ctx.restore();
 
-        // Boss HP bar (top center)
-        if (this.boss) {
+        // Boss HP bar (top center). Floating damage numbers and the
+        // unified damage stream were retired in favour of the bar's
+        // built-in trailing-damage layer.
+            if (this.boss) {
             this.drawBossHealthBar();
-            this.drawBossDamageStream();
-        } else if (this.bossDamageStream && this.bossDamageStream.length > 0) {
-            // Boss is gone but the last hits are still flying — keep
-            // drawing the stream until they expire (fade-out).
-            this.drawBossDamageStream();
         }
-
+        
         // Bottom-left pause button (the redundant Main Menu button has
         // been removed — pausing the game already exposes a Return-to-
         // Menu CTA, and ESC also goes home; the HUD button on top of
         // that was redundant clutter.)
         this.drawPauseButton();
-
+        
         // Blindness overlay
         if (gameState.playerBlinded) {
             this.drawBlindnessStatusText();
         }
     }
     
-    // Pull every pending hitIndicator off the active boss and any
-    // sub-boss components, convert them into entries on the unified
-    // damage stream, and clear the source arrays so nothing else
-    // (e.g. a boss's own draw method) tries to render them in the
-    // world. This is what gives us a single, top-of-screen damage
-    // readout no matter which boss class fired the hit.
-    _drainBossHitIndicators() {
+    // Drop any pending hitIndicators on the active boss / sub-bosses
+    // every frame. We no longer render them as floating numbers — the
+    // trailing ghost layer on the HP bar conveys recent damage — but
+    // boss code still pushes into these arrays, so we have to keep
+    // them from growing unbounded.
+    _expireBossHitIndicators() {
         if (!this.boss) return;
         const sources = [];
         sources.push(this.boss);
-        // Triumvirate: container has its own (rarely used) array, plus
-        // each surviving member, plus the Voidborn after transition.
         if (this.boss.isTriumvirate) {
             if (Array.isArray(this.boss.members)) {
                 for (const m of this.boss.members) if (m) sources.push(m);
             }
             if (this.boss.voidborn) sources.push(this.boss.voidborn);
         }
-        // Magnus: shoulder pods take damage independently and have
-        // their own hitIndicators arrays.
         if (this.boss.shoulderPods && Array.isArray(this.boss.shoulderPods)) {
             for (const p of this.boss.shoulderPods) if (p) sources.push(p);
         }
         for (const src of sources) {
             const arr = src && src.hitIndicators;
-            if (!Array.isArray(arr) || arr.length === 0) continue;
-            for (const ind of arr) {
-                if (!ind || ind._streamed) continue;
-                this.bossDamageStream.push({
-                    dmg: Math.max(1, Math.round(ind.damage || 0)),
-                    startTime: ind.startTime || Date.now(),
-                    lifeMs: 1100,
-                    // Alternate left / right of the bar so adjacent hits
-                    // don't pile on top of each other.
-                    side: (this._bossDamageStreamLaneCursor++ % 2 === 0) ? -1 : 1,
-                    lane: (this._bossDamageStreamLaneCursor % 4),
-                });
-                ind._streamed = true;
-            }
-            // Clear the source so the boss's own draw can't double-render
-            // these in the world.
-            arr.length = 0;
+            if (Array.isArray(arr) && arr.length > 0) arr.length = 0;
         }
-        // Expire stream entries.
-        const now = Date.now();
-        this.bossDamageStream = this.bossDamageStream.filter(
-            e => now - e.startTime < e.lifeMs
-        );
     }
+
+    // Legacy: previously drained per-boss hitIndicators into a unified
+    // top-of-screen damage stream. The stream was retired in favour of
+    // the trailing ghost layer baked into uiDrawSlidingHealthBar, but
+    // we keep this method as a no-op so any stale call sites stay safe.
+    _drainBossHitIndicators() { /* retired */ }
 
     // Render the unified hostile-target damage readout directly under
     // the top boss HP bar. High-contrast typography, additive glow, and
     // alternating left / right lanes so it reads as a real combat-log
     // ticker rather than scattered floating numbers.
-    drawBossDamageStream() {
-        if (!Array.isArray(this.bossDamageStream) || this.bossDamageStream.length === 0) return;
-        const ctx = this.ctx;
-        const W = GAME_CONFIG.WIDTH;
-        const barW = 480;
-        const barH = 22;
-        const barX = (W - barW) / 2;
-        const barY = 32;
-        // Anchor the stream just below the HP-number row (which sits
-        // at barY + barH + 6 with 13px text → ~+22 below the bar).
-        const anchorY = barY + barH + 28;
-        const anchorX = W / 2;
-        const now = Date.now();
-
-        ctx.save();
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-
-        for (const e of this.bossDamageStream) {
-            const age = now - e.startTime;
-            const t = Math.min(1, Math.max(0, age / e.lifeMs));
-            // Easing: pop in fast, drift out slow.
-            const popIn = Math.min(1, age / 90);
-            const fadeOut = t > 0.65 ? 1 - (t - 0.65) / 0.35 : 1;
-            const alpha = popIn * fadeOut;
-            if (alpha <= 0.02) continue;
-
-            // Lateral drift outward from center, with a small upward rise.
-            const driftX = e.side * (12 + 64 * t);
-            const driftY = -16 * t + (e.lane % 2 === 0 ? 0 : 12);
-            const x = anchorX + driftX;
-            const y = anchorY + driftY;
-
-            // Scale punch: starts a touch larger, settles.
-            const scale = 1.15 - 0.15 * popIn;
-
-            const big = e.dmg >= 50;       // crits get extra emphasis
-            const huge = e.dmg >= 150;
-            const baseSize = huge ? 28 : (big ? 24 : 20);
-            const fontSize = Math.round(baseSize * scale);
-
-            const text = `-${e.dmg}`;
-
-            // Shadow / outer glow (additive layer).
-            ctx.globalCompositeOperation = 'lighter';
-            ctx.globalAlpha = alpha * 0.85;
-            ctx.shadowColor = huge ? '#ffffaa' : (big ? '#ffd060' : '#ff5050');
-            ctx.shadowBlur = huge ? 18 : (big ? 14 : 10);
-            ctx.fillStyle = huge ? '#fff5b0' : (big ? '#ffd060' : '#ff7878');
-            ctx.font = `900 ${fontSize}px ${UI_THEME.font.display}`;
-            ctx.fillText(text, x, y);
-
-            // Sharp core (normal blending) for legibility against bright BG.
-            ctx.globalCompositeOperation = 'source-over';
-            ctx.globalAlpha = alpha;
-            ctx.shadowBlur = 0;
-            // Heavy black stroke ring → makes the number readable on
-            // any backdrop (explosions, fire, lightning, etc.).
-            ctx.lineWidth = 3.5;
-            ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-            ctx.strokeText(text, x, y);
-            ctx.fillStyle = huge ? '#ffffff' : (big ? '#fff2c8' : '#ffd0d0');
-            ctx.fillText(text, x, y);
-
-            // Tiny tick mark linking the number to the bar so it reads
-            // as "this is bar damage" rather than a random score popup.
-            ctx.globalCompositeOperation = 'lighter';
-            ctx.globalAlpha = alpha * 0.55;
-            ctx.strokeStyle = huge ? '#ffe080' : (big ? '#ffb050' : '#ff5050');
-            ctx.lineWidth = 1.2;
-            ctx.beginPath();
-            const tickStartX = x;
-            const tickStartY = barY + barH + 4;
-            const tickEndX = x;
-            const tickEndY = y - fontSize / 2 - 2;
-            if (tickEndY > tickStartY) {
-                ctx.moveTo(tickStartX, tickStartY);
-                ctx.lineTo(tickEndX, tickEndY);
-                ctx.stroke();
-            }
-        }
-
-        ctx.restore();
-        ctx.textAlign = 'left';
-    }
+    // Retired: the unified top-of-screen damage readout was replaced
+    // by the trailing ghost layer baked into uiDrawSlidingHealthBar.
+    drawBossDamageStream() { /* retired */ }
     
     drawBossHealthBar() {
         if (!this.boss) return;
@@ -2911,19 +2920,21 @@ class Game {
         const hpPct = Math.max(0, this.boss.health / this.boss.maxHealth);
         const displayHealth = Math.max(0, this.boss.health);
 
-        // Bar BG
-        ctx.save();
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-        ctx.fillRect(x, y, barW, barH);
-
-        // Fill
+        // Bar BG + sliding fill (ghost layer drains linearly).
         let fillColor = UI_THEME.color.danger;
         if (hpPct < 0.3) fillColor = '#ff8a3d';
-        const grad = ctx.createLinearGradient(x, y, x + barW, y);
-        grad.addColorStop(0, fillColor);
-        grad.addColorStop(1, '#ff7575');
-        ctx.fillStyle = grad;
-        ctx.fillRect(x, y, barW * hpPct, barH);
+        ctx.save();
+        uiDrawSlidingHealthBar(ctx, x, y, barW, barH,
+            this.boss.health, this.boss.maxHealth, {
+                id: 'boss.main',
+                bg: 'rgba(0, 0, 0, 0.6)',
+                color: fillColor,
+                trailColor: 'rgba(190, 190, 190, 0.9)',
+                border: UI_THEME.color.danger,
+                borderWidth: 1.5,
+                drainPerSec: 0.16,
+                delayMs: 320,
+            });
 
         // Segment ticks
         ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
@@ -2935,11 +2946,6 @@ class Game {
             ctx.lineTo(sx, y + barH);
             ctx.stroke();
         }
-
-        // Border + corner brackets
-        ctx.strokeStyle = UI_THEME.color.danger;
-        ctx.lineWidth = 1.5;
-        ctx.strokeRect(x, y, barW, barH);
         ctx.restore();
         uiDrawCornerBrackets(ctx, x, y, barW, barH, { size: 10, offset: 4, color: UI_THEME.color.danger, lineWidth: 1.5 });
 
@@ -3416,16 +3422,44 @@ class Game {
             this._drawGuideBackButton(t('menu.backToCatalog'));
             
         } else {
-            // Sub-item detail
+            // Sub-item detail = LIVE DEMO sandbox + HUD overlay text.
             const categories = this.getGuideData();
             const cat = categories.find(c => c.id === gameState.guideCategory);
             if (!cat || !cat.items) return;
             const item = cat.items[gameState.guideSubItem];
             if (!item) return;
             
+            // Pick / refresh the demo recipe for this sub-item. The recipe
+            // id is conventional: `${categoryId}:${itemKey}` where itemKey
+            // is item.demoId if provided, else item.name.
+            const demoId = (item.demoId) || `${cat.id}:${item.name}`;
+
+            // Sandbox region: fill detail page minus margins
+            const margin = 40;
+            const topPad = 100;
+            const bottomPad = 80;
+            const sx = margin;
+            const sy = topPad;
+            const sw = W - margin * 2;
+            const sh = H - topPad - bottomPad;
+            if (typeof GuideDemo !== 'undefined') {
+                // Inform the demo of the viewport BEFORE set() so spawn
+                // placement uses the correct rectangle.
+                if (typeof GuideDemo.setViewport === 'function') {
+                    GuideDemo.setViewport(sx, sy, sw, sh);
+                }
+                if (!GuideDemo.isActive() || GuideDemo._state.recipeId !== demoId) {
+                    GuideDemo.set(demoId);
+                }
+            }
+            if (typeof GuideDemo !== 'undefined') {
+                GuideDemo.draw(ctx, sx, sy, sw, sh);
+            }
+
+            // Title strip above the sandbox
             ctx.save();
             ctx.fillStyle = item.color;
-            ctx.fillRect(W / 2 - 240, 56, 4, 28);
+            ctx.fillRect(margin, 56, 4, 28);
             ctx.fillStyle = item.color;
             ctx.font = `bold 24px ${UI_THEME.font.display}`;
             ctx.textAlign = 'left';
@@ -3434,28 +3468,43 @@ class Game {
                 ctx.shadowColor = item.color;
                 ctx.shadowBlur = 10;
             }
-            ctx.fillText(item.name, W / 2 - 224, 70);
+            ctx.fillText(item.name, margin + 16, 70);
             ctx.restore();
 
-            const startY = 110;
-            const lineH = 26;
-            const textX = W / 2 - 240;
+            // HUD overlay text in the bottom-left corner of the sandbox
+            ctx.save();
             ctx.textAlign = 'left';
-            ctx.textBaseline = 'top';
-            
-            item.lines.forEach((line, i) => {
-                const y = startY + i * lineH - gameState.guideScrollOffset;
-                if (y < 95 || y > H - 70) return;
-                if (line === '') return;
+            ctx.textBaseline = 'bottom';
+            ctx.font = `12px ${UI_THEME.font.mono}`;
+            const lines = item.lines || [];
+            const lineH = 16;
+            const padX = 12;
+            const padY = 12;
+            // Translucent backdrop
+            const overlayH = lines.filter(l => l).length * lineH + padY * 2;
+            const overlayW = 360;
+            const ox = sx + 8;
+            const oy = sy + sh - overlayH - 8;
+            ctx.fillStyle = 'rgba(4, 10, 18, 0.7)';
+            ctx.fillRect(ox, oy, overlayW, overlayH);
+            ctx.strokeStyle = 'rgba(120, 200, 255, 0.35)';
+            ctx.strokeRect(ox + 0.5, oy + 0.5, overlayW - 1, overlayH - 1);
+            // Lines
+            let cy = oy + overlayH - padY;
+            for (let i = lines.length - 1; i >= 0; i--) {
+                const line = lines[i];
+                if (!line) continue;
                 if (line.startsWith('—')) {
                     ctx.fillStyle = item.color;
-                    ctx.font = `bold 15px ${UI_THEME.font.body}`;
+                    ctx.font = `bold 13px ${UI_THEME.font.body}`;
                 } else {
                     ctx.fillStyle = UI_THEME.color.textSecondary;
-                    ctx.font = `15px ${UI_THEME.font.body}`;
+                    ctx.font = `12px ${UI_THEME.font.body}`;
                 }
-                ctx.fillText(line, textX, y);
-            });
+                ctx.fillText(line, ox + padX, cy);
+                cy -= lineH;
+            }
+            ctx.restore();
             
             this._drawGuideBackButton(t('menu.backTo', cat.name));
         }
@@ -3664,12 +3713,14 @@ class Game {
                 if (gameState.guideSubItem !== null) {
                     gameState.guideSubItem = null;
                     gameState.guideScrollOffset = 0;
+                    if (typeof GuideDemo !== 'undefined') GuideDemo.clear();
                 } else if (gameState.guideCategory) {
                     gameState.guideCategory = null;
                     gameState.guideScrollOffset = 0;
                 } else {
                     gameState.showGuide = false;
                     gameState.showModeSelection = true;
+                    if (typeof GuideDemo !== 'undefined') GuideDemo.clear();
                 }
                 return true;
             }
@@ -3882,6 +3933,141 @@ class Game {
         }
         
         return false;
+    }
+
+    // Draw a small marker at the *predicted lead point* the player's
+    // ranged weapons (gun / laser_rifle) will shoot toward in soft- and
+    // hard-lock mode. Without this, the player has no way to tell where
+    // bullets are actually going (manual mode shows the crosshair, but
+    // soft/hard mode used to show nothing at all).
+    drawAimLeadIndicator() {
+        if (!this.player || this.player.health <= 0) return;
+        const target = (typeof this.player.getCurrentTarget === 'function')
+            ? this.player.getCurrentTarget() : null;
+        if (!target) return;
+
+        // Pick a representative ranged weapon for lead computation.
+        // Prefer Gun (auto rifle), fall back to LaserRifle. Both use the
+        // same "constant projectile speed -> lead by flightTime" model.
+        const weapons = [this.player.leftHandWeapon, this.player.rightHandWeapon];
+        let projSpeed = 0;
+        let isLaser = false;
+        for (const w of weapons) {
+            if (!w) continue;
+            if (w.type === 'gun' && typeof w.bulletSpeed === 'number') {
+                projSpeed = w.bulletSpeed; break;
+            }
+            if (w.type === 'laser_rifle') {
+                projSpeed = 200;       // matches LaserRifle.fire beamSpeed
+                isLaser = true;
+            }
+        }
+        if (!(projSpeed > 0)) return;
+
+        const px = this.player.x + this.player.width / 2;
+        const py = this.player.y + this.player.height / 2;
+        const tx = target.x + target.width / 2;
+        const ty = target.y + target.height / 2;
+
+        const _av = (typeof getEntityAimVelocity === 'function')
+            ? getEntityAimVelocity(target) : { vx: target.vx || 0, vy: target.vy || 0 };
+        const dist = Math.hypot(tx - px, ty - py);
+        const flightTime = dist / projSpeed;
+        const leadX = tx + _av.vx * flightTime;
+        const leadY = ty + _av.vy * flightTime;
+
+        const ctx = this.ctx;
+        const now = Date.now();
+        const t = now / 1000;
+        // Color: soft-lock green, hard-lock red, laser-rifle cyan accent.
+        const isHard = (gameState.lockMode === 'hard');
+        const baseColor = isLaser
+            ? '#7ad8ff'
+            : (isHard ? '#ff5050' : '#7CFFC4');
+        const accentColor = isLaser
+            ? 'rgba(122, 216, 255, 0.45)'
+            : (isHard ? 'rgba(255, 80, 80, 0.45)' : 'rgba(124, 255, 196, 0.45)');
+
+        ctx.save();
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        // Faint guide line from player to lead point (very subtle so it
+        // doesn't compete with bullets / FX).
+        ctx.strokeStyle = accentColor;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 6]);
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.lineTo(leadX, leadY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // If the lead diverges noticeably from the target's current
+        // position, draw a thin ghost mark at the target so the player
+        // can see "this is where the enemy IS, lead is where I'll hit".
+        const leadOffset = Math.hypot(leadX - tx, leadY - ty);
+        if (leadOffset > 14) {
+            ctx.strokeStyle = accentColor;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(tx, ty, 8, 0, Math.PI * 2);
+            ctx.stroke();
+            // Connector from target ghost to lead diamond.
+            ctx.beginPath();
+            ctx.moveTo(tx, ty);
+            ctx.lineTo(leadX, leadY);
+            ctx.stroke();
+        }
+
+        // Lead-point reticle: rotating diamond + center dot.
+        const r = 12;
+        ctx.translate(leadX, leadY);
+        ctx.rotate(t * 1.2);
+
+        // Outer rotating diamond (4 short ticks at corners).
+        ctx.strokeStyle = baseColor;
+        ctx.lineWidth = 1.6;
+        const tick = 5;
+        ctx.beginPath();
+        for (let i = 0; i < 4; i++) {
+            const a = i * Math.PI / 2;
+            const cx0 = Math.cos(a) * r;
+            const cy0 = Math.sin(a) * r;
+            const ax = Math.cos(a + Math.PI / 2);
+            const ay = Math.sin(a + Math.PI / 2);
+            ctx.moveTo(cx0 - ax * tick, cy0 - ay * tick);
+            ctx.lineTo(cx0 + ax * tick, cy0 + ay * tick);
+        }
+        ctx.stroke();
+
+        // Counter-rotating inner cross.
+        ctx.rotate(-t * 2.4);
+        ctx.strokeStyle = baseColor;
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        const xr = 6;
+        ctx.moveTo(-xr, 0); ctx.lineTo(xr, 0);
+        ctx.moveTo(0, -xr); ctx.lineTo(0, xr);
+        ctx.stroke();
+
+        // Center glow dot (additive).
+        ctx.globalCompositeOperation = 'lighter';
+        const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, 6);
+        glow.addColorStop(0, '#ffffff');
+        glow.addColorStop(0.55, baseColor);
+        glow.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(0, 0, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(0, 0, 1.6, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
     }
 
     drawPauseScreen() {
@@ -4185,6 +4371,12 @@ class Game {
     }
 
     gameLoop() {
+        // GuideDemo (when active) injects AI input and stages demo
+        // entities into THIS game instance. It must run BEFORE update()
+        // so the AI's keys/mouse pokes are visible to player.update().
+        if (typeof GuideDemo !== 'undefined' && gameState.showGuide) {
+            GuideDemo.tick();
+        }
         this.update();
         this.draw();
         requestAnimationFrame(() => this.gameLoop());

@@ -2220,36 +2220,7 @@ class StarDevourer extends GameObject {
         });
     }
     
-    drawHitIndicators(ctx) {
-        const now = Date.now();
-        
-        this.hitIndicators.forEach(indicator => {
-            const elapsed = now - indicator.startTime;
-            const progress = elapsed / indicator.duration;
-            
-            // 向上移动和渐隐效果
-            const offsetY = progress * 40; // 向上移动40像素
-            const alpha = 1 - progress; // 逐渐透明
-            
-            ctx.save();
-            ctx.globalAlpha = alpha;
-            ctx.fillStyle = '#FFFFFF'; // 白色受击文字
-            ctx.font = 'bold 14px Arial';
-            ctx.textAlign = 'center';
-            ctx.strokeStyle = '#000000';
-            ctx.lineWidth = 2;
-            
-            const displayY = indicator.y - offsetY;
-            const text = `HIT ${indicator.damage}`;
-            
-            // 绘制文字描边（黑色）
-            ctx.strokeText(text, indicator.x, displayY);
-            // 绘制文字填充（白色）
-            ctx.fillText(text, indicator.x, displayY);
-            
-            ctx.restore();
-        });
-    }
+    drawHitIndicators(_ctx) { /* retired: trailing ghost on HP bar replaces this */ }
 
     draw(ctx) {
         // Telegraphs render under boss body

@@ -674,22 +674,29 @@ class Player extends GameObject {
         
         // 检查护盾减伤
         let actualDamage = damage;
+        let fullyImmune = false;
         if (!bypassShield && this.hiddenAbilityWeapon && this.hiddenAbilityWeapon.isDamageReduced && this.hiddenAbilityWeapon.isDamageReduced()) {
             const reduction = this.hiddenAbilityWeapon.getDamageReduction();
-            // Full immunity (reduction >= 1) skips the damage entirely instead
-            // of being clamped to the 1-damage minimum below.
             if (reduction >= 1) {
-                return;
+                // Full immunity: damage is nullified for the player but we
+                // still want the reflect hook to see the original payload
+                // so a parry can bounce it back.
+                fullyImmune = true;
+                actualDamage = damage;
+            } else {
+                actualDamage = damage * (1 - reduction);
+                actualDamage = Math.max(1, Math.round(actualDamage));
             }
-            actualDamage = damage * (1 - reduction);
-            // 确保伤害值为整数，且最小为1点
-            actualDamage = Math.max(1, Math.round(actualDamage));
         }
         
-        // 反制重击：反射伤害给攻击者
+        // 反制重击 / 振刀反弹：把吸收掉的伤害反射给最近的攻击者
         if (this.hiddenAbilityWeapon && this.hiddenAbilityWeapon.reflectDamage && 
             this.hiddenAbilityWeapon.isActive) {
             this.hiddenAbilityWeapon.reflectDamage(actualDamage);
+        }
+
+        if (fullyImmune) {
+            return;
         }
         
         // 扣除生命值
@@ -853,31 +860,10 @@ class Player extends GameObject {
         });
     }
     
-    // 绘制受击提示
-    drawHitIndicators(ctx) {
-        const now = Date.now();
-        this.hitIndicators.forEach(indicator => {
-            const elapsed = now - indicator.startTime;
-            const progress = elapsed / indicator.duration;
-            const alpha = 1 - progress; // 逐渐消失
-            
-            ctx.save();
-            ctx.globalAlpha = alpha;
-            
-            // 绘制伤害数字背景（黑色描边效果）
-            ctx.strokeStyle = '#000000';
-            ctx.lineWidth = 3;
-            ctx.font = 'bold 18px Arial';
-            ctx.textAlign = 'center';
-            ctx.strokeText(`-${indicator.damage}`, indicator.x, indicator.y + indicator.offsetY);
-            
-            // 绘制伤害数字
-            ctx.fillStyle = '#FF0000'; // 红色
-            ctx.fillText(`-${indicator.damage}`, indicator.x, indicator.y + indicator.offsetY);
-            
-            ctx.restore();
-        });
-    }
+    // Floating damage numbers were retired in favour of the per-bar
+    // trailing ghost layer; keep this as a no-op so any external call
+    // sites (and the player.draw pipeline) stay safe.
+    drawHitIndicators(_ctx) { /* retired */ }
 
     draw(ctx) {
         // Overdrive afterimages (drawn behind the body)
@@ -1022,14 +1008,9 @@ class Player extends GameObject {
             ctx.restore();
         }
 
-        // 绘制机甲类型标识（不受旋转影响）
-        const labelCenterX = this.x + this.width / 2;
-        ctx.fillStyle = 'white';
-        ctx.font = '12px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText(t('mech.' + this.mechType), labelCenterX, this.y - 5);
-        
-        // 绘制受击提示
+        // Mech-type label removed: chassis archetype no longer surfaces
+        // anywhere player-facing; only the callsign reads as the mech.
+
         this.drawHitIndicators(ctx);
     }
     

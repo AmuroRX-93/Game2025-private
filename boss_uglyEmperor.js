@@ -1131,32 +1131,7 @@ class UglyEmperor extends GameObject {
         );
     }
     
-    drawHitIndicators(ctx) {
-        const now = Date.now();
-        this.hitIndicators.forEach(indicator => {
-            const elapsed = now - indicator.startTime;
-            const alpha = 1 - (elapsed / indicator.duration);
-            
-            ctx.save();
-            ctx.globalAlpha = alpha;
-            
-            if (indicator.isImmune) {
-                // 免疫提示：显示"免疫"文字
-                ctx.fillStyle = '#FFFF00'; // 黄色
-                ctx.font = 'bold 10px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText(t('boss.immune'), indicator.x, indicator.y - (elapsed / 10));
-            } else {
-                // 正常伤害提示
-                ctx.fillStyle = '#FF0000';
-                ctx.font = 'bold 10px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText(`-${indicator.damage}`, indicator.x, indicator.y - (elapsed / 10));
-            }
-            
-            ctx.restore();
-        });
-    }
+    drawHitIndicators(_ctx) { /* retired: trailing ghost on HP bar replaces this */ }
     
     draw(ctx) {
         if (this.telegraphs && this.telegraphs.length > 0 && typeof renderBossTelegraphs === 'function') {

@@ -873,61 +873,10 @@ class TrainingDummy extends Enemy {
 // safely callable from anywhere else if we want to surface
 // damage feedback elsewhere later).
 // ============================================================
-function spawnDamageNumber(x, y, amount) {
-    if (!game) return;
-    if (!game.damageNumbers) game.damageNumbers = [];
-    game.damageNumbers.push({
-        x: x + (Math.random() - 0.5) * 14,
-        y: y - 4,
-        vy: -1.4 - Math.random() * 0.6,
-        vx: (Math.random() - 0.5) * 0.6,
-        amount: Math.round(amount * 10) / 10,
-        born: Date.now(),
-        life: 850
-    });
-    // Cap to avoid runaway memory if the player aoes a crowd.
-    if (game.damageNumbers.length > 120) {
-        game.damageNumbers.splice(0, game.damageNumbers.length - 120);
-    }
-}
-
-function updateDamageNumbers() {
-    if (!game || !game.damageNumbers) return;
-    const now = Date.now();
-    for (let i = game.damageNumbers.length - 1; i >= 0; i--) {
-        const d = game.damageNumbers[i];
-        d.x += d.vx;
-        d.y += d.vy;
-        d.vy *= 0.96;
-        if (now - d.born >= d.life) {
-            game.damageNumbers.splice(i, 1);
-        }
-    }
-}
-
-function drawDamageNumbers(ctx) {
-    if (!game || !game.damageNumbers || game.damageNumbers.length === 0) return;
-    const now = Date.now();
-    ctx.save();
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    for (const d of game.damageNumbers) {
-        const t = (now - d.born) / d.life;
-        const fade = 1 - t;
-        if (fade <= 0) continue;
-        // Color tier: small white, mid gold, big red.
-        let color = '#ffffff';
-        if (d.amount >= 25) color = '#ff5050';
-        else if (d.amount >= 10) color = '#ffd040';
-        const size = 14 + Math.min(10, d.amount * 0.18);
-        ctx.font = `bold ${size}px ${UI_THEME && UI_THEME.font ? UI_THEME.font.display : 'Aldrich'}`;
-        ctx.globalAlpha = fade;
-        // Outline for readability over any background.
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-        ctx.strokeText(String(d.amount), d.x, d.y);
-        ctx.fillStyle = color;
-        ctx.fillText(String(d.amount), d.x, d.y);
-    }
-    ctx.restore();
-}
+// Floating damage numbers were retired in favour of a per-bar
+// trailing ghost layer (see uiDrawSlidingHealthBar in ui_theme.js).
+// These shims stay so existing call sites remain harmless.
+// ============================================================
+function spawnDamageNumber(_x, _y, _amount) { /* retired */ }
+function updateDamageNumbers() { /* retired */ }
+function drawDamageNumbers(_ctx) { /* retired */ }
